@@ -11,7 +11,8 @@
   ],
   "host_permissions": [
     "https://sarathi.parivahan.gov.in/*",
-    "http://127.0.0.1:8765/*"
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js"
