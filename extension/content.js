@@ -81,7 +81,13 @@
     function getRectOf(el) {
         if (!el) return null;
         const r = el.getBoundingClientRect();
-        return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
+        const dpr = window.devicePixelRatio || 1;
+        return { 
+            x: Math.round(r.left * dpr), 
+            y: Math.round(r.top * dpr), 
+            w: Math.round(r.width * dpr), 
+            h: Math.round(r.height * dpr) 
+        };
     }
 
     function getDomHints() {
