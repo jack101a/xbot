@@ -19,7 +19,24 @@ import os
 # Gemini / NVIDIA fallback. False by default for offline-first mode.
 AI_FALLBACK_ENABLED = os.environ.get("AI_FALLBACK_ENABLED", "false").lower() == "true"
 
-app = FastAPI(title="MCQ Solver Pro Backend")
+from contextlib import asynccontextmanager
+import threading
+
+@asynccontextmanager
+async def lifespan(app):
+    # Pre-warm models in a background thread so uvicorn is immediately ready
+    # but models are loaded before any real question arrives (~30s on CPU).
+    def _warmup():
+        from ocr_engine import ocr_engine
+        ocr_engine.warmup()
+
+    t = threading.Thread(target=_warmup, daemon=True, name="model-warmup")
+    t.start()
+    yield
+    # (shutdown — nothing to clean up)
+
+app = FastAPI(title="MCQ Solver Pro Backend", lifespan=lifespan)
+
 
 app.add_middleware(
     CORSMiddleware,

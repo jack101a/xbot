@@ -64,14 +64,36 @@ class YOLOSignDetector:
 # ------------------------------------------------------------------ #
 class OCREngine:
     def __init__(self):
-        self._ocr = None           # EasyOCR reader (lazy init)
-        self._yolo = None          # YOLO detector (lazy init)
+        self._ocr  = None   # EasyOCR reader
+        self._yolo = None   # YOLO detector
 
-    # ---- Lazy inits ---- #
+    def warmup(self):
+        """Eagerly load all models + run a dummy inference.
+        Call this at server startup so the first real request is fast."""
+        print("[Warmup] Loading YOLO...", flush=True)
+        self._get_yolo()
+
+        print("[Warmup] Loading EasyOCR (hi + en) — this takes ~30s on CPU...", flush=True)
+        self._get_ocr()
+
+        # Dummy inference to compile/cache internal buffers
+        dummy = np.zeros((60, 400, 3), dtype=np.uint8)
+        try:
+            self._ocr.readtext(dummy, detail=0)
+        except Exception:
+            pass
+        if self._yolo and self._yolo.session:
+            try:
+                self._yolo.predict(dummy)
+            except Exception:
+                pass
+
+        print("[Warmup] ✅ All models ready — backend is hot.", flush=True)
+
+    # ---- Lazy getters (used internally) ---- #
     def _get_ocr(self):
         if self._ocr is None:
-            print("[OCR] Initializing EasyOCR (hi + en)...", flush=True)
-            self._ocr = easyocr.Reader(['hi', 'en'], gpu=False)
+            self._ocr = easyocr.Reader(['hi', 'en'], gpu=False, verbose=False)
         return self._ocr
 
     def _get_yolo(self):
