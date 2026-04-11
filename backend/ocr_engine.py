@@ -109,9 +109,10 @@ class OCREngine:
     #  STEP 3 — Crop question region                                    #
     # ---------------------------------------------------------------- #
     def _crop_question(self, img, dom_hints):
-        if dom_hints and "question_rect" in dom_hints:
-            r = dom_hints["question_rect"]
-            return img[r["y"]:r["y"]+r["h"], r["x"]:r["x"]+r["w"]]
+        if dom_hints:
+            r = dom_hints.get("question_rect")
+            if r and r.get("w", 0) > 10 and r.get("h", 0) > 5:
+                return img[r["y"]:r["y"]+r["h"], r["x"]:r["x"]+r["w"]]
         h, w = img.shape[:2]
         return img[int(h*0.10):int(h*0.35), :]
 
@@ -120,7 +121,8 @@ class OCREngine:
     # ---------------------------------------------------------------- #
     def _crop_options(self, img, dom_hints):
         h, w = img.shape[:2]
-        if dom_hints and "options" in dom_hints and len(dom_hints["options"]) >= 2:
+        opts = dom_hints.get("options") if dom_hints else None
+        if opts and len(opts) >= 2 and all(o.get("rect") for o in opts):
             return [
                 (o["num"], img[o["rect"]["y"]:o["rect"]["y"]+o["rect"]["h"],
                                o["rect"]["x"]:o["rect"]["x"]+o["rect"]["w"]])
