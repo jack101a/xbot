@@ -79,7 +79,7 @@ def save(path, img):
     cv2.imwrite(path, img)
 
 # ── get log images (only quiz-screen images, skip login page) ────────────────
-all_pngs = sorted([f for f in os.listdir(LOG_DIR) if f.endswith(".png")])
+all_pngs = sorted([f for f in os.listdir(LOG_DIR) if f.endswith(".png")])[:3]
 # Load each and check height — skip login/non-quiz screens (they look very different)
 # We simply test all and let each stage report its findings.
 

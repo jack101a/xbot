@@ -3,7 +3,8 @@ uvicorn
 python-dotenv
 Pillow
 python-multipart
-opencv-python
+# headless OpenCV — no X11/display deps, works on ARM server
+opencv-python-headless
 numpy
 easyocr
 rapidfuzz
