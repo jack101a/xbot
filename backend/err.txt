@@ -1,0 +1,29 @@
+Traceback (most recent call last):
+  File "<string>", line 10, in <module>
+  File "E:\antigravity\solve\backend\ocr_engine.py", line 167, in solve_screen
+    metadata = self._extract_metadata(img, dom_hints)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\antigravity\solve\backend\ocr_engine.py", line 105, in _extract_metadata
+    texts = self._run_ocr(header)
+            ^^^^^^^^^^^^^^^^^^^^^
+  File "E:\antigravity\solve\backend\ocr_engine.py", line 138, in _run_ocr
+    reader = self._get_ocr()
+             ^^^^^^^^^^^^^^^
+  File "E:\antigravity\solve\backend\ocr_engine.py", line 74, in _get_ocr
+    self._ocr = easyocr.Reader(['hi', 'en'], gpu=False)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\antigravity\solve\backend\venv\Lib\site-packages\easyocr\easyocr.py", line 92, in __init__
+    detector_path = self.getDetectorPath(detect_network)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "E:\antigravity\solve\backend\venv\Lib\site-packages\easyocr\easyocr.py", line 253, in getDetectorPath
+    download_and_unzip(self.detection_models[self.detect_network]['url'], self.detection_models[self.detect_network]['filename'], self.model_storage_directory, self.verbose)
+  File "E:\antigravity\solve\backend\venv\Lib\site-packages\easyocr\utils.py", line 628, in download_and_unzip
+    urlretrieve(url, zip_path, reporthook=reporthook)
+  File "C:\Program Files\Python312\Lib\urllib\request.py", line 273, in urlretrieve
+    reporthook(blocknum, bs, size)
+  File "E:\antigravity\solve\backend\venv\Lib\site-packages\easyocr\utils.py", line 728, in progress_hook
+    print(f'\r{prefix} |{bar}| {percent}% {suffix}', end='')
+  File "C:\Program Files\Python312\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2588' in position 12: character maps to <undefined>

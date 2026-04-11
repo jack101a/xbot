@@ -4,16 +4,19 @@ __pycache__/
 *.pyo
 *.egg-info/
 .env
+!.env.example
 
 # Virtual environment
 backend/venv/
 
-# Model files (large binaries — manage separately)
-backend/model/*.onnx
-backend/hindi_ocr_onnx_models/
+# Model files (large binaries — mount via Docker volume, don't commit)
+backend/model/
 
 # Logs
 backend/logs/
+
+# Test output (generated images — don't commit)
+test-script/output/
 
 # Trash
 trash/

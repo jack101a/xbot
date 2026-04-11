@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# Virtual environment (use pip inside Docker instead)
+backend/venv/
+venv/
+
+# Logs (mounted as volume at runtime)
+backend/logs/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+
+# Git
+.git/
+.gitignore
+
+# Test scripts
+test-script/
+
+# Trash
+trash/
+
+# PDF / raw source assets
+*.pdf
+debug_pages/
+detect_debug/
+sign/check/
+
+# IDE
+.vscode/
+.idea/
