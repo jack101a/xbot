@@ -15,7 +15,9 @@ import os
 # ------------------------------------------------------------------ #
 #  Feature Flags                                                       #
 # ------------------------------------------------------------------ #
-AI_FALLBACK_ENABLED = False   # Set True to re-enable Gemini/NVIDIA
+# Set AI_FALLBACK_ENABLED=true in environment (or .env) to enable
+# Gemini / NVIDIA fallback. False by default for offline-first mode.
+AI_FALLBACK_ENABLED = os.environ.get("AI_FALLBACK_ENABLED", "false").lower() == "true"
 
 app = FastAPI(title="MCQ Solver Pro Backend")
 

@@ -9,7 +9,9 @@ services:
     user: "${PUID}:${PGID}"
     environment:
       - TZ=${TZ}
-      # AI fallback keys — only active when AI_FALLBACK_ENABLED = True in main.py
+      # Set to true to enable Gemini/NVIDIA fallback (requires keys below)
+      - AI_FALLBACK_ENABLED=${MCQ_AI_FALLBACK:-false}
+      # AI fallback keys — only active when AI_FALLBACK_ENABLED=true
       - GEMINI_API_KEYS=${MCQ_GEMINI_API_KEYS:-}
       - NVIDIA_API_KEY=${MCQ_NVIDIA_API_KEY:-}
       - NVIDIA_MODEL=${MCQ_NVIDIA_MODEL:-google/gemma-4-31b-it}
