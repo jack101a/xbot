@@ -15,12 +15,11 @@ services:
       # Persist logs to host
       - ./backend/logs:/app/logs
     env_file:
-      - ./backend/.env
-    environment:
-      KMP_DUPLICATE_LIB_OK: "TRUE"
-      OMP_NUM_THREADS: "1"
-      MKL_NUM_THREADS: "1"
-      PYTHONUNBUFFERED: "1"
+      # Optional — only needed when AI_FALLBACK_ENABLED = True in main.py
+      # Contains GEMINI_API_KEYS and NVIDIA_API_KEY
+      # Copy backend/.env.example → backend/.env and fill in keys to enable
+      - path: ./backend/.env
+        required: false
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/health')"]
       interval: 30s
