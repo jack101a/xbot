@@ -1,14 +1,14 @@
 # ─────────────────────────────────────────────────────────────
 #  Stage 1: dependency builder
-#  - Forces CPU-only PyTorch (no CUDA, no NVIDIA drivers needed)
-#  - Pre-downloads EasyOCR Hindi + English models
-#  - Result: runs on Intel x86 or Oracle ARM free tier
+#  - Installs CPU-only PyTorch (no CUDA, no NVIDIA drivers)
+#  - Freezes torch version so easyocr can't upgrade to CUDA wheel
+#  - Pre-downloads EasyOCR Hindi + English models offline
+#  Target: Intel x86_64 & Oracle ARM free tier (aarch64)
 # ─────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS builder
 
 WORKDIR /install
 
-# Minimal system libs needed to compile opencv-python-headless
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libglib2.0-0 \
@@ -18,11 +18,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 
 RUN pip install --upgrade pip && \
-    # Install CPU-only PyTorch FIRST (before easyocr pulls the CUDA wheel)
-    # This keeps the image ~500MB instead of ~2.5GB
+    # Step 1: Install CPU-only PyTorch from the PyTorch CPU wheel index.
+    # This avoids the 2.5GB CUDA wheel that pip pulls from PyPI by default.
     pip install --no-cache-dir \
-        torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir -r requirements.txt
+        torch torchvision \
+        --index-url https://download.pytorch.org/whl/cpu && \
+    # Step 2: Freeze the installed torch version into a constraints file.
+    # This prevents pip from "upgrading" torch to the CUDA version from PyPI
+    # when resolving easyocr's dependencies in the next step.
+    pip freeze | grep -E "^(torch|torchvision)==" > /tmp/torch_pin.txt && \
+    cat /tmp/torch_pin.txt && \
+    # Step 3: Install the rest of requirements, constrained so torch stays CPU.
+    pip install --no-cache-dir \
+        -r requirements.txt \
+        -c /tmp/torch_pin.txt \
+        --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Pre-download EasyOCR models (hi + en) so runtime image is fully offline
 RUN python -c "import easyocr; easyocr.Reader(['hi', 'en'], gpu=False, verbose=False)"
@@ -34,13 +44,12 @@ FROM python:3.12-slim AS runtime
 
 WORKDIR /app
 
-# Only the runtime system libs (no compilers)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy pip packages + CPU PyTorch from builder
+# Copy site-packages (CPU torch only) + CLI tools from builder
 COPY --from=builder /usr/local/lib/python3.12 /usr/local/lib/python3.12
 COPY --from=builder /usr/local/bin /usr/local/bin
 
@@ -50,14 +59,12 @@ COPY --from=builder /root/.EasyOCR /root/.EasyOCR
 # Copy backend source
 COPY . /app
 
-# ── env vars ──────────────────────────────────────────────────
 ENV KMP_DUPLICATE_LIB_OK=TRUE \
     OMP_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
-    # Prevent PyTorch from looking for CUDA
+    # Hides all CUDA devices so PyTorch never tries to use GPU
     CUDA_VISIBLE_DEVICES="" \
     PYTHONUNBUFFERED=1 \
-    # Tell EasyOCR where models are (no re-download)
     EASYOCR_MODULE_PATH=/root/.EasyOCR
 
 EXPOSE 8765
