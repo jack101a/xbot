@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+python-dotenv
+Pillow
+python-multipart
+opencv-python
+numpy
+easyocr
+rapidfuzz
+onnxruntime
+imagehash

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { width: 320px; padding: 0; margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; background: #0f0f1b; color: #fff; }
+        .container { padding: 15px; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .title { font-size: 16px; font-weight: 700; color: #00f2fe; display: flex; align-items: center; }
+        .title i { margin-right: 8px; font-style: normal; }
+
+        /* Power Toggle */
+        .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #333; transition: .4s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #4facfe; }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        .card { background: #1a1b2e; border-radius: 10px; padding: 12px; margin-bottom: 12px; border: 1px solid #2a2b4e; }
+        .label { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; margin-bottom: 6px; display: flex; justify-content: space-between; }
+        
+        /* Stats Table */
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 5px; }
+        .stat-box { background: #0f0f1b; padding: 8px; border-radius: 6px; text-align: center; }
+        .stat-num { display: block; font-size: 18px; font-weight: 700; color: #00f2fe; }
+        .stat-label { font-size: 9px; color: #888; text-transform: uppercase; }
+
+        .provider-toggle { display: flex; gap: 8px; margin-bottom: 15px; }
+        .provider-toggle label { flex: 1; cursor: pointer; }
+        .provider-toggle input { display: none; }
+        .provider-toggle span { display: block; padding: 8px; text-align: center; background: #2a2b4e; border-radius: 6px; font-size: 12px; transition: all 0.2s; }
+        .provider-toggle input:checked + span { background: #4facfe; color: #000; font-weight: 600; }
+
+        textarea, input[type="text"] { width: 100%; box-sizing: border-box; background: #0f0f1b; border: 1px solid #2a2b4e; color: #fff; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 11px; margin-bottom: 8px; }
+        textarea { height: 50px; resize: none; }
+
+        .btn-group { display: flex; gap: 8px; }
+        .btn { flex: 1; padding: 10px; border: none; border-radius: 6px; font-weight: 700; cursor: pointer; font-size: 13px; }
+        .btn-primary { background: linear-gradient(90deg, #00f2fe 0%, #4facfe 100%); color: #000; }
+        .btn-secondary { background: #2a2b4e; color: #fff; }
+
+        .status-row { display: flex; justify-content: space-between; font-size: 11px; color: #666; margin-top: 15px; border-top: 1px solid #2a2b4e; padding-top: 10px; }
+        .online { color: #4CAF50; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title"><i>🤖</i> Solver Pro v3</div>
+            <label class="switch">
+                <input type="checkbox" id="power-switch" checked>
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="card">
+            <div class="label">🎯 Strategy Path (Target 13/15) <span id="sync-status"></span></div>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <span class="stat-num" id="stat-score">0</span>
+                    <span class="stat-label">Correct</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-num" id="stat-safe" style="color:#ffcc00">5</span>
+                    <span class="stat-label">Safe to Fail</span>
+                </div>
+            </div>
+            <button id="reset-stats" style="width:100%; background:none; border:none; color:#4facfe; font-size:10px; margin-top:8px; cursor:pointer;">Reset Exam Progress</button>
+        </div>
+
+        <div class="label">AI Provider</div>
+        <div class="provider-toggle">
+            <label><input type="radio" name="provider" value="gemini" checked><span>Gemini</span></label>
+            <label><input type="radio" name="provider" value="nvidia"><span>NVIDIA</span></label>
+            <label><input type="radio" name="provider" value="hybrid"><span>Hybrid ⚡</span></label>
+        </div>
+
+        <div class="card">
+            <div class="label">Debug & Keys</div>
+            <textarea id="geminiKeys" placeholder="Keys (one per line)..."></textarea>
+            <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-size:11px; color:#888;">Save Logs for Dev</span>
+                <input type="checkbox" id="debug-mode">
+            </div>
+        </div>
+
+        <div class="btn-group">
+            <button id="save-btn" class="btn btn-primary">Save Config</button>
+            <button id="solve-btn" class="btn btn-secondary">Force Solve</button>
+        </div>
+
+        <div class="status-row">
+            <span>Backend: <span id="backend-status" class="online">● Online</span></span>
+            <span id="save-confirm" style="color:#4facfe; display:none;">Updated!</span>
+        </div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>

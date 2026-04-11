@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.env
+
+# Virtual environment
+backend/venv/
+
+# Model files (large binaries — manage separately)
+backend/model/*.onnx
+backend/hindi_ocr_onnx_models/
+
+# Logs
+backend/logs/
+
+# Trash
+trash/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PDF source (large)
+signlabel.pdf
+
+# Debug/temp images
+sign/check/
+debug_pages/
+detect_debug/
