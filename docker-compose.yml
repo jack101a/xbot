@@ -1,28 +1,29 @@
 services:
-  backend:
-    build:
-      context: ./backend
-      dockerfile: docker/Dockerfile
-    container_name: mcqsolver-backend
+  # ==========================================
+  # MCQ SOLVER API
+  # ==========================================
+  mcqsolver:
+    image: git.ajaxhs.home/ajax/mcqsolver:${MCQ_IMAGE_TAG:-latest}
+    container_name: mcqsolver_api
     restart: unless-stopped
+    user: "${PUID}:${PGID}"
+    environment:
+      - TZ=${TZ}
+      # AI fallback keys — only active when AI_FALLBACK_ENABLED = True in main.py
+      - GEMINI_API_KEYS=${MCQ_GEMINI_API_KEYS:-}
+      - NVIDIA_API_KEY=${MCQ_NVIDIA_API_KEY:-}
+      - NVIDIA_MODEL=${MCQ_NVIDIA_MODEL:-google/gemma-4-31b-it}
     ports:
       - "8765:8765"
     volumes:
-      # Mount YOLO model so it's not baked into the image (update without rebuild)
-      - ./backend/model:/app/model:ro
-      # Mount dataset so questions can be updated without rebuild
-      - ./backend/dataset:/app/dataset:ro
-      # Persist logs to host
-      - ./backend/logs:/app/logs
-    env_file:
-      # Optional — only needed when AI_FALLBACK_ENABLED = True in main.py
-      # Contains GEMINI_API_KEYS and NVIDIA_API_KEY
-      # Copy backend/.env.example → backend/.env and fill in keys to enable
-      - path: ./backend/.env
-        required: false
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/health')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      - ${CONFIG_PATH}/mcqsolver/logs:/app/logs
+      - ${CONFIG_PATH}/mcqsolver/model:/app/model:ro
+      - ${CONFIG_PATH}/mcqsolver/dataset:/app/dataset:ro
+    networks:
+      ajax_network:
+        ipv4_address: 172.60.0.63
+
+
+networks:
+  ajax_network:
+    external: true
