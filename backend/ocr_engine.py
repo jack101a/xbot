@@ -193,6 +193,13 @@ class OCREngine:
         # 3. Crop question region
         q_crop = self._crop_question(img, dom_hints)
 
+        # Debug save to logs/ so user can visually inspect crops on the server
+        import time
+        ts_dir = time.strftime("logs/%Y%m%d_%H%M%S")
+        os.makedirs(ts_dir, exist_ok=True)
+        cv2.imwrite(f"{ts_dir}/01_masked.png", img)
+        cv2.imwrite(f"{ts_dir}/02_q_crop.png", q_crop)
+
         # 4. Try YOLO sign detection first (fast path)
         sign_label = self._detect_sign(q_crop)
 
@@ -223,6 +230,7 @@ class OCREngine:
         best_option, best_score = None, 0.0
 
         for opt_num, opt_crop in option_crops:
+            cv2.imwrite(f"{ts_dir}/03_opt_{opt_num}.png", opt_crop)
             opt_text = self._run_ocr(opt_crop)
             sim = difflib.SequenceMatcher(None, target_answer, opt_text).ratio()
             print(f"  Opt {opt_num}: '{opt_text[:30]}' sim={sim:.2f}")
