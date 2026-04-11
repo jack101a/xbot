@@ -47,7 +47,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <div class="title"><i>🤖</i> Solver Pro v3</div>
+            <div class="title"><i>🤖</i> Solver Pro v4</div>
             <label class="switch">
                 <input type="checkbox" id="power-switch" checked>
                 <span class="slider"></span>
@@ -69,7 +69,13 @@
             <button id="reset-stats" style="width:100%; background:none; border:none; color:#4facfe; font-size:10px; margin-top:8px; cursor:pointer;">Reset Exam Progress</button>
         </div>
 
-        <div class="label">AI Provider</div>
+        <div class="card">
+            <div class="label">🌐 Backend Server
+                <span id="ping-status" style="color:#888;">●</span>
+            </div>
+            <input type="text" id="server-url" placeholder="http://127.0.0.1:8765">
+        </div>
+
         <div class="provider-toggle">
             <label><input type="radio" name="provider" value="gemini" checked><span>Gemini</span></label>
             <label><input type="radio" name="provider" value="nvidia"><span>NVIDIA</span></label>

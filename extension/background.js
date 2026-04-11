@@ -1,4 +1,13 @@
-const BACKEND = "http://127.0.0.1:8765";
+const DEFAULT_BACKEND = "http://127.0.0.1:8765";
+
+/** Always reads the latest server URL from storage. */
+async function getBackend() {
+    return new Promise(resolve => {
+        chrome.storage.sync.get({ server_url: DEFAULT_BACKEND }, ({ server_url }) => {
+            resolve(server_url.replace(/\/$/, "")); // strip trailing slash
+        });
+    });
+}
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
@@ -7,23 +16,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     //  content.js passes dom_hints collected from the DOM
     // ----------------------------------------------------------------
     if (msg.type === "CAPTURE_AND_OCR") {
-        chrome.tabs.captureVisibleTab(sender.tab.windowId, { format: "png" }, (dataUrl) => {
+        chrome.tabs.captureVisibleTab(sender.tab.windowId, { format: "png" }, async (dataUrl) => {
             if (chrome.runtime.lastError || !dataUrl) {
                 sendResponse({ found: false, error: chrome.runtime.lastError?.message || "No screen data" });
                 return;
             }
-            const payload = {
-                image_b64: dataUrl.split(",")[1],
-                dom_hints: msg.dom_hints || null   // injected by content.js
-            };
-            fetch(`${BACKEND}/ocr-solve`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            })
-            .then(r => r.json())
-            .then(sendResponse)
-            .catch(e => sendResponse({ found: false, error: e.message }));
+            try {
+                const backend = await getBackend();
+                const payload = {
+                    image_b64: dataUrl.split(",")[1],
+                    dom_hints: msg.dom_hints || null
+                };
+                const resp = await fetch(`${backend}/ocr-solve`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                sendResponse(await resp.json());
+            } catch (e) {
+                sendResponse({ found: false, error: e.message });
+            }
         });
         return true; // async
     }
@@ -31,11 +43,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // ----------------------------------------------------------------
     //  FALLBACK: AI solver (Gemini / NVIDIA)
     //  Disabled on the backend by default (AI_FALLBACK_ENABLED = False).
-    //  This handler is kept so the extension can call it when re-enabled.
     // ----------------------------------------------------------------
     if (msg.type === "CAPTURE_AND_SOLVE") {
         chrome.storage.sync.get(["provider", "ai_fallback_enabled"], ({ provider, ai_fallback_enabled }) => {
-            // Client-side guard: respect the stored flag
             if (!ai_fallback_enabled) {
                 sendResponse({ answer: null, disabled: true, error: "AI fallback disabled" });
                 return;
@@ -46,7 +56,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                     return;
                 }
                 try {
-                    const resp = await fetch(`${BACKEND}/solve`, {
+                    const backend = await getBackend();
+                    const resp = await fetch(`${backend}/solve`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
@@ -65,15 +76,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     // ----------------------------------------------------------------
     //  CONFIG: Push API keys to backend
-    //  Currently accepted but has no effect while AI is disabled.
     // ----------------------------------------------------------------
     if (msg.type === "CONFIG_UPDATE") {
-        fetch(`${BACKEND}/config`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(msg.payload)
-        }).catch(err => console.error("[BG] Config relay failed:", err));
-        // Also persist ai_fallback_enabled locally
+        getBackend().then(backend => {
+            fetch(`${backend}/config`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(msg.payload)
+            }).catch(err => console.error("[BG] Config relay failed:", err));
+        });
         if (msg.payload.ai_fallback_enabled !== undefined) {
             chrome.storage.sync.set({ ai_fallback_enabled: msg.payload.ai_fallback_enabled });
         }
@@ -83,11 +94,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     //  Direct question text lookup
     // ----------------------------------------------------------------
     if (msg.type === "QUESTION_LOOKUP") {
-        fetch(`${BACKEND}/lookup`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(msg.payload)
-        }).then(r => r.json()).then(sendResponse).catch(() => sendResponse({ found: false }));
+        getBackend().then(backend => {
+            fetch(`${backend}/lookup`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(msg.payload)
+            }).then(r => r.json()).then(sendResponse).catch(() => sendResponse({ found: false }));
+        });
+        return true;
+    }
+
+    // ----------------------------------------------------------------
+    //  HEALTH CHECK (called by popup to ping the configured server)
+    // ----------------------------------------------------------------
+    if (msg.type === "PING_BACKEND") {
+        getBackend().then(backend => {
+            fetch(`${backend}/health`, { signal: AbortSignal.timeout(3000) })
+                .then(r => r.json())
+                .then(data => sendResponse({ ok: true, url: backend, data }))
+                .catch(e => sendResponse({ ok: false, url: backend, error: e.message }));
+        });
         return true;
     }
 });
