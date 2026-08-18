@@ -43,7 +43,7 @@ logging.basicConfig(
 logger = logging.getLogger("e2e_ux_test")
 
 API_BASE = "http://127.0.0.1:8200"
-DASHBOARD_BASE = "http://127.0.0.1:8201"
+DASHBOARD_BASE = "http://127.0.0.1:8200"
 
 
 async def verify_services_online() -> None:
