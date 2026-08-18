@@ -18,6 +18,8 @@ from xbot.ai.planner import plan_session
 from xbot.ai.poll_generator import generate_poll
 from xbot.ai.post_session import PostSessionProcessor
 from xbot.ai.sniper import generate_sniper_reply
+from xbot.ai.trend_generator import generate_trend_take
+from xbot.ai.trend_radar import fetch_rss_trends
 from xbot.browser.actions.poll_action import CreatePoll
 from xbot.browser.actions.x_actions import (
     BrowseFeed,
@@ -1506,6 +1508,168 @@ def sniper_check_targets() -> dict[str, Any]:
     """Celery periodic task scanning target KOL profiles for fresh tweets and executing sniper replies."""
     logger.info("Starting Celery sniper check targets task.")
     return asyncio.run(_sniper_check_targets_async())
+
+
+async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -> dict[str, Any]:
+    """
+    Periodically checks RSS and trend radar sources for all active profiles,
+    evaluates relevance against each persona niche, synthesizes 3-bullet takes + hot takes with optimized hooks,
+    and stages approved content into the Content database table with Redis deduplication.
+    """
+    r = redis.from_url(settings.REDIS_URL)
+    base_dir = Path(base_profile_dir) if base_profile_dir else Path("/home/ubuntu/projects/xbot/data/profiles")
+
+    total_profiles = 0
+    items_scanned = 0
+    items_staged = 0
+    errors: list[str] = []
+
+    try:
+        async with AsyncSessionLocal() as db:
+            stmt = select(Profile).where(Profile.status == ProfileStatus.ACTIVE)
+            res = await db.execute(stmt)
+            active_profiles = res.scalars().all()
+
+            if not active_profiles:
+                logger.info("No active profiles found for trend radar checking.")
+                return {
+                    "status": "success",
+                    "profiles_processed": 0,
+                    "items_scanned": 0,
+                    "items_staged": 0,
+                }
+
+            for profile in active_profiles:
+                profile_slug = profile.profile_slug
+                profile_id = profile.id
+                profile_dir = base_dir / profile_slug
+
+                try:
+                    total_profiles += 1
+
+                    # 1. Load persona
+                    try:
+                        persona = load_persona(profile_dir)
+                    except Exception as ex:
+                        logger.warning("Failed to load persona for profile %s: %s", profile_slug, ex)
+                        errors.append(f"{profile_slug}: {ex}")
+                        continue
+
+                    # 2. Extract configured trend sources or fallback to defaults
+                    feed_urls: list[str] = []
+                    keywords: list[str] = []
+
+                    trend_sources = getattr(persona, "trend_sources", None)
+                    if isinstance(trend_sources, dict):
+                        feed_urls = trend_sources.get("rss_feeds", []) or []
+                        keywords = trend_sources.get("keywords", []) or []
+                    elif hasattr(trend_sources, "rss_feeds"):
+                        feed_urls = getattr(trend_sources, "rss_feeds", []) or []
+                        keywords = getattr(trend_sources, "keywords", []) or []
+                    elif isinstance(getattr(persona, "raw_character_card", None), dict):
+                        raw_ts = persona.raw_character_card.get("trend_sources", {})
+                        if isinstance(raw_ts, dict):
+                            feed_urls = raw_ts.get("rss_feeds", []) or []
+                            keywords = raw_ts.get("keywords", []) or []
+
+                    if not feed_urls:
+                        feed_urls = ["https://hnrss.org/frontpage"]
+
+                    if not keywords and persona.interests and persona.interests.primary:
+                        keywords = list(persona.interests.primary)
+
+                    # 3. Fetch trends from RSS/Atom feeds
+                    try:
+                        trends = await fetch_rss_trends(feed_urls, keywords=keywords)
+                    except Exception as ex:
+                        logger.warning("Failed to fetch RSS trends for profile %s: %s", profile_slug, ex)
+                        errors.append(f"{profile_slug} RSS fetch: {ex}")
+                        continue
+
+                    items_scanned += len(trends)
+
+                    # 4. Process each trend item
+                    for item in trends:
+                        item_id = item.id
+                        seen_key = f"xbot:seen_trends:{profile_id}:{item_id}"
+                        seen_set_key = f"xbot:seen_trends:{profile_id}"
+
+                        # Redis Deduplication
+                        try:
+                            if r.exists(seen_key) or r.sismember(seen_set_key, item_id):
+                                logger.debug("Trend item %s already seen for profile %s; skipping.", item_id, profile_slug)
+                                continue
+                        except Exception as r_err:
+                            logger.warning("Redis dedup check error: %s", r_err)
+
+                        # Evaluate Take via LLM
+                        eval_result = await generate_trend_take(persona, item)
+
+                        # Cache in Redis with 7-day TTL
+                        try:
+                            r.set(seen_key, "1", ex=604800)
+                            r.sadd(seen_set_key, item_id)
+                        except Exception as r_err:
+                            logger.warning("Redis cache error: %s", r_err)
+
+                        # If relevant and post produced, stage Content record in DB
+                        if eval_result.is_relevant and eval_result.optimized_post:
+                            post_text = eval_result.optimized_post
+                            metadata = {
+                                "trend_id": item.id,
+                                "trend_title": item.title,
+                                "source_url": item.source_url,
+                                "source_name": item.source_name,
+                                "published_at": item.published_at,
+                                "relevance_score": eval_result.relevance_score,
+                                "reasoning": eval_result.reasoning,
+                                "key_takeaways": eval_result.key_takeaways,
+                                "hot_take": eval_result.hot_take,
+                                "draft_post": eval_result.draft_post,
+                                "optimized_post": eval_result.optimized_post,
+                            }
+
+                            content_record = Content(
+                                profile_id=profile_id,
+                                content_type=ContentType.ORIGINAL,
+                                body=post_text,
+                                status=ContentStatus.APPROVED,
+                                ai_metadata=metadata,
+                                created_at=datetime.datetime.utcnow(),
+                            )
+                            db.add(content_record)
+                            await db.commit()
+                            items_staged += 1
+                            logger.info(
+                                "Staged breaking trend content %s for profile %s: '%s'",
+                                content_record.id,
+                                profile_slug,
+                                item.title,
+                            )
+
+                except Exception as p_ex:
+                    logger.error("Error in trend radar loop for profile %s: %s", profile_slug, p_ex)
+                    errors.append(f"{profile_slug}: {p_ex}")
+
+        return {
+            "status": "success" if not errors else "partial_success",
+            "profiles_processed": total_profiles,
+            "items_scanned": items_scanned,
+            "items_staged": items_staged,
+            "errors": errors if errors else None,
+        }
+
+    except Exception as overall_ex:
+        logger.error("Trend radar task encountered critical error: %s", overall_ex)
+        return {"status": "failed", "error": str(overall_ex)}
+
+
+@celery_app.task(name="xbot.tasks.check_trend_radar")
+def check_trend_radar() -> dict[str, Any]:
+    """Celery periodic task scanning RSS feeds and trend radar sources for active profiles, generating takes, and staging content."""
+    logger.info("Starting Celery check trend radar task.")
+    return asyncio.run(_check_trend_radar_async())
+
 
 
 

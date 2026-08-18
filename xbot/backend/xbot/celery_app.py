@@ -30,6 +30,10 @@ celery_app.conf.beat_schedule = {
         "task": "xbot.tasks.sniper_check_targets",
         "schedule": 120.0,
     },
+    "check-trend-radar-every-1800-seconds": {
+        "task": "xbot.tasks.check_trend_radar",
+        "schedule": 1800.0,
+    },
 }
 
 # Auto-discover tasks in the xbot package

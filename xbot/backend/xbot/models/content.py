@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 class ContentType(StrEnum):
     ORIGINAL = "original"
+    TWEET = "original"
     REPLY = "reply"
     QUOTE = "quote"
     THREAD = "thread"
@@ -22,12 +23,18 @@ class ContentType(StrEnum):
 
 class ContentStatus(StrEnum):
     DRAFT = "draft"
+    APPROVED = "approved"
     POSTED = "posted"
     FAILED = "failed"
 
 
 class Content(Base):
     __tablename__ = "content"
+
+    def __init__(self, *args: Any, text: str | None = None, **kwargs: Any) -> None:
+        if text is not None and "body" not in kwargs:
+            kwargs["body"] = text
+        super().__init__(*args, **kwargs)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     profile_id: Mapped[uuid.UUID] = mapped_column(
@@ -40,6 +47,14 @@ class Content(Base):
     status: Mapped[ContentStatus] = mapped_column(
         Enum(ContentStatus), default=ContentStatus.DRAFT, index=True
     )
+
+    @property
+    def text(self) -> str:
+        return self.body
+
+    @text.setter
+    def text(self, value: str) -> None:
+        self.body = value
     tweet_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     performance: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     ai_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
