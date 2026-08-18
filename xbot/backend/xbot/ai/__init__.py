@@ -9,6 +9,7 @@ from xbot.ai.hook_optimizer import (
     optimize_post_hook,
 )
 from xbot.ai.planner import PlannedAction, SessionPlan, plan_session
+from xbot.ai.poll_generator import GeneratedPoll, generate_poll
 from xbot.ai.post_session import PostSessionProcessor
 from xbot.ai.sniper import SniperReplyResult, generate_sniper_reply
 from xbot.ai.strategy import StrategyReviewer
@@ -30,5 +31,7 @@ __all__ = [
     "HookCandidate",
     "HookOptimizationResult",
     "optimize_post_hook",
+    "GeneratedPoll",
+    "generate_poll",
 ]
 
