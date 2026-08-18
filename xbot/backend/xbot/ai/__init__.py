@@ -3,6 +3,11 @@ from __future__ import annotations
 from xbot.ai.assembler import AssembledContext, ContextAssembler
 from xbot.ai.engagement import EngagementDecision, EngagementEvaluator
 from xbot.ai.generator import ContentGenerator, GeneratedContent
+from xbot.ai.hook_optimizer import (
+    HookCandidate,
+    HookOptimizationResult,
+    optimize_post_hook,
+)
 from xbot.ai.planner import PlannedAction, SessionPlan, plan_session
 from xbot.ai.post_session import PostSessionProcessor
 from xbot.ai.sniper import SniperReplyResult, generate_sniper_reply
@@ -22,5 +27,8 @@ __all__ = [
     "SniperReplyResult",
     "generate_sniper_reply",
     "StrategyReviewer",
+    "HookCandidate",
+    "HookOptimizationResult",
+    "optimize_post_hook",
 ]
 
