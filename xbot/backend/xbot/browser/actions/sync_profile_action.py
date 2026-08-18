@@ -168,7 +168,7 @@ class SyncProfileFromX(BaseAction):
                     "is_verified": False,
                 }
 
-            # 2. Detect Authentication Status
+            # 2. Detect Authentication Status & Logged-In Account Info
             auth_indicator = await page.query_selector(
                 '[data-testid="SideNav_AccountSwitcher_Button"], '
                 '[data-testid="AppTabBar_Profile_Link"], '
@@ -176,14 +176,33 @@ class SyncProfileFromX(BaseAction):
             )
             is_authenticated = auth_indicator is not None
             status = "authenticated" if is_authenticated else "logged_out"
+            logged_in_handle = ""
+            if is_authenticated:
+                account_switcher = await page.query_selector('[data-testid="SideNav_AccountSwitcher_Button"]')
+                if account_switcher:
+                    text = await account_switcher.inner_text()
+                    handle_match = re.search(r"@([A-Za-z0-9_]+)", text)
+                    if handle_match:
+                        logged_in_handle = handle_match.group(1)
 
-            # 3. Extract Avatar URL
+            # 3. Extract Avatar URL (strictly targeting the profile header, NOT feed tweets)
             avatar_url = ""
             avatar_el = await page.query_selector(
+                f'a[href="/{clean_username}/photo"] img, '
+                'a[href$="/photo"] img[src*="pbs.twimg.com/profile_images"], '
                 '[data-testid="UserAvatar-Container-profileUser"] img, '
-                '[data-testid="primaryColumn"] img[src*="pbs.twimg.com/profile_images"], '
-                'img[src*="pbs.twimg.com/profile_images"]'
+                '[data-testid="UserProfileHeader_Items"] img[src*="pbs.twimg.com/profile_images"], '
+                '[data-testid="SideNav_AccountSwitcher_Button"] img[src*="pbs.twimg.com/profile_images"]'
             )
+            if not avatar_el:
+                # Fallback: find any avatar in primaryColumn that is NOT inside an article/tweet
+                candidate_avatars = await page.query_selector_all('[data-testid="primaryColumn"] img[src*="pbs.twimg.com/profile_images"]')
+                for cand in candidate_avatars:
+                    is_in_tweet = await cand.evaluate("el => !!el.closest('article, [data-testid=\"tweet\"]')")
+                    if not is_in_tweet:
+                        avatar_el = cand
+                        break
+
             if avatar_el:
                 raw_src = await avatar_el.get_attribute("src")
                 if raw_src:

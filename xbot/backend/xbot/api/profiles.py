@@ -863,8 +863,21 @@ async def import_profile_cookies(
         twid=twid.strip() if twid else None,
     )
     state_file = profile_dir / "storage_state.json"
-    with state_file.open("w", encoding="utf-8") as f:
-        json.dump(storage_state, f, indent=2)
+    if state_file.exists():
+        try:
+            state_file.unlink(missing_ok=True)
+        except Exception as unlink_err:
+            logger.warning("Could not unlink existing storage_state.json for %s: %s", db_profile.profile_slug, unlink_err)
+
+    try:
+        with state_file.open("w", encoding="utf-8") as f:
+            json.dump(storage_state, f, indent=2)
+    except Exception as io_err:
+        logger.error("Failed to write storage_state.json for %s: %s", db_profile.profile_slug, io_err)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to write session file to disk: {str(io_err)}"
+        )
 
     return {
         "status": "success",

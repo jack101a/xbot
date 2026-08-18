@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   X, Key, FileCode, CheckCircle2, AlertCircle, Loader2, 
-  ExternalLink, ShieldCheck, Sparkles, Monitor
+  ExternalLink, ShieldCheck, Sparkles, Monitor, AtSign
 } from "lucide-react";
 import { api, Profile, ProfileAuthStatus } from "@/lib/api";
 
@@ -22,6 +22,9 @@ export function ConnectAccountModal({
 }: ConnectAccountModalProps) {
   const [activeTab, setActiveTab] = useState<"fast" | "raw">("fast");
   
+  // Custom handle
+  const [customHandle, setCustomHandle] = useState("");
+
   // Fast tab fields
   const [authToken, setAuthToken] = useState("");
   const [ct0, setCt0] = useState("");
@@ -36,6 +39,12 @@ export function ConnectAccountModal({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (profile) {
+      setCustomHandle(profile.x_handle?.replace(/^@+/, "") || "");
+    }
+  }, [profile]);
+
   if (!isOpen || !profile) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -45,6 +54,13 @@ export function ConnectAccountModal({
     setIsSubmitting(true);
 
     try {
+      // 1. Update handle if changed
+      const cleanHandle = customHandle.trim().replace(/^@+/, "");
+      if (cleanHandle && cleanHandle !== profile.x_handle?.replace(/^@+/, "")) {
+        await api.updateProfile(profile.id, { x_handle: cleanHandle });
+      }
+
+      // 2. Prepare cookies payload
       let payload: {
         auth_token?: string;
         ct0?: string;
@@ -71,9 +87,15 @@ export function ConnectAccountModal({
       }
 
       const res = await api.importProfileCookies(profile.id, payload);
-      setSuccess("Account connected successfully! Session cookies saved.");
+      setSuccess("Account connected successfully! Probing & syncing profile from X...");
       
-      // Auto-trigger sync or callback
+      // Auto-trigger live sync
+      try {
+        await api.syncProfileFromX(profile.id);
+      } catch (syncErr) {
+        console.warn("Auto-sync notice:", syncErr);
+      }
+
       setTimeout(() => {
         if (onSuccess) {
           onSuccess(res.auth_status);
@@ -85,7 +107,7 @@ export function ConnectAccountModal({
         setTwid("");
         setRawCookies("");
         setSuccess(null);
-      }, 1000);
+      }, 1200);
     } catch (err: any) {
       setError(err?.message || "Failed to import cookies.");
     } finally {
@@ -124,7 +146,7 @@ export function ConnectAccountModal({
               <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
                 Connect X Account
                 <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                  @{profile.x_handle}
+                  @{customHandle || profile.profile_slug}
                 </span>
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
@@ -138,6 +160,27 @@ export function ConnectAccountModal({
           >
             <X size={18} />
           </button>
+        </div>
+
+        {/* X Handle Field */}
+        <div className="relative z-10 mt-4">
+          <label className="block text-xs font-semibold text-slate-300 mb-1">
+            Your Real X Handle (@username) <span className="text-rose-400">*</span>
+          </label>
+          <div className="relative">
+            <span className="absolute left-3 top-2.5 text-slate-500 font-mono text-xs">@</span>
+            <input
+              type="text"
+              value={customHandle}
+              onChange={(e) => setCustomHandle(e.target.value)}
+              placeholder="e.g. elonmusk, my_real_handle"
+              className="w-full pl-7 pr-3 py-2 bg-slate-950/80 border border-slate-700/80 rounded-lg text-xs text-white font-mono placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
+              required
+            />
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Enter your exact Twitter username so the sync engine fetches your real profile picture and follower metrics.
+          </p>
         </div>
 
         {/* Tab Navigation */}
