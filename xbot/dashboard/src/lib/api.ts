@@ -70,6 +70,19 @@ export interface Profile {
   avatar?: string;
 }
 
+export interface ProfileAuthStatus {
+  has_session_file: boolean;
+  has_auth_token: boolean;
+  has_ct0: boolean;
+  is_configured: boolean;
+  status: 'authenticated' | 'partial' | 'missing' | 'expired';
+  cookie_count: number;
+  updated_at: string | null;
+  avatar_url?: string | null;
+  followers_count?: number;
+  following_count?: number;
+}
+
 export interface Session {
   id: string;
   profile_id: string;
@@ -184,6 +197,9 @@ export const api = {
   triggerProfileSession: (id: string) => request<{ message: string; profile_id: string; task_id: string }>(`/api/profiles/${id}/trigger`, { method: 'POST' }),
   triggerSession: (id: string) => request<{ message: string; profile_id: string; task_id: string }>(`/api/profiles/${id}/trigger`, { method: 'POST' }),
   launchProfileLoginSession: (id: string) => request<{ status: string; message: string }>(`/api/profiles/${id}/login-session`, { method: 'POST' }),
+  getProfileAuthStatus: (id: string) => request<ProfileAuthStatus>(`/api/profiles/${id}/auth-status`),
+  importProfileCookies: (id: string, data: { auth_token?: string; ct0?: string; raw_cookies?: string; twid?: string }) => request<{ status: string; message: string; auth_status: ProfileAuthStatus }>(`/api/profiles/${id}/import-cookies`, { method: 'POST', body: JSON.stringify(data) }),
+  syncProfileFromX: (id: string) => request<{ status: string; sync_data: any; profile: Profile }>(`/api/profiles/${id}/sync-from-x`, { method: 'POST' }),
 
   // Profile Sub-resources
   getProfileSessions: (id: string, limit = 50) => request<Session[]>(`/api/profiles/${id}/sessions?limit=${limit}`),

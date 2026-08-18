@@ -3,13 +3,15 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { 
   Users, Activity, Settings, TrendingUp, Cpu, Calendar, Play, Pause, 
-  Trash2, Plus, ArrowRight, BarChart, FileText, Globe, CheckCircle, XCircle, Clock, X, Moon, Sun, Layers, Zap
+  Trash2, Plus, ArrowRight, BarChart, FileText, Globe, CheckCircle, XCircle, Clock, X, Moon, Sun, Layers, Zap,
+  Key, ShieldCheck, CheckCircle2, AlertCircle, Loader2, RefreshCw
 } from "lucide-react";
-import { api, Profile, Session, Action, SystemHealth, AnalyticsSnapshot, Content } from "@/lib/api";
+import { api, Profile, ProfileAuthStatus, Session, Action, SystemHealth, AnalyticsSnapshot, Content } from "@/lib/api";
 import { LiveActivityTab } from "@/components/LiveActivityTab";
 import { CampaignsTab } from "@/components/CampaignsTab";
 import { AudienceNetworkTab } from "@/components/AudienceNetworkTab";
 import { GrowthEngineTab } from "@/components/GrowthEngineTab";
+import { ConnectAccountModal } from "@/components/ConnectAccountModal";
 
 
 const API_PROVIDERS = [
@@ -847,10 +849,14 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<"overview" | "queue" | "sessions" | "automation" | "ai" | "trends" | "free-tools" | "global-settings" | "campaigns" | "analytics" | "growth">("global-settings");
   const [loading, setLoading] = useState(true);
   
-  // Modals
+  // Modals & Profile Auth
   const [isNewProfileModalOpen, setIsNewProfileModalOpen] = useState(false);
   const [newProfileSlug, setNewProfileSlug] = useState("");
   const [newXHandle, setNewXHandle] = useState("");
+  const [authStatuses, setAuthStatuses] = useState<Record<string, ProfileAuthStatus>>({});
+  const [isConnectAccountModalOpen, setIsConnectAccountModalOpen] = useState(false);
+  const [isSyncingFromX, setIsSyncingFromX] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   
   const [advancedMetrics, setAdvancedMetrics] = useState<any>(null);
   const [advancedMetricsLoading, setAdvancedMetricsLoading] = useState(false);
@@ -954,16 +960,34 @@ export default function Dashboard() {
       const profilesData = await api.listProfiles();
       setProfiles(profilesData);
       if (profilesData.length > 0) {
-        
-        // Fetch analytics for all profiles
+        // Fetch analytics & auth status for all profiles
         const analyticsMap: Record<string, AnalyticsSnapshot> = {};
-        for (const p of profilesData) {
-          const snaps = await api.getProfileAnalytics(p.id, 1);
-          if (snaps && snaps.length > 0) {
-            analyticsMap[p.id] = snaps[0];
-          }
-        }
+        const authStatusMap: Record<string, ProfileAuthStatus> = {};
+
+        await Promise.all(
+          profilesData.map(async (p) => {
+            try {
+              const snaps = await api.getProfileAnalytics(p.id, 1);
+              if (snaps && snaps.length > 0) {
+                analyticsMap[p.id] = snaps[0];
+              }
+            } catch (e) {
+              console.error(`Error fetching analytics for ${p.id}:`, e);
+            }
+
+            try {
+              const authStatus = await api.getProfileAuthStatus(p.id);
+              if (authStatus) {
+                authStatusMap[p.id] = authStatus;
+              }
+            } catch (e) {
+              console.error(`Error fetching auth status for ${p.id}:`, e);
+            }
+          })
+        );
+
         setAnalytics(analyticsMap);
+        setAuthStatuses(authStatusMap);
 
         // Fetch System Health
         const health = await api.getHealth();
@@ -979,6 +1003,32 @@ export default function Dashboard() {
       setLoading(false);
     }
   }, [selectedProfileId]);
+
+  const handleSyncFromX = async () => {
+    const profile = profiles.find(p => p.id === selectedProfileId);
+    if (!profile) return;
+    setIsSyncingFromX(true);
+    setSyncFeedback(null);
+    try {
+      const res = await api.syncProfileFromX(profile.id);
+      const followers = res.sync_data?.followers_count ?? res.profile?.followers_count ?? 0;
+      const following = res.sync_data?.following_count ?? res.profile?.following_count ?? 0;
+      setSyncFeedback({
+        type: 'success',
+        message: `Synced @${res.profile?.x_handle || profile.x_handle}: ${followers.toLocaleString()} followers, ${following.toLocaleString()} following.`
+      });
+      await fetchGlobalData();
+      setTimeout(() => setSyncFeedback(null), 5000);
+    } catch (err: any) {
+      setSyncFeedback({
+        type: 'error',
+        message: `Sync failed: ${err.message || String(err)}`
+      });
+      setTimeout(() => setSyncFeedback(null), 6000);
+    } finally {
+      setIsSyncingFromX(false);
+    }
+  };
 
   useEffect(() => {
     fetchGlobalData();
@@ -1294,34 +1344,55 @@ export default function Dashboard() {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           <div className="text-[10px] font-bold text-app-text/40 uppercase tracking-wider mb-3 px-2">Your Profiles</div>
-          {profiles.map(p => (
-            <button 
-              key={p.id}
-              onClick={() => { setSelectedProfileId(p.id); setActiveTab("overview"); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
-                selectedProfileId === p.id 
-                  ? "bg-blue-50 text-blue-700 border border-blue-100 font-semibold" 
-                  : "text-app-text/60 hover:bg-app hover:text-app-text font-medium tracking-tight border border-transparent"
-              }`}
-            >
-              <div className="relative flex-shrink-0">
-                {getAvatarUrl(p) ? (
-                  <img 
-                    src={getAvatarUrl(p)!} 
-                    alt={p.display_name}
-                    className="w-6 h-6 rounded-full object-cover border border-slate-300 shadow-sm bg-slate-100"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                ) : (
-                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-[9px] font-black border border-slate-300">
-                    {(p.display_name || p.x_handle || '?').charAt(0).toUpperCase()}
+          {profiles.map(p => {
+            const auth = authStatuses[p.id];
+            const isAuth = auth?.status === 'authenticated';
+            const isPartial = auth?.status === 'partial';
+            const followers = p.followers_count ?? analytics[p.id]?.followers ?? 0;
+            return (
+              <button 
+                key={p.id}
+                onClick={() => { setSelectedProfileId(p.id); setActiveTab("overview"); }}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  selectedProfileId === p.id 
+                    ? "bg-indigo-600/10 text-indigo-400 border border-indigo-500/30 font-semibold shadow-sm" 
+                    : "text-app-text/60 hover:bg-app-hover hover:text-app-text border border-transparent"
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="relative flex-shrink-0">
+                    {getAvatarUrl(p) ? (
+                      <img 
+                        src={getAvatarUrl(p)!} 
+                        alt={p.display_name || p.x_handle}
+                        className="w-7 h-7 rounded-full object-cover border border-slate-700 bg-slate-800"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-[10px] font-black border border-slate-700">
+                        {(p.display_name || p.x_handle || '?').charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div 
+                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-slate-900 ${
+                        isAuth ? 'bg-emerald-400 shadow-sm shadow-emerald-500/50' : isPartial ? 'bg-amber-400 shadow-sm shadow-amber-500/50' : 'bg-rose-500 shadow-sm shadow-rose-500/50'
+                      }`}
+                      title={isAuth ? "Authenticated" : isPartial ? "Partial Auth" : "Disconnected"}
+                    />
                   </div>
+                  <div className="text-left truncate">
+                    <div className="truncate text-xs font-semibold text-app-text">{p.display_name || p.x_handle}</div>
+                    <div className="text-[10px] text-app-text/40 truncate">@{p.x_handle}</div>
+                  </div>
+                </div>
+                {followers > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-app-hover text-app-text/60 font-mono font-medium flex-shrink-0 border border-app-border/[0.06]">
+                    {followers >= 1000 ? `${(followers / 1000).toFixed(1)}k` : followers}
+                  </span>
                 )}
-                <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white ${p.status === 'active' ? 'bg-emerald-400' : 'bg-slate-400'}`} />
-              </div>
-              <span className="truncate">{p.x_handle}</span>
-            </button>
-          ))}
+              </button>
+            );
+          })}
           
           <button 
             onClick={() => setIsNewProfileModalOpen(true)}
@@ -1338,25 +1409,60 @@ export default function Dashboard() {
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* PROFILE HEADER */}
             <header className="bg-panel/80 backdrop-blur-xl border-b border-app-border/[0.06] px-8 py-6 shadow-2xl shadow-black/50 z-0">
-              <div className="flex justify-between items-start">
+              <div className="flex justify-between items-start flex-wrap gap-4">
                 <div className="flex gap-5 items-center">
-                  <div className="w-16 h-16 rounded-full bg-slate-200 border-2 border-white shadow-2xl shadow-black/50 flex items-center justify-center overflow-hidden">
-                    {getAvatarUrl(selectedProfile) ? (
-                      <img 
-                        src={getAvatarUrl(selectedProfile)!} 
-                        alt={selectedProfile.display_name}
-                        className="w-full h-full object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-2xl font-black">
-                        {(selectedProfile.display_name || selectedProfile.x_handle || '?').charAt(0).toUpperCase()}
+                  <div className="relative flex-shrink-0">
+                    <div className="w-16 h-16 rounded-full bg-slate-800 border-2 border-white/20 shadow-2xl shadow-black/50 flex items-center justify-center overflow-hidden">
+                      {getAvatarUrl(selectedProfile) ? (
+                        <img 
+                          src={getAvatarUrl(selectedProfile)!} 
+                          alt={selectedProfile.display_name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-2xl font-black">
+                          {(selectedProfile.display_name || selectedProfile.x_handle || '?').charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    {/* Verification badge if authenticated */}
+                    {authStatuses[selectedProfile.id]?.status === 'authenticated' && (
+                      <div className="absolute -bottom-1 -right-1 bg-sky-500 text-white rounded-full p-0.5 border-2 border-slate-900 shadow-md" title="X Session Authenticated">
+                        <CheckCircle2 size={14} className="fill-sky-500 text-white" />
                       </div>
                     )}
                   </div>
+
                   <div>
-                    <h1 className="text-2xl font-bold text-app-text font-medium tracking-tight">{selectedProfile.display_name}</h1>
-                    <p className="text-app-text/50 text-sm mt-0.5">{selectedProfile.x_handle}</p>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <h1 className="text-2xl font-bold text-app-text font-medium tracking-tight">
+                        {selectedProfile.display_name || selectedProfile.x_handle}
+                      </h1>
+                      
+                      {/* Status Pill */}
+                      {authStatuses[selectedProfile.id]?.status === 'authenticated' ? (
+                        <button
+                          onClick={() => setIsConnectAccountModalOpen(true)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-all cursor-pointer"
+                          title="Session Authenticated - Click to manage cookies"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          Authenticated
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setIsConnectAccountModalOpen(true)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 transition-all cursor-pointer animate-pulse"
+                          title="Session Disconnected - Click to connect"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                          Disconnected (Click to Connect)
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="text-app-text/50 text-sm mt-0.5">@{selectedProfile.x_handle}</p>
                     <div className="flex gap-4 mt-2 text-xs text-app-text/60 font-medium">
                       <span><strong className="text-app-text font-medium tracking-tight">{analytics[selectedProfile.id]?.following || selectedProfile.following_count || 0}</strong> Following</span>
                       <span><strong className="text-app-text font-medium tracking-tight">{analytics[selectedProfile.id]?.followers || selectedProfile.followers_count || 0}</strong> Followers</span>
@@ -1364,14 +1470,35 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
-                <div className="flex gap-3">
+
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  {/* Connect X Account button */}
+                  <button 
+                    onClick={() => setIsConnectAccountModalOpen(true)}
+                    className="px-3.5 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-md font-medium text-xs flex items-center gap-2 transition-all cursor-pointer"
+                  >
+                    <Key size={14} /> Connect X Account
+                  </button>
+
+                  {/* Sync Live from X button */}
+                  <button 
+                    onClick={handleSyncFromX} 
+                    disabled={isSyncingFromX}
+                    className="px-3.5 py-2 bg-slate-800/80 hover:bg-slate-700/80 text-app-text/90 border border-slate-700 rounded-md font-medium text-xs flex items-center gap-2 disabled:opacity-50 transition-all cursor-pointer"
+                    title="Fetch live follower count, avatar, and verify session from X.com"
+                  >
+                    <RefreshCw size={14} className={isSyncingFromX ? "animate-spin text-sky-400" : "text-sky-400"} />
+                    {isSyncingFromX ? "Syncing from X..." : "Sync Live from X"}
+                  </button>
+
                   <button 
                     onClick={handleTriggerSession} 
                     disabled={triggeringSession}
-                    className="px-4 py-2 bg-slate-900 text-app-text rounded-md font-medium text-sm flex items-center gap-2 hover:bg-slate-800 disabled:opacity-50 transition-all"
+                    className="px-4 py-2 bg-slate-900 text-app-text rounded-md font-medium text-xs flex items-center gap-2 hover:bg-slate-800 disabled:opacity-50 transition-all"
                   >
-                    <Activity size={16}/> {triggeringSession ? "Starting..." : "Run AI Session Now"}
+                    <Activity size={14}/> {triggeringSession ? "Starting..." : "Run AI Session Now"}
                   </button>
+
                   <button 
                     onClick={async () => {
                       if (!selectedProfile) return;
@@ -1390,14 +1517,32 @@ export default function Dashboard() {
                     className="p-2 border border-rose-200 text-rose-400 hover:bg-rose-500/10 border border-rose-500/20 rounded-md transition-all flex items-center justify-center"
                     title="Delete Profile"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={14} />
                   </button>
-                  <button className={`px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 transition-all ${selectedProfile.status === 'active' ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-200' : 'bg-green-100 text-emerald-300 hover:bg-green-200 border border-green-200'}`}>
-                    {selectedProfile.status === 'active' ? <Pause size={16}/> : <Play size={16}/>}
+
+                  <button className={`px-4 py-2 rounded-md font-medium text-xs flex items-center gap-2 transition-all ${selectedProfile.status === 'active' ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-200' : 'bg-green-100 text-emerald-300 hover:bg-green-200 border border-green-200'}`}>
+                    {selectedProfile.status === 'active' ? <Pause size={14}/> : <Play size={14}/>}
                     {selectedProfile.status === 'active' ? 'Pause Auto' : 'Resume Auto'}
                   </button>
                 </div>
               </div>
+
+              {/* Sync Feedback Alert */}
+              {syncFeedback && (
+                <div className={`mt-4 p-3 rounded-xl border flex items-center justify-between text-xs transition-all ${
+                  syncFeedback.type === 'success' 
+                    ? 'bg-emerald-950/50 border-emerald-800/60 text-emerald-300' 
+                    : 'bg-rose-950/50 border-rose-800/60 text-rose-300'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {syncFeedback.type === 'success' ? <CheckCircle2 size={15} className="text-emerald-400" /> : <AlertCircle size={15} className="text-rose-400" />}
+                    <span>{syncFeedback.message}</span>
+                  </div>
+                  <button onClick={() => setSyncFeedback(null)} className="text-slate-400 hover:text-white">
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
 
               {/* TABS */}
               <div className="flex gap-6 mt-8 border-b border-app-border/[0.06] overflow-x-auto">
@@ -2816,6 +2961,16 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* CONNECT X ACCOUNT MODAL */}
+      <ConnectAccountModal
+        isOpen={isConnectAccountModalOpen}
+        onClose={() => setIsConnectAccountModalOpen(false)}
+        profile={selectedProfile || null}
+        onSuccess={async () => {
+          await fetchGlobalData();
+        }}
+      />
 
     </div>
   );
