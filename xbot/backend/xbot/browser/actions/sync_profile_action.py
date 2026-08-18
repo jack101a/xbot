@@ -116,7 +116,8 @@ class SyncProfileFromX(BaseAction):
         logger.info("Syncing profile from X for @%s: %s", clean_username, profile_url)
 
         try:
-            response = await page.goto(profile_url, wait_until="domcontentloaded", timeout=15000)
+            # domcontentloaded is correct — X never reaches networkidle (background polling)
+            response = await page.goto(profile_url, wait_until="domcontentloaded", timeout=20000)
             if response and response.status >= 400:
                 logger.warning(
                     "Navigation to @%s returned HTTP status %d",
@@ -136,7 +137,7 @@ class SyncProfileFromX(BaseAction):
                     "is_verified": False,
                 }
 
-            await sleep_with_jitter(1000)
+            await sleep_with_jitter(2500)
 
             current_url = page.url.lower()
 

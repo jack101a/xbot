@@ -140,7 +140,9 @@ class CheckUserLatestTweet(BaseAction):
         logger.info("Navigating to check latest tweet for @%s: %s", clean_handle, profile_url)
 
         try:
-            response = await page.goto(profile_url, wait_until="domcontentloaded", timeout=15000)
+            # domcontentloaded is correct — X never reaches networkidle (background polling)
+            # We condition-wait on the actual tweet element appearing instead
+            response = await page.goto(profile_url, wait_until="domcontentloaded", timeout=20000)
             if response and response.status >= 400:
                 logger.warning(
                     "Navigation to @%s returned status code %d",
@@ -149,18 +151,24 @@ class CheckUserLatestTweet(BaseAction):
                 )
                 return None
 
-            await sleep_with_jitter(1000)
-
             tweet_sel = SELECTORS.get("tweet", '[data-testid="tweet"]')
-            try:
-                await page.wait_for_selector(tweet_sel, timeout=8000)
-            except Exception:
-                logger.warning("No tweet elements found on @%s profile within timeout", clean_handle)
-                return None
+            # Condition-based wait: retry up to 3x waiting for tweets to hydrate in X's React SPA
+            tweet_elements = []
+            for attempt in range(3):
+                try:
+                    await page.wait_for_selector(tweet_sel, timeout=10000)
+                    tweet_elements = await page.query_selector_all(tweet_sel)
+                    if tweet_elements:
+                        logger.info("Found %d tweets on @%s (attempt %d)", len(tweet_elements), clean_handle, attempt + 1)
+                        break
+                except Exception:
+                    pass
+                if attempt < 2:
+                    logger.debug("Retry %d/3 waiting for tweets on @%s", attempt + 1, clean_handle)
+                    await sleep_with_jitter(2000)
 
-            tweet_elements = await page.query_selector_all(tweet_sel)
             if not tweet_elements:
-                logger.warning("No tweets found for user @%s", clean_handle)
+                logger.warning("No tweet elements found on @%s profile after 3 attempts", clean_handle)
                 return None
 
             first_tweet = tweet_elements[0]

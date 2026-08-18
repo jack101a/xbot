@@ -45,9 +45,9 @@ async def _navigate_home_if_needed(page: Page) -> None:
     """Navigate to the X home feed if not already there."""
     current = page.url
     if "x.com/home" not in current and "twitter.com/home" not in current:
-        await page.goto("https://x.com/home")
-        await page.wait_for_selector(SELECTORS["tweet"], timeout=10000)
-        await sleep_with_jitter(2000)
+        await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=20000)
+        await page.wait_for_selector(SELECTORS["tweet"], timeout=15000)
+        await sleep_with_jitter(2500)
 
 
 async def _random_tab_detour(page: Page) -> None:
@@ -67,9 +67,9 @@ async def _random_tab_detour(page: Page) -> None:
     ]
     detour = random.choice(detour_urls)
     logger.debug("Taking random tab detour to %s", detour)
-    await page.goto(detour)
+    await page.goto(detour, wait_until="domcontentloaded", timeout=20000)
     await sleep_think_time(2000, 6000)  # Browse briefly
-    await page.goto("https://x.com/home")
+    await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=20000)
     await page.wait_for_selector(SELECTORS["tweet"], timeout=10000)
     await sleep_with_jitter(1500)
 
@@ -238,7 +238,7 @@ class LikeTweet(BaseAction):
             # Navigate to specific tweet URL if provided
             if tweet_url:
                 logger.info("Navigating to tweet URL to like: %s", tweet_url)
-                await page.goto(tweet_url)
+                await page.goto(tweet_url, wait_until="domcontentloaded", timeout=20000)
                 await page.wait_for_selector(SELECTORS["tweet"], timeout=10000)
                 await sleep_think_time(1500, 3500)  # Simulate reading the tweet
                 tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
@@ -319,7 +319,7 @@ class ReplyToTweet(BaseAction):
         try:
             if tweet_url:
                 logger.info("Navigating to tweet URL to reply: %s", tweet_url)
-                await page.goto(tweet_url)
+                await page.goto(tweet_url, wait_until="domcontentloaded", timeout=20000)
                 await page.wait_for_selector(SELECTORS["tweet"], timeout=10000)
                 await sleep_think_time(2000, 5000)  # Read the tweet thread
                 tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
@@ -389,7 +389,7 @@ class Retweet(BaseAction):
     ) -> bool:
         try:
             if tweet_url:
-                await page.goto(tweet_url)
+                await page.goto(tweet_url, wait_until="domcontentloaded", timeout=20000)
                 await page.wait_for_selector(SELECTORS["tweet"], timeout=10000)
                 await sleep_think_time(1500, 3500)
                 tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
@@ -440,7 +440,7 @@ class FollowUser(BaseAction):
         try:
             clean = username.lstrip("@")
             logger.info("Navigating to user profile to follow: %s", clean)
-            await page.goto(f"https://x.com/{clean}")
+            await page.goto(f"https://x.com/{clean}", wait_until="domcontentloaded", timeout=20000)
             await page.wait_for_selector(
                 SELECTORS.get("profile_avatar", "[data-testid*='UserAvatar']"), timeout=10000
             )
@@ -479,7 +479,7 @@ class UnfollowUser(BaseAction):
         try:
             clean = username.lstrip("@")
             logger.info("Navigating to profile to unfollow: %s", clean)
-            await page.goto(f"https://x.com/{clean}")
+            await page.goto(f"https://x.com/{clean}", wait_until="domcontentloaded", timeout=20000)
             await page.wait_for_selector(
                 SELECTORS.get("profile_avatar", "[data-testid*='UserAvatar']"), timeout=10000
             )
@@ -514,7 +514,7 @@ class SearchQuery(BaseAction):
             logger.info("Executing search query: %s", query)
             from urllib.parse import quote_plus
             search_url = f"https://x.com/search?q={quote_plus(query)}&f=live"
-            await page.goto(search_url)
+            await page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
             await page.wait_for_selector(SELECTORS["tweet"], timeout=10000)
             await sleep_with_jitter(3000)
 
@@ -536,7 +536,7 @@ class ScrapeProfileMetrics(BaseAction):
         try:
             logger.info("Scraping metrics for %s", username)
             clean = username.lstrip("@")
-            await page.goto(f"https://x.com/{clean}")
+            await page.goto(f"https://x.com/{clean}", wait_until="domcontentloaded", timeout=20000)
             await page.wait_for_selector(
                 SELECTORS.get("profile_avatar", "[data-testid*='UserAvatar']"), timeout=10000
             )
@@ -584,7 +584,7 @@ class ScrapeTrends(BaseAction):
     async def execute(self, page: Page) -> list[dict[str, str]]:
         try:
             logger.info("Scraping X Trends")
-            await page.goto("https://x.com/explore/tabs/trending")
+            await page.goto("https://x.com/explore/tabs/trending", wait_until="domcontentloaded", timeout=20000)
             await page.wait_for_selector("[data-testid='trend']", timeout=10000)
             await sleep_with_jitter(2000)
 
@@ -619,7 +619,7 @@ class ScrapeProfileTweets(BaseAction):
         try:
             logger.info("Scraping recent tweets for %s", username)
             clean = username.lstrip("@")
-            await page.goto(f"https://x.com/{clean}")
+            await page.goto(f"https://x.com/{clean}", wait_until="domcontentloaded", timeout=20000)
             await page.wait_for_selector(
                 SELECTORS.get("tweet", "article[data-testid='tweet']"), timeout=10000
             )
@@ -730,7 +730,7 @@ class UnfollowNonFollowers(BaseAction):
             
             if not my_username:
                 logger.warning("Could not identify logged-in username from sidebar. Trying home navigation...")
-                await page.goto("https://x.com/home")
+                await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=20000)
                 await page.wait_for_selector("a[data-testid='AppTabBar_Profile_Link']", timeout=15000)
                 profile_link = await page.query_selector("a[data-testid='AppTabBar_Profile_Link']")
                 if profile_link:
@@ -743,7 +743,7 @@ class UnfollowNonFollowers(BaseAction):
                 return False
 
             logger.info("Unfollowing non-followers for @%s (limit: %d)", my_username, limit)
-            await page.goto(f"https://x.com/{my_username}/following")
+            await page.goto(f"https://x.com/{my_username}/following", wait_until="domcontentloaded", timeout=20000)
             await page.wait_for_selector("[data-testid='UserCell']", timeout=15000)
             await sleep_with_jitter(2000)
 
@@ -827,7 +827,7 @@ class FollowEngagers(BaseAction):
                 likes_url = f"{tweet_url.rstrip('/')}/likes"
 
             logger.info("Navigating to engagers list at %s (limit: %d)", likes_url, limit)
-            await page.goto(likes_url)
+            await page.goto(likes_url, wait_until="domcontentloaded", timeout=20000)
             
             try:
                 await page.wait_for_selector("[data-testid='UserCell']", timeout=12000)
@@ -902,7 +902,7 @@ class ScrapeFollowList(BaseAction):
             # Navigate to the appropriate tab
             url = f"https://x.com/{clean}/{list_type}"
             logger.info("Scraping %s list for @%s (limit: %d)", list_type, clean, limit)
-            await page.goto(url)
+            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
             
             try:
                 await page.wait_for_selector("[data-testid='UserCell']", timeout=15000)
