@@ -1440,8 +1440,22 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
                             t_now = datetime.datetime.utcnow()
                             await guard.record_action_success(profile_slug, "reply", t_now)
 
-                            # 3. Record Action in DB
+                            # 3. Create Session and Record Action in DB
+                            db_session = Session(
+                                profile_id=profile_id,
+                                status=SessionStatus.COMPLETED,
+                                actions_planned=1,
+                                actions_completed=1,
+                                actions_failed=0,
+                                plan={"mode": "sniper_reply", "target_kol": kol_handle},
+                                started_at=t_now,
+                                ended_at=t_now,
+                            )
+                            db.add(db_session)
+                            await db.flush()
+
                             db_action = Action(
+                                session_id=db_session.id,
                                 profile_id=profile_id,
                                 action_type=ActionType.REPLY,
                                 target_url=tweet_url,

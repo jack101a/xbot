@@ -10,7 +10,15 @@
 Status: Pre-flight scan clean.
 
 ## Task Status
-- Task 1: complete (commits c7598ed..965aa69, review clean)
-- Task 2: complete (commit cf2ea21, review clean)
-- Task 3: complete (commit bafb931, review clean)
+- Task 1: complete (commit `965aa69`, review clean)
+- Task 2: complete (commit `cf2ea21`, review clean)
+- Task 3: complete (commit `bafb931`, review clean)
+- Task 4: complete (commit `bcf5370`, review clean)
 
+## Verification Status
+- Full Test Suite: **41/41 tests passing** (100% pass rate).
+- Features Implemented:
+  1. Persona `target_kols` schema and loader.
+  2. Stealth Playwright `CheckUserLatestTweet` action with pinned tweet fallback.
+  3. AI Sniper Angle Engine (`xbot.ai.sniper`) with high-retention algorithmic response generator.
+  4. Periodic Celery Beat task `sniper_check_targets` with Redis deduplication, rate limit pacing, and DB action logging.

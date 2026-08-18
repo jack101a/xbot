@@ -28,6 +28,51 @@ class ContentStatus(StrEnum):
     FAILED = "failed"
 
 
+from sqlalchemy.types import TypeDecorator
+
+
+class SafeContentType(TypeDecorator):
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value: Any, dialect: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, ContentType):
+            return value.value
+        return str(value).lower()
+
+    def process_result_value(self, value: Any, dialect: Any) -> ContentType | None:
+        if value is None:
+            return None
+        val_str = str(value).lower()
+        for member in ContentType:
+            if member.value == val_str:
+                return member
+        return ContentType.ORIGINAL
+
+
+class SafeContentStatus(TypeDecorator):
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value: Any, dialect: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, ContentStatus):
+            return value.value
+        return str(value).lower()
+
+    def process_result_value(self, value: Any, dialect: Any) -> ContentStatus | None:
+        if value is None:
+            return None
+        val_str = str(value).lower()
+        for member in ContentStatus:
+            if member.value == val_str:
+                return member
+        return ContentStatus.DRAFT
+
+
 class Content(Base):
     __tablename__ = "content"
 
@@ -41,11 +86,11 @@ class Content(Base):
         Uuid, ForeignKey("profiles.id", ondelete="CASCADE"), index=True
     )
     content_type: Mapped[ContentType] = mapped_column(
-        Enum(ContentType), default=ContentType.ORIGINAL, index=True
+        SafeContentType, default=ContentType.ORIGINAL, index=True
     )
     body: Mapped[str] = mapped_column(Text)
     status: Mapped[ContentStatus] = mapped_column(
-        Enum(ContentStatus), default=ContentStatus.DRAFT, index=True
+        SafeContentStatus, default=ContentStatus.DRAFT, index=True
     )
 
     @property

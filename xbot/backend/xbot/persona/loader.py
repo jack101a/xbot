@@ -203,8 +203,11 @@ class LearnedState(BaseModel):
 
 
 def load_persona(profile_dir: Path) -> Persona:
-    """Loads persona.yaml from the given profile directory."""
-    path = profile_dir / "persona.yaml"
+    """Loads persona.yaml from the given profile directory or direct file path."""
+    if profile_dir.is_file() or str(profile_dir).endswith(".yaml") or str(profile_dir).endswith(".yml"):
+        path = profile_dir
+    else:
+        path = profile_dir / "persona.yaml"
     if not path.exists():
         raise FileNotFoundError(f"Persona file not found: {path}")
     with path.open(encoding="utf-8") as f:
