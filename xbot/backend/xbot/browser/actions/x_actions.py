@@ -20,6 +20,7 @@ from playwright.async_api import Page
 
 from xbot.browser.actions.base import BaseAction
 from xbot.browser.actions.check_user_action import CheckUserLatestTweet
+from xbot.browser.actions.poll_action import CreatePoll
 from xbot.browser.actions.selectors import SELECTORS
 from xbot.browser.timing import (
     human_click,

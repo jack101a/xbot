@@ -26,4 +26,12 @@ SELECTORS = {
     # Follow button on profile
     "profile_follow_button": '[data-testid="placementTracking"]',
     "profile_avatar": '[data-testid="UserAvatar-Container-profileUser"]',
+
+    # Poll Selectors
+    "poll_button": '[data-testid="pollButton"], [aria-label*="poll" i], [aria-label*="Poll"]',
+    "poll_choice_1": '[name="Choice1"], input[name="Choice1"], [data-testid="Choice1"] input',
+    "poll_choice_2": '[name="Choice2"], input[name="Choice2"], [data-testid="Choice2"] input',
+    "poll_choice_3": '[name="Choice3"], input[name="Choice3"], [data-testid="Choice3"] input',
+    "poll_choice_4": '[name="Choice4"], input[name="Choice4"], [data-testid="Choice4"] input',
+    "add_choice_button": '[aria-label*="Add choice" i], [data-testid="addChoice"], [aria-label*="choice" i]',
 }
