@@ -15,8 +15,10 @@ from pathlib import Path
 import redis
 
 from xbot.ai.planner import plan_session
+from xbot.ai.poll_generator import generate_poll
 from xbot.ai.post_session import PostSessionProcessor
 from xbot.ai.sniper import generate_sniper_reply
+from xbot.browser.actions.poll_action import CreatePoll
 from xbot.browser.actions.x_actions import (
     BrowseFeed,
     CheckUserLatestTweet,
@@ -47,6 +49,56 @@ from xbot.persona.loader import load_persona
 from xbot.safety.guard import SafetyGuard
 
 logger = logging.getLogger(__name__)
+
+
+async def _extract_or_generate_poll_data(
+    p_action: Any,
+    profile_slug: str,
+    base_profile_dir: Path,
+) -> tuple[str, list[str], int, str | None, str]:
+    """
+    Extracts poll question and options if specified in JSON format in the plan action,
+    or generates a validated poll via AI matching the persona.
+    """
+    poll_question = ""
+    poll_options: list[str] = []
+    poll_duration_days = 1
+    poll_context_hook: str | None = None
+    poll_reasoning = ""
+
+    if p_action.content:
+        try:
+            parsed_c = json.loads(p_action.content)
+            if isinstance(parsed_c, dict) and "options" in parsed_c and "question" in parsed_c:
+                poll_question = str(parsed_c["question"])
+                poll_options = [str(opt) for opt in parsed_c["options"]]
+                poll_duration_days = int(parsed_c.get("duration_days", 1))
+                poll_context_hook = parsed_c.get("context_hook")
+                poll_reasoning = parsed_c.get("reasoning", "")
+        except Exception:
+            pass
+
+    if not poll_options or len(poll_options) < 2:
+        persona = load_persona(base_profile_dir / profile_slug)
+        topic = (
+            p_action.content
+            if (p_action.content and not p_action.content.startswith("{"))
+            else (p_action.target or None)
+        )
+        gen_poll = await generate_poll(persona=persona, topic=topic)
+        poll_question = gen_poll.question
+        poll_options = gen_poll.options
+        poll_duration_days = gen_poll.duration_days
+        poll_context_hook = gen_poll.context_hook
+        poll_reasoning = gen_poll.reasoning
+
+    full_question = (
+        f"{poll_context_hook}\n\n{poll_question}"
+        if poll_context_hook and poll_context_hook not in poll_question
+        else poll_question
+    )
+
+    return full_question, poll_options, poll_duration_days, poll_context_hook, poll_reasoning
 
 
 async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
@@ -219,6 +271,35 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                             )
                             db.add(mock_c)
                             await db.commit()
+                        elif p_action.type in ("poll", ActionType.POLL):
+                            full_q, options, duration_days, context_hook, reasoning = await _extract_or_generate_poll_data(
+                                p_action, profile_slug, manager.base_profile_dir
+                            )
+                            db_action.content = full_q
+                            db_action.result = {
+                                "poll": {
+                                    "question": full_q,
+                                    "options": options,
+                                    "duration_days": duration_days,
+                                    "context_hook": context_hook,
+                                    "reasoning": reasoning,
+                                }
+                            }
+                            mock_c = Content(
+                                profile_id=profile_id,
+                                content_type=ContentType.POLL,
+                                body=f"{full_q}\n" + "\n".join(f"🔘 {opt}" for opt in options),
+                                status=ContentStatus.POSTED,
+                                posted_at=t_start,
+                                ai_metadata={
+                                    "mock_mode": True,
+                                    "poll_options": options,
+                                    "duration_days": duration_days,
+                                    "context_hook": context_hook,
+                                }
+                            )
+                            db.add(mock_c)
+                            await db.commit()
                         broadcast_session_log(session.id, "mock_action_executed", {
                             "message": f"🧪 [MOCK / DEMO MODE] Simulated execution of '{p_action.type}' on '{p_action.target or 'feed'}'.",
                             "action_type": p_action.type,
@@ -237,6 +318,45 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
 
                         if p_action.type == "post" and p_action.content:
                             success = await ComposePost().execute(page, p_action.content)
+                        elif p_action.type in ("poll", ActionType.POLL):
+                            full_q, options, duration_days, context_hook, reasoning = await _extract_or_generate_poll_data(
+                                p_action, profile_slug, manager.base_profile_dir
+                            )
+                            db_action.content = full_q
+                            db_action.result = {
+                                "poll": {
+                                    "question": full_q,
+                                    "options": options,
+                                    "duration_days": duration_days,
+                                    "context_hook": context_hook,
+                                    "reasoning": reasoning,
+                                }
+                            }
+                            screenshot_dir = str(manager.base_profile_dir / profile_slug / "screenshots")
+                            success = await CreatePoll(screenshot_dir=screenshot_dir).execute(
+                                page,
+                                question=full_q,
+                                options=options,
+                                duration_days=duration_days,
+                            )
+                            if success:
+                                c_rec = Content(
+                                    profile_id=profile_id,
+                                    content_type=ContentType.POLL,
+                                    body=f"{full_q}\n" + "\n".join(f"🔘 {opt}" for opt in options),
+                                    status=ContentStatus.POSTED,
+                                    posted_at=t_start,
+                                    ai_metadata={
+                                        "poll": {
+                                            "question": full_q,
+                                            "options": options,
+                                            "duration_days": duration_days,
+                                            "context_hook": context_hook,
+                                        }
+                                    }
+                                )
+                                db.add(c_rec)
+                                await db.commit()
                         elif p_action.type == "like":
                             # tweet_url from planner (specific tweet) or random visible tweet
                             success = await LikeTweet().execute(page, tweet_url=tweet_url)

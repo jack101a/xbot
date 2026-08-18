@@ -35,12 +35,14 @@ class ActionType(StrEnum):
     SCRAPE_METRICS = "scrape_metrics"
     UNFOLLOW_NON_FOLLOWERS = "unfollow_non_followers"
     FOLLOW_ENGAGERS = "follow_engagers"
+    POLL = "poll"
 
 
 class ActionStatus(StrEnum):
     PENDING = "pending"
     EXECUTING = "executing"
     COMPLETED = "completed"
+    SUCCESS = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
 
