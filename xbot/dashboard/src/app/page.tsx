@@ -1178,17 +1178,25 @@ export default function Dashboard() {
 
   const handleCreateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanSlug = newProfileSlug.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const cleanHandle = newXHandle.trim().replace(/^@/, '');
+    if (!cleanSlug || !cleanHandle) {
+      alert("Please provide both a Profile Slug and an X Handle.");
+      return;
+    }
     try {
       await api.createProfile({
-        profile_slug: newProfileSlug,
-        x_handle: newXHandle,
-        display_name: newProfileSlug,
+        profile_slug: cleanSlug,
+        x_handle: cleanHandle,
+        display_name: cleanSlug,
         status: "active",
       });
       setIsNewProfileModalOpen(false);
-      fetchGlobalData();
-    } catch (err) {
-      alert("Error creating profile");
+      setNewProfileSlug("");
+      setNewXHandle("");
+      await fetchGlobalData();
+    } catch (err: any) {
+      alert("Error creating profile: " + (err?.message || err));
     }
   };
 
