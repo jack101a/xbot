@@ -13,6 +13,7 @@ from xbot.ai.poll_generator import GeneratedPoll, generate_poll
 from xbot.ai.post_session import PostSessionProcessor
 from xbot.ai.sniper import SniperReplyResult, generate_sniper_reply
 from xbot.ai.strategy import StrategyReviewer
+from xbot.ai.trend_radar import TrendItem, fetch_rss_trends
 
 __all__ = [
     "AssembledContext",
@@ -33,5 +34,7 @@ __all__ = [
     "optimize_post_hook",
     "GeneratedPoll",
     "generate_poll",
+    "TrendItem",
+    "fetch_rss_trends",
 ]
 
