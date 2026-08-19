@@ -92,6 +92,11 @@ class LimitsConfig(BaseModel):
     max_replies_per_day: int = 15
     max_posts_per_day: int = 5
     max_follows_per_day: int = 10
+    warmup_enabled: bool = False
+    cooldown_seconds: int = 15
+    safety_mode: str = "normal"
+
+    model_config = ConfigDict(extra="allow")
 
 
 class CredentialsConfig(BaseModel):
