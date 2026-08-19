@@ -441,9 +441,12 @@ class FollowUser(BaseAction):
             clean = username.lstrip("@")
             logger.info("Navigating to user profile to follow: %s", clean)
             await page.goto(f"https://x.com/{clean}", wait_until="domcontentloaded", timeout=20000)
-            await page.wait_for_selector(
-                SELECTORS.get("profile_avatar", "[data-testid*='UserAvatar']"), timeout=10000
-            )
+            
+            # Wait for profile header (try UserName first, fallback to UserAvatar or heading)
+            try:
+                await page.wait_for_selector('[data-testid="UserName"], [data-testid*="UserAvatar"], h2', timeout=12000)
+            except Exception:
+                pass
 
             # Human: scan profile for a moment
             await sleep_think_time(2000, 5000)
@@ -452,13 +455,34 @@ class FollowUser(BaseAction):
             await human_scroll(page, random.randint(100, 200), "up")
             await sleep_think_time(800, 2000)
 
-            follow_btn = await page.query_selector(SELECTORS["profile_follow_button"])
+            # Check already-following via stable aria-label or inner text
+            already_following = await page.query_selector(
+                f'button[aria-label="Following @{clean}"], button[aria-label="Unfollow @{clean}"]'
+            )
+            if already_following:
+                logger.info("Already following user: %s", username)
+                return True
+
+            # Follow button — try aria-label first, fallback to testids and text
+            follow_btn = await page.query_selector(f'button[aria-label="Follow @{clean}"]')
+            if not follow_btn:
+                follow_btn = await page.query_selector('button[aria-label*="Follow @"]')
+            if not follow_btn:
+                follow_btn = await page.query_selector('[data-testid="placementTracking"], button[data-testid*="follow"]')
+            if not follow_btn:
+                # Text fallback
+                for btn in await page.query_selector_all("button"):
+                    txt = (await btn.inner_text()).strip()
+                    if txt == "Follow":
+                        follow_btn = btn
+                        break
+
             if not follow_btn:
                 logger.warning("Could not locate follow button for: %s", username)
                 return False
 
-            btn_text = await follow_btn.inner_text()
-            if "Following" in btn_text or "Unfollow" in btn_text:
+            btn_text = (await follow_btn.inner_text()).strip()
+            if btn_text in ("Following", "Unfollow"):
                 logger.info("Already following user: %s", username)
                 return True
 
@@ -480,12 +504,26 @@ class UnfollowUser(BaseAction):
             clean = username.lstrip("@")
             logger.info("Navigating to profile to unfollow: %s", clean)
             await page.goto(f"https://x.com/{clean}", wait_until="domcontentloaded", timeout=20000)
-            await page.wait_for_selector(
-                SELECTORS.get("profile_avatar", "[data-testid*='UserAvatar']"), timeout=10000
-            )
+            try:
+                await page.wait_for_selector('[data-testid="UserName"], [data-testid*="UserAvatar"], h2', timeout=12000)
+            except Exception:
+                pass
             await sleep_think_time(1500, 4000)
 
-            unfollow_btn = await page.query_selector("[data-testid$='-unfollow']")
+            # X uses dynamic testid e.g. '1605-unfollow' — use aria-label first, then testid
+            unfollow_btn = await page.query_selector(f'button[aria-label="Following @{clean}"]')
+            if not unfollow_btn:
+                unfollow_btn = await page.query_selector(f'button[aria-label="Unfollow @{clean}"]')
+            if not unfollow_btn:
+                unfollow_btn = await page.query_selector("[data-testid$='-unfollow'], [data-testid='placementTracking']")
+            if not unfollow_btn:
+                # Text check
+                for btn in await page.query_selector_all("button"):
+                    txt = (await btn.inner_text()).strip()
+                    if txt in ("Following", "Unfollow"):
+                        unfollow_btn = btn
+                        break
+
             if not unfollow_btn:
                 logger.warning("Could not locate unfollow button for: %s (might not be following)", username)
                 return False

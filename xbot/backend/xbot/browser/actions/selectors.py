@@ -23,9 +23,11 @@ SELECTORS = {
     "inline_tweet_submit_button": '[data-testid="tweetButtonInline"]',
     
     # Profile & Following
-    # Follow button on profile
-    "profile_follow_button": '[data-testid="placementTracking"]',
-    "profile_avatar": '[data-testid="UserAvatar-Container-profileUser"]',
+    # Follow button: X now uses dynamic testid like '1605-follow' — aria-label is stable
+    # Resolved at runtime via FollowUser.execute() using aria-label="Follow @{username}"
+    "profile_follow_button": 'button[aria-label*="Follow @"]',
+    # Profile loaded indicator — UserAvatar testid is now username-specific (not static)
+    "profile_avatar": '[data-testid="UserName"]',
 
     # Poll Selectors
     "poll_button": '[data-testid="pollButton"], [aria-label*="poll" i], [aria-label*="Poll"]',
