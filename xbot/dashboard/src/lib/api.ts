@@ -4,7 +4,19 @@ const DEFAULT_API_BASE_URL = typeof window !== 'undefined'
   ? (window.location.port === '8200' || !window.location.port ? '' : `${window.location.protocol}//${window.location.hostname}:8200`)
   : 'http://localhost:8200';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
+
+export function getWebSocketUrl(path: string): string {
+  if (typeof window === 'undefined') {
+    return `ws://localhost:8200${path.startsWith('/') ? path : '/' + path}`;
+  }
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.port === '8200' || !window.location.port
+    ? window.location.host
+    : `${window.location.hostname}:8200`;
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${protocol}//${host}${cleanPath}`;
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
@@ -217,7 +229,6 @@ export const api = {
   triggerProfileReflection: (id: string) => request<{ status: string; message: string }>(`/api/profiles/${id}/reflect`, { method: 'POST' }),
   updateProfilePersona: (id: string, persona: any) => request<{ status: string; message: string }>(`/api/profiles/${id}/persona`, { method: 'PUT', body: JSON.stringify(persona) }),
   importProfileCard: (id: string, content_or_path: string, use_ai: boolean = false) => request<{ status: string; message: string; persona: any }>(`/api/profiles/${id}/import-card`, { method: 'POST', body: JSON.stringify({ content_or_path, use_ai }) }),
-  triggerAutoreplyMentions: (id: string) => request<{ status: string; message: string }>(`/api/profiles/${id}/autoreply-mentions`, { method: 'POST' }),
   getProfileDiary: (id: string, limit = 15) => request<any[]>(`/api/profiles/${id}/diary?limit=${limit}`),
   getProfileMemories: (id: string, limit = 50) => request<any[]>(`/api/profiles/${id}/memories?limit=${limit}`),
   getProfileRelationships: (id: string) => request<any>(`/api/profiles/${id}/relationships`),
@@ -241,11 +252,5 @@ export const api = {
   resumeSystem: () => request<{ status: string; message: string }>('/api/system/resume', { method: 'POST' }),
   getConfig: () => request<SystemConfig>('/api/system/config'),
   updateConfig: (config: Partial<SystemConfig>) => request<any>('/api/system/config', { method: 'PUT', body: JSON.stringify(config) }),
-  
-  // Tools
-  getAdvancedMetrics: (username: string) => request<any>('/api/tools/analytics', {
-    method: 'POST',
-    body: JSON.stringify({ username })
-  }),
   getSystemModels: (provider: string) => request<{ models: string[] }>(`/api/system/models?provider=${provider}`)
 };

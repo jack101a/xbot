@@ -7,11 +7,7 @@ import {
   Circle, CheckCircle2, XCircle, Clock, Loader2, Zap, RotateCcw,
   AlertTriangle, Radio, ExternalLink, FileText, BookOpen
 } from "lucide-react";
-import { api, Session, Action } from "@/lib/api";
-
-const WS_BASE = typeof window !== "undefined"
-  ? `ws://${window.location.hostname}:18234`
-  : "ws://localhost:18234";
+import { api, Session, Action, Profile, getWebSocketUrl } from "@/lib/api";
 
 
 // ── Action type metadata ─────────────────────────────────────────────────────
@@ -350,9 +346,7 @@ function LiveFeed({ profileId, sessionId }: { profileId?: string; sessionId?: st
   const [autoScroll, setAutoScroll] = useState(true);
 
   useEffect(() => {
-    const wsUrl = sessionId
-      ? `${WS_BASE}/api/ws/sessions/${sessionId}`
-      : `${WS_BASE}/api/ws/live`;
+    const wsUrl = getWebSocketUrl(sessionId ? `/api/ws/sessions/${sessionId}` : '/api/ws/live');
 
     const connect = () => {
       const ws = new WebSocket(wsUrl);
@@ -492,11 +486,19 @@ function LiveFeed({ profileId, sessionId }: { profileId?: string; sessionId?: st
 
 interface LiveActivityTabProps {
   profileId: string;
+  selectedProfile?: Profile;
+  initialSessionId?: string;
   onTriggerSession?: () => void;
   triggeringSession?: boolean;
 }
 
-export function LiveActivityTab({ profileId, onTriggerSession, triggeringSession }: LiveActivityTabProps) {
+export function LiveActivityTab({
+  profileId,
+  selectedProfile,
+  initialSessionId,
+  onTriggerSession,
+  triggeringSession
+}: LiveActivityTabProps) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [liveView, setLiveView] = useState<"history" | "stream">("stream");
