@@ -597,23 +597,33 @@ def _parse_x_counts(text: str) -> int:
             return 0
 
 
-def broadcast_session_log(session_id: uuid.UUID, event_type: str, data: dict[str, Any]) -> None:
-    """Broadcasts a real-time event to the Redis channel for live WebSocket logs."""
+def broadcast_session_log(
+    session_id: uuid.UUID | str,
+    event_type: str,
+    data: dict[str, Any] | None = None,
+) -> None:
+    """Broadcasts a real-time event to the Redis channel for live WebSocket logs with standardized payload keys."""
     try:
         import json
         import redis
         from xbot.config import settings
         r = redis.from_url(settings.REDIS_URL)
+        payload_data = data or {}
         payload = {
-            "session_id": str(session_id),
             "event": event_type,
-            "timestamp": datetime.datetime.utcnow().isoformat(),
-            **data
+            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            "session_id": str(session_id),
+            "action_type": payload_data.get("action_type"),
+            "status": payload_data.get("status"),
+            "content": payload_data.get("content"),
+            "error": payload_data.get("error"),
+            **payload_data,
         }
+        json_str = json.dumps(payload)
         # Publish to single session channel
-        r.publish(f"session:log:{session_id}", json.dumps(payload))
+        r.publish(f"session:log:{session_id}", json_str)
         # Publish to global live stream channel
-        r.publish("session:log:live", json.dumps(payload))
+        r.publish("session:log:live", json_str)
     except Exception as ex:
         logger.error("Failed to broadcast session log: %s", ex)
 
@@ -917,89 +927,6 @@ def run_follower_audit(profile_id: str) -> dict[str, Any]:
     """Celery task running the follower lists snapshot diffing audit."""
     logger.info("Starting Celery follower audit for profile ID: %s", profile_id)
     return asyncio.run(_run_follower_audit_async(profile_id))
-
-
-async def _run_campaign_async(profile_id_str: str, campaign_id: str) -> dict[str, Any]:
-    from xbot.campaign_manager import load_campaigns, save_campaigns
-    try:
-        profile_id = uuid.UUID(profile_id_str)
-    except ValueError:
-        return {"status": "failed", "error": "Invalid profile ID format."}
-        
-    async with AsyncSessionLocal() as db:
-        stmt = select(Profile).where(Profile.id == profile_id)
-        result = await db.execute(stmt)
-        profile = result.scalar_one_or_none()
-        if not profile:
-            return {"status": "failed", "error": "Profile not found"}
-        
-        profile_slug = profile.profile_slug
-        campaigns = load_campaigns(profile_slug)
-        campaign = next((c for c in campaigns if c.id == campaign_id), None)
-        if not campaign:
-            return {"status": "failed", "error": "Campaign not found"}
-        
-        # Mark running
-        campaign.status = "running"
-        campaign.last_run = datetime.datetime.utcnow().isoformat()
-        save_campaigns(profile_slug, campaigns)
-        
-        manager = BrowserManager()
-        if not manager.acquire_lock(profile_slug, timeout_seconds=1800):
-            campaign.status = "failed"
-            save_campaigns(profile_slug, campaigns)
-            return {"status": "failed", "error": "Lock active"}
-            
-        context = None
-        try:
-            context = await manager.get_context(profile_slug=profile_slug)
-            page = await context.new_page()
-            
-            # Run steps
-            for step in campaign.steps:
-                logger.info("Executing campaign step %d: %s", step.step_index, step.type)
-                
-                # Determine targets
-                tweet_url = None
-                if step.target and "/status/" in step.target:
-                    tweet_url = step.target
-                
-                if step.type == "search" and step.target:
-                    await SearchQuery().execute(page, step.target)
-                elif step.type == "follow_engagers" and step.target:
-                    await FollowEngagers().execute(page, tweet_url=step.target, limit=step.limit)
-                elif step.type == "unfollow_non_followers":
-                    await UnfollowNonFollowers().execute(page, limit=step.limit)
-                elif step.type == "like":
-                    await LikeTweet().execute(page, tweet_url=tweet_url)
-                elif step.type == "post" and step.content:
-                    await ComposePost().execute(page, step.content)
-                elif step.type == "reply" and step.content:
-                    await ReplyToTweet().execute(page, step.content, tweet_url=tweet_url)
-                
-                # Jitter cooldown between steps
-                await sleep_with_jitter(3000)
-                
-            campaign.status = "completed"
-            save_campaigns(profile_slug, campaigns)
-            return {"status": "success"}
-            
-        except Exception as e:
-            logger.error("Campaign run failed: %s", e)
-            campaign.status = "failed"
-            save_campaigns(profile_slug, campaigns)
-            return {"status": "failed", "error": str(e)}
-        finally:
-            if context:
-                await context.close()
-            manager.release_lock(profile_slug)
-
-
-@celery_app.task(name="xbot.tasks.run_campaign")
-def run_campaign(profile_id: str, campaign_id: str) -> dict[str, Any]:
-    """Celery task running a declarative multi-step growth campaign."""
-    logger.info("Starting Celery campaign run for campaign ID: %s", campaign_id)
-    return asyncio.run(_run_campaign_async(profile_id, campaign_id))
 
 
 async def _run_reputation_analysis_async(profile_id_str: str) -> dict[str, Any]:

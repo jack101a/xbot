@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json
 import logging
 import uuid
@@ -127,9 +128,44 @@ async def get_session_actions(
     ]
 
 
+def normalize_event_payload(data: Any, fallback_session_id: str | None = None) -> dict[str, Any]:
+    """Ensures WebSocket event payloads conform to standardized schema."""
+    if isinstance(data, (bytes, bytearray)):
+        data = data.decode("utf-8")
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except Exception:
+            data = {"content": data}
+    if not isinstance(data, dict):
+        data = {"content": str(data)}
+
+    event = data.get("event") or "log"
+    timestamp = data.get("timestamp") or (datetime.datetime.utcnow().isoformat() + "Z")
+    session_id = str(data.get("session_id") or fallback_session_id or "")
+    action_type = data.get("action_type")
+    status_val = data.get("status")
+    content = data.get("content")
+    error = data.get("error")
+
+    normalized: dict[str, Any] = {
+        "event": event,
+        "timestamp": timestamp,
+        "session_id": session_id,
+        "action_type": action_type,
+        "status": status_val,
+        "content": content,
+        "error": error,
+    }
+    for k, v in data.items():
+        if k not in normalized:
+            normalized[k] = v
+    return normalized
+
+
 @router.websocket("/ws/sessions/{session_id}")
 async def websocket_session_logs(websocket: WebSocket, session_id: str) -> None:
-    """Streams real-time updates for a single session execution."""
+    """Streams real-time updates for a single session execution with standardized event JSON."""
     await websocket.accept()
     r = aioredis.from_url(settings.REDIS_URL)
     pubsub = r.pubsub()
@@ -138,22 +174,26 @@ async def websocket_session_logs(websocket: WebSocket, session_id: str) -> None:
     try:
         while True:
             msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-            if msg:
-                data = msg["data"].decode("utf-8")
-                await websocket.send_text(data)
+            if msg and msg.get("data") is not None:
+                event_payload = normalize_event_payload(msg["data"], fallback_session_id=session_id)
+                await websocket.send_json(event_payload)
             await asyncio.sleep(0.05)
     except WebSocketDisconnect:
         pass
     except Exception as ex:
         logger.error("Error in websocket session logging stream: %s", ex)
     finally:
-        await pubsub.unsubscribe(channel)
-        await pubsub.close()
+        try:
+            await pubsub.unsubscribe(channel)
+            await pubsub.close()
+            await r.aclose()
+        except Exception:
+            pass
 
 
 @router.websocket("/ws/live")
 async def websocket_live_global_logs(websocket: WebSocket) -> None:
-    """Streams live session updates system-wide."""
+    """Streams live session updates system-wide with standardized event JSON."""
     await websocket.accept()
     r = aioredis.from_url(settings.REDIS_URL)
     pubsub = r.pubsub()
@@ -162,14 +202,19 @@ async def websocket_live_global_logs(websocket: WebSocket) -> None:
     try:
         while True:
             msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-            if msg:
-                data = msg["data"].decode("utf-8")
-                await websocket.send_text(data)
+            if msg and msg.get("data") is not None:
+                event_payload = normalize_event_payload(msg["data"])
+                await websocket.send_json(event_payload)
             await asyncio.sleep(0.05)
     except WebSocketDisconnect:
         pass
     except Exception as ex:
         logger.error("Error in websocket live global logging stream: %s", ex)
     finally:
-        await pubsub.unsubscribe(channel)
-        await pubsub.close()
+        try:
+            await pubsub.unsubscribe(channel)
+            await pubsub.close()
+            await r.aclose()
+        except Exception:
+            pass
+

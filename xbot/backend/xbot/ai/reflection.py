@@ -55,7 +55,10 @@ class ReflectionEngine:
         self.base_profile_dir = Path(base_profile_dir)
 
     async def reflect_and_update(
-        self, db: AsyncSession, profile_slug: str
+        self,
+        db: AsyncSession,
+        profile_slug: str,
+        recent_performance: dict[str, Any] | None = None,
     ) -> LearnedState:
         stmt = select(Profile).where(Profile.profile_slug == profile_slug)
         res = await db.execute(stmt)
@@ -80,16 +83,84 @@ class ReflectionEngine:
             .limit(15)
         )
         res_posts = await db.execute(stmt_posts)
-        recent_posts = [f"- {c.body}" for c in res_posts.scalars().all()]
+        posts = res_posts.scalars().all()
+        recent_posts = [f"- {c.body}" for c in posts]
 
         memory_summary = "\n".join(
             [f"- [{m.get('type')}] {m.get('event', '')}: {m.get('content', '')}" for m in recent_memories]
         )
         posts_summary = "\n".join(recent_posts)
 
+        # Format audience feedback & post performance metrics
+        perf_lines: list[str] = []
+        if recent_performance:
+            if "follower_delta" in recent_performance:
+                fd = recent_performance["follower_delta"]
+                perf_lines.append(f"- Follower Change: {fd:+d}" if isinstance(fd, int) else f"- Follower Change: {fd}")
+            if "impressions" in recent_performance:
+                perf_lines.append(f"- Total Impressions: {recent_performance['impressions']}")
+            if "engagement_rate" in recent_performance:
+                perf_lines.append(f"- Engagement Rate: {recent_performance['engagement_rate']}")
+            if "top_tweets" in recent_performance and recent_performance["top_tweets"]:
+                perf_lines.append("- Top Performing Posts (High Engagement):")
+                for t in recent_performance["top_tweets"]:
+                    if isinstance(t, dict):
+                        body = t.get("text") or t.get("body") or t.get("content") or ""
+                        likes = t.get("likes", 0)
+                        retweets = t.get("retweets", t.get("reposts", 0))
+                        impressions = t.get("impressions", 0)
+                        replies = t.get("replies", 0)
+                        stats: list[str] = []
+                        if likes:
+                            stats.append(f"{likes} likes")
+                        if retweets:
+                            stats.append(f"{retweets} reposts")
+                        if replies:
+                            stats.append(f"{replies} replies")
+                        if impressions:
+                            stats.append(f"{impressions} impressions")
+                        stat_str = f" ({', '.join(stats)})" if stats else ""
+                        perf_lines.append(f"  - \"{body}\"{stat_str}")
+                    else:
+                        perf_lines.append(f"  - {t}")
+            if "low_performing_tweets" in recent_performance and recent_performance["low_performing_tweets"]:
+                perf_lines.append("- Low Performing Posts (Low Engagement):")
+                for t in recent_performance["low_performing_tweets"]:
+                    if isinstance(t, dict):
+                        body = t.get("text") or t.get("body") or t.get("content") or ""
+                        likes = t.get("likes", 0)
+                        retweets = t.get("retweets", t.get("reposts", 0))
+                        impressions = t.get("impressions", 0)
+                        replies = t.get("replies", 0)
+                        stats = []
+                        if likes:
+                            stats.append(f"{likes} likes")
+                        if retweets:
+                            stats.append(f"{retweets} reposts")
+                        if replies:
+                            stats.append(f"{replies} replies")
+                        if impressions:
+                            stats.append(f"{impressions} impressions")
+                        stat_str = f" ({', '.join(stats)})" if stats else ""
+                        perf_lines.append(f"  - \"{body}\"{stat_str}")
+                    else:
+                        perf_lines.append(f"  - {t}")
+            for k, v in recent_performance.items():
+                if k not in ("follower_delta", "impressions", "engagement_rate", "top_tweets", "low_performing_tweets") and not isinstance(v, (list, dict)):
+                    perf_lines.append(f"- {k.replace('_', ' ').title()}: {v}")
+
+        if not perf_lines:
+            posts_with_perf = [c for c in posts if c.performance]
+            if posts_with_perf:
+                perf_lines.append("- Recent Post Metrics:")
+                for c in posts_with_perf[:5]:
+                    perf_lines.append(f"  - \"{c.body}\" -> {c.performance}")
+
+        perf_summary = "\n".join(perf_lines) if perf_lines else "No recent performance metrics available."
+
         system_prompt = (
             f"You are the analytical subconscious reflection engine for X persona @{persona.x_handle} ({persona.display_name}).\n"
-            f"Your job is to review recent interactions, memories, and posted tweets, and synthesize an updated LearnedState across 7 categories:\n"
+            f"Your job is to review recent interactions, memories, posted tweets, and post performance metrics (engagement, likes, retweets, follower delta), and synthesize an updated LearnedState across 7 categories:\n"
             f"1. Characteristics (behavioral adaptations based on what succeeds)\n"
             f"2. Personality (evolving emotional nuances or voice adjustments)\n"
             f"3. Habits (learned writing patterns, formatting preferences, engagement tactics)\n"
@@ -109,6 +180,7 @@ class ReflectionEngine:
         user_prompt = (
             f"Recent Memories & Events:\n{memory_summary or 'No recent memories.'}\n\n"
             f"Recent Outgoing Posts/Replies:\n{posts_summary or 'No recent posts.'}\n\n"
+            f"Audience Feedback & Tweet Performance:\n{perf_summary}\n\n"
             "Return a JSON object matching ReflectionResponse schema."
         )
 
