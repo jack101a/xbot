@@ -8,8 +8,6 @@ import {
 } from "lucide-react";
 import { api, Profile, ProfileAuthStatus, Session, Action, SystemHealth, AnalyticsSnapshot, Content } from "@/lib/api";
 import { LiveActivityTab } from "@/components/LiveActivityTab";
-import { CampaignsTab } from "@/components/CampaignsTab";
-import { AudienceNetworkTab } from "@/components/AudienceNetworkTab";
 import { GrowthEngineTab } from "@/components/GrowthEngineTab";
 import { ConnectAccountModal } from "@/components/ConnectAccountModal";
 
@@ -2042,16 +2040,6 @@ export default function Dashboard() {
                   }}
                   triggeringSession={triggeringSession}
                 />
-              )}
-
-              {/* CAMPAIGNS TAB */}
-              {activeTab === "campaigns" && (
-                <CampaignsTab profileId={selectedProfile.id} />
-              )}
-
-              {/* AUDIENCE & NETWORK MAP TAB */}
-              {activeTab === "analytics" && (
-                <AudienceNetworkTab profileId={selectedProfile.id} />
               )}
 
               {/* AUTOMATION LIMITS TAB */}

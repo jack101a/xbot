@@ -1,0 +1,19 @@
+model_list:
+  - model_name: "xbot-primary"
+    litellm_params:
+      model: "openai/gpt-4o"
+      api_key: "os.environ/OPENAI_API_KEY"
+  - model_name: "xbot-fast"
+    litellm_params:
+      model: "openai/gpt-4o-mini"
+      api_key: "os.environ/OPENAI_API_KEY"
+  - model_name: "xbot-fallback"
+    litellm_params:
+      model: "anthropic/claude-sonnet-4-20250514"
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+
+router_settings:
+  routing_strategy: "simple-shuffle"
+  num_retries: 2
+  fallbacks:
+    - xbot-primary: ["xbot-fallback"]
