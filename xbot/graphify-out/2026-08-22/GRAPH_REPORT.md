@@ -1,16 +1,16 @@
-# Graph Report - xbot  (2026-08-22)
+# Graph Report - xbot  (2026-08-21)
 
 ## Corpus Check
-- 166 files · ~233,535 words
+- 160 files · ~236,901 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1958 nodes · 4211 edges · 117 communities (99 shown, 18 thin omitted)
-- Extraction: 89% EXTRACTED · 11% INFERRED · 0% AMBIGUOUS · INFERRED: 451 edges (avg confidence: 0.51)
+- 1933 nodes · 4114 edges · 122 communities (102 shown, 20 thin omitted)
+- Extraction: 89% EXTRACTED · 11% INFERRED · 0% AMBIGUOUS · INFERRED: 440 edges (avg confidence: 0.51)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `acbf0a55`
+- Built from commit: `aac36c58`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -33,60 +33,64 @@
 - fetch_rss_trends
 - models/profile.py
 - devDependencies
-- _check_trend_radar_async
 - test_sniper_task.py
-- ProfileStatus
-- persona/__init__.py
+- Persona
+- test_poll_integration.py
+- loader.py
 - compilerOptions
 - Tracing
-- Persona
+- test_trend_task.py
 - manager.py
 - SyncProfileFromX
 - CheckUserLatestTweet
-- scheduler.py
+- ReflectionResponse
 - test_profile_auth.py
 - test_profile_auth_api.py
 - engagement.py
 - get_all_rate_limits
-- test_hook_optimizer.py
+- ai/__init__.py
 - MemoryManager
 - generate_ai_content
-- Profile
+- e2e_authenticated_session_test.py
 - Video Recording
-- assembler.py
-- update_profile_config
+- ContextAssembler
+- inspect_profile_auth_status
 - Technical Specification: XBot Autonomous AI Persona Platform & UI Modernization
-- test_ai_decision_system.py
-- BrowserManager
+- Profile
+- .get_context
 - Request Mocking
-- load_persona
+- DiaryManager
 - ThreadedUvicorn
 - Global Constraints
-- CreatePoll
-- test_reflection_learning.py
+- poll_action.py
+- get_session_actions
 - e2e_full_user_experience.py
 - Readme
-- configure_db_override
+- .assemble
+- post_session.py
 - Decisions
 - get_free_analytics
+- analyze_sentiment_rules
 - Project Status
 - RoutingClient
 - Any
 - Playwright Tests
 - Tasks
 - schemas/profile.py
-- import_profile_character_card
+- load_raw_card
 - 2026 08 18 Kol Sniper Reply Design
 - 2026 08 18 Viral Hook And Poll Design
 - Task 1 Report
 - Task 4 Report
-- ai/__init__.py
+- .generate_content
 - Element Attributes
 - 2026 08 18 Trend Radar Design
 - 2026 08 18 Profile Auth And Metrics Sync Design
 - Task 3 Report
 - Task 1 Report
-- env.py
+- do_run_migrations
+- websocket_live_global_logs
+- health_check
 - 2026 08 18 Kol Sniper Reply Plan
 - 2026 08 18 Viral Hook And Poll Plan
 - Task 1 Report
@@ -121,7 +125,7 @@
 - postcss.config.mjs
 - 2026 08 18 Profile Auth And Metrics Sync Plan
 - ScrapeProfileTweets
-- strategy.py
+- StrategyResponse
 - Readme
 - Litellm Config
 - Claude
@@ -129,11 +133,11 @@
 - xbot
 
 ## God Nodes (most connected - your core abstractions)
-1. `Profile` - 119 edges
+1. `Profile` - 116 edges
 2. `Master Plan` - 106 edges
 3. `Persona` - 71 edges
-4. `ProfileStatus` - 57 edges
-5. `Skill` - 56 edges
+4. `Skill` - 56 edges
+5. `ProfileStatus` - 53 edges
 6. `Session Management` - 52 edges
 7. `Storage State` - 47 edges
 8. `Running Code` - 40 edges
@@ -145,29 +149,29 @@
   test-script/diag_browser_auth.py → backend/xbot/browser/manager.py
 - `main()` --uses--> `BrowserManager`  [INFERRED]
   test-script/diag_follow_selectors.py → backend/xbot/browser/manager.py
-- `run_e2e_test()` --uses--> `ContentGenerator`  [INFERRED]
-  test-script/test_ai_ghostwriter.py → backend/xbot/ai/generator.py
 - `main()` --uses--> `CheckUserLatestTweet`  [INFERRED]
   test-script/test_live_actions.py → backend/xbot/browser/actions/check_user_action.py
 - `run_step_3_sync_from_x()` --uses--> `SyncProfileFromX`  [INFERRED]
   test-script/e2e_authenticated_session_test.py → backend/xbot/browser/actions/sync_profile_action.py
+- `main()` --uses--> `BrowserManager`  [INFERRED]
+  test-script/diag_actions.py → backend/xbot/browser/manager.py
 
 ## Import Cycles
 - None detected.
 
-## Communities (117 total, 18 thin omitted)
+## Communities (122 total, 20 thin omitted)
 
 ### Community 0 - "profiles.py"
-Cohesion: 0.11
-Nodes (47): create_profile(), delete_profile(), get_profile(), get_profile_analytics_snapshots(), get_profile_auth_status(), get_profile_config(), get_profile_diary_logs(), get_profile_learned_state() (+39 more)
+Cohesion: 0.08
+Nodes (64): create_profile(), delete_profile(), get_profile(), get_profile_analytics_snapshots(), get_profile_auth_status(), get_profile_config(), get_profile_diary_logs(), get_profile_learned_state() (+56 more)
 
 ### Community 1 - "Master Plan"
 Cohesion: 0.02
 Nodes (107): 10.1 Data Collection, 10.2 Analytics Snapshot Process, 10.3 Performance Scoring, 10.4 Strategy Engine (Weekly Review), 10.5 Monetization Tracking, 10. Analytics & Strategy Engine, 11.1 Dashboard Pages, 11.2 Key Features (+99 more)
 
 ### Community 2 - "test_safety_and_scheduling.py"
-Cohesion: 0.08
-Nodes (30): clean_redis(), db_session(), asyncio, AsyncSession, fixture, Path, setup_db(), test_cooldown_tracking() (+22 more)
+Cohesion: 0.06
+Nodes (39): clean_redis(), db_session(), asyncio, AsyncSession, fixture, Path, setup_db(), test_cooldown_tracking() (+31 more)
 
 ### Community 3 - "Skill"
 Cohesion: 0.04
@@ -175,7 +179,7 @@ Nodes (57): --submit presses Enter after filling the element, Browser Automation
 
 ### Community 4 - "page.tsx"
 Cohesion: 0.08
-Nodes (37): ConnectAccountModal(), ConnectAccountModalProps, GlobalSettingsModal(), GlobalSettingsModalProps, GrowthEngineTab(), HookCandidate, TargetKOL, LimitsSchedulerTab() (+29 more)
+Nodes (29): API_PROVIDERS, CONTEXT_OPTIONS, Dashboard(), getAvatarUrl(), JobModelSelector(), ConnectAccountModal(), ConnectAccountModalProps, GrowthEngineTab() (+21 more)
 
 ### Community 5 - "Session Management"
 Cohesion: 0.04
@@ -195,11 +199,11 @@ Nodes (48): ... later, in a new session ..., Advanced: Multiple Cookies or Custo
 
 ### Community 9 - "x_actions.py"
 Cohesion: 0.11
-Nodes (33): asyncio, Path, Executes and validates the complete library of browser actions against the…, test_x_actions_integration(), BaseAction, Base action class providing failure recovery, logging, and screenshot tools., Browser action for checking a user's profile and extracting their latest tweet., Browser action for synchronizing X profile data and verifying session… (+25 more)
+Nodes (35): asyncio, Path, Executes and validates the complete library of browser actions against the…, test_x_actions_integration(), BaseAction, Base action class providing failure recovery, logging, and screenshot tools., Browser action for checking a user's profile and extracting their latest tweet., Browser action for synchronizing X profile data and verifying session… (+27 more)
 
 ### Community 10 - "tasks.py"
-Cohesion: 0.09
-Nodes (37): broadcast_session_log(), check_schedules(), check_trend_radar(), collect_analytics_snapshot(), _collect_analytics_snapshot_async(), _extract_or_generate_poll_data(), _parse_x_counts(), Any (+29 more)
+Cohesion: 0.07
+Nodes (47): BrowserManager, Releases the execution lock for a profile., Manages Playwright browser automation contexts and anti-detection settings.…, Stops the Playwright driver., Acquires a lock in Redis to prevent multiple workers from running the same…, broadcast_session_log(), check_schedules(), collect_analytics_snapshot() (+39 more)
 
 ### Community 11 - "Running Code"
 Cohesion: 0.05
@@ -214,36 +218,36 @@ Cohesion: 0.10
 Nodes (37): asyncio, Tests removing markdown code fences., Tests parsing poll from various JSON structures., Tests successful structured parse via OpenAI beta endpoint., Tests fallback to chat.completions.create with JSON mode when parse fails., Tests that options exceeding 25 characters are safely truncated to 25 chars., Tests that network or API exceptions return a high-quality default fallback…, Tests that unparseable JSON response returns a safe fallback poll. (+29 more)
 
 ### Community 14 - "config.py"
-Cohesion: 0.09
-Nodes (22): configure_db_override(), create_tables(), drop_tables(), override_get_db(), AsyncSession, fixture, Override database dependency to use test database., Configure dependency override for the duration of the test module. (+14 more)
+Cohesion: 0.12
+Nodes (17): configure_db_override(), create_tables(), drop_tables(), override_get_db(), AsyncSession, fixture, Override database dependency to use test database., Configure dependency override for the duration of the test module. (+9 more)
 
 ### Community 15 - "fetch_rss_trends"
 Cohesion: 0.19
 Nodes (24): asyncio, test_fetch_atom_1_0_parsing(), test_fetch_rss_2_0_parsing(), test_fetch_rss_trends_default_client(), test_http_status_error_resilience(), test_keyword_filtering(), test_malformed_xml_resilience(), test_max_items_per_feed() (+16 more)
 
 ### Community 16 - "models/profile.py"
-Cohesion: 0.17
-Nodes (22): create_tables(), drop_tables(), populate_profile_files(), asyncio, Path, setup_database(), test_rest_endpoints(), AnalyticsSnapshot (+14 more)
+Cohesion: 0.16
+Nodes (24): Run migrations in 'offline' mode., run_migrations_offline(), configure_db_override(), create_tables(), drop_tables(), override_get_db(), populate_profile_files(), asyncio (+16 more)
 
 ### Community 17 - "devDependencies"
 Cohesion: 0.06
 Nodes (34): dependencies, lucide-react, next, react, react-dom, devDependencies, eslint, eslint-config-next (+26 more)
 
-### Community 18 - "_check_trend_radar_async"
-Cohesion: 0.21
-Nodes (15): db_session(), asyncio, AsyncSession, Tests active profile fetches trends, evaluates relevance, stages Content…, Tests that previously seen trend items are skipped and not re-evaluated., Tests that items deemed irrelevant by LLM are cached in Redis but not staged as…, Tests that a failure in one profile (e.g. corrupted persona) does not halt…, Tests that custom trend_sources in persona are passed to fetch_rss_trends. (+7 more)
+### Community 18 - "test_sniper_task.py"
+Cohesion: 0.13
+Nodes (21): clean_redis(), db_session(), asyncio, AsyncSession, fixture, Path, Verifies that the periodic schedule for sniper_check_targets is registered in…, Tests that active profile with target KOLs fetches latest tweet, generates… (+13 more)
 
-### Community 19 - "test_sniper_task.py"
-Cohesion: 0.06
-Nodes (57): asyncio, fixture, Tests fallback to chat.completions.create with JSON parsing when structured…, Tests fallback when response is plain unformatted text (not JSON)., Tests that various angles (witty, data, contrarian, framework, insight) are…, Tests that when preferred_angle is None, prompt instructs auto-selection among…, Tests that complete LLM failure returns a safe fallback SniperReplyResult…, Tests that when client is None, get_ai_client() is invoked. (+49 more)
+### Community 19 - "Persona"
+Cohesion: 0.13
+Nodes (33): asyncio, fixture, Tests fallback to chat.completions.create with JSON parsing when structured…, Tests fallback when response is plain unformatted text (not JSON)., Tests that various angles (witty, data, contrarian, framework, insight) are…, Tests that when preferred_angle is None, prompt instructs auto-selection among…, Tests that complete LLM failure returns a safe fallback SniperReplyResult…, Tests that when client is None, get_ai_client() is invoked. (+25 more)
 
-### Community 20 - "ProfileStatus"
-Cohesion: 0.14
-Nodes (32): clean_redis(), db_session(), asyncio, AsyncSession, fixture, Verifies that ActionType and ContentType include POLL enum members., Verifies ContentGenerator.generate_poll generates validated Native X polls., Verifies that _run_session_async executes ActionType.POLL in mock mode and… (+24 more)
+### Community 20 - "test_poll_integration.py"
+Cohesion: 0.15
+Nodes (30): clean_redis(), db_session(), asyncio, AsyncSession, fixture, Verifies that ActionType and ContentType include POLL enum members., Verifies generate_tweet passes draft_tweet through optimize_post_hook and…, Verifies generate_tweet creates a draft tweet from LLM then runs hook… (+22 more)
 
-### Community 21 - "persona/__init__.py"
-Cohesion: 0.16
-Nodes (34): test_yaml_loader_and_saver(), Any, AsyncSession, AccountRelationship, Config, ContentStrategyConfig, CredentialsConfig, EngagementStrategyConfig (+26 more)
+### Community 21 - "loader.py"
+Cohesion: 0.13
+Nodes (44): test_persona_with_target_kols(), test_yaml_loader_and_saver(), AsyncSession, AsyncSession, datetime, Runs the weekly strategic analysis and updates strategy.yaml., AccountRelationship, Config (+36 more)
 
 ### Community 22 - "compilerOptions"
 Cohesion: 0.07
@@ -253,13 +257,13 @@ Nodes (28): compilerOptions, allowJs, esModuleInterop, incremental, isolatedModu
 Cohesion: 0.07
 Nodes (28): 1. Start Tracing Before the Problem, 2. Clean Up Old Traces, ... all steps leading to the issue ..., `resources/`, `trace-{timestamp}.network`, `trace-{timestamp}.trace`, Analyzing Performance, Basic Usage (+20 more)
 
-### Community 24 - "Persona"
-Cohesion: 0.25
-Nodes (25): sample_persona(), fixture, sample_persona(), fixture, sample_persona(), sample_persona(), sample_persona_no_kols(), sample_persona_with_kols() (+17 more)
+### Community 24 - "test_trend_task.py"
+Cohesion: 0.12
+Nodes (41): sample_persona(), fixture, sample_persona(), fixture, sample_persona(), sample_persona(), sample_persona_no_kols(), sample_persona_with_kols() (+33 more)
 
 ### Community 25 - "manager.py"
-Cohesion: 0.11
-Nodes (16): apply_stealth(), apply_stealth_to_context(), _build_stealth_script(), BrowserContext, Page, Stealth script injection for Playwright browser contexts. Applies playwright-…, Applies stealth to a single Playwright page., Applies stealth to a Playwright BrowserContext (preferred — covers all pages). (+8 more)
+Cohesion: 0.08
+Nodes (20): asyncio, Verifies BrowserManager startup, Redis-based locking, context creation, and…, test_browser_manager_flow(), apply_stealth(), apply_stealth_to_context(), _build_stealth_script(), BrowserContext, Page (+12 more)
 
 ### Community 26 - "SyncProfileFromX"
 Cohesion: 0.11
@@ -269,13 +273,9 @@ Nodes (26): asyncio, Path, Tests count parsing helper function across various fo
 Cohesion: 0.13
 Nodes (22): asyncio, Path, Tests fallback to second tweet when the first tweet is pinned., Tests extracting the pinned tweet when no second tweet is available., Tests returning None when profile has no tweets., Tests returning None and capturing failure screenshot on navigation error., Tests extracting standard latest tweet from profile., test_check_user_latest_tweet_empty_profile() (+14 more)
 
-### Community 28 - "scheduler.py"
-Cohesion: 0.30
-Nodes (10): SessionStatus, check_and_trigger_schedules(), generate_daily_schedule(), AsyncSession, datetime, Saves generated schedule datetimes as sorted set in Redis., Called every 60s by Celery Beat: 1. Checks if active profiles are due for a…, Generates N session times for the day within the wake/sleep local hours,… (+2 more)
-
 ### Community 29 - "test_profile_auth.py"
-Cohesion: 0.08
-Nodes (37): Path, Test parsing raw JSON object format., Test parsing full Playwright storage_state JSON string., Test parsing multiline newline-separated cookie string., Test format_storage_state generates standard Playwright storage state structure., Test empty, whitespace, and malformed inputs., Test inspect_profile_auth_status when storage_state.json does not exist., Test inspect_profile_auth_status with valid active storage_state.json. (+29 more)
+Cohesion: 0.11
+Nodes (24): Test parsing raw JSON object format., Test parsing full Playwright storage_state JSON string., Test parsing multiline newline-separated cookie string., Test format_storage_state generates standard Playwright storage state structure., Test empty, whitespace, and malformed inputs., Test inspect_profile_auth_status with valid active storage_state.json., Test format_storage_state includes twid when provided., Test parsing standard HTTP Cookie header string. (+16 more)
 
 ### Community 30 - "test_profile_auth_api.py"
 Cohesion: 0.17
@@ -289,8 +289,8 @@ Nodes (16): EngagementDecision, EngagementEvaluator, EngagementResponse, FollowD
 Cohesion: 0.11
 Nodes (21): get_all_rate_limits(), get_system_config(), get_system_health(), get_system_models(), pause_entire_system(), Any, AsyncSession, BaseModel (+13 more)
 
-### Community 33 - "test_hook_optimizer.py"
-Cohesion: 0.08
+### Community 33 - "ai/__init__.py"
+Cohesion: 0.07
 Nodes (48): asyncio, Tests cleaning archetype prefixes and long strings., Tests body preservation and micro-spacing in format_optimized_post., Tests format_optimized_post with a single line draft., Tests successful structured parse with 4 archetypes and winning hook selection., Tests fallback to chat.completions.create with JSON mode when parse fails., Tests JSON parsing when returned as a dict keyed by archetype name., Tests that LLM network or API exceptions return original content safely. (+40 more)
 
 ### Community 34 - "MemoryManager"
@@ -301,41 +301,41 @@ Nodes (10): MemoryManager, Any, Path, Appends a persistent high-importance memor
 Cohesion: 0.18
 Nodes (17): generate_ai_content(), GenerateContentRequest, get_content_detail(), list_profile_content(), Any, AsyncSession, BaseModel, get (+9 more)
 
-### Community 36 - "Profile"
-Cohesion: 0.42
-Nodes (12): Profile, main(), Profile, End-to-End Comprehensive Feature Test for Authenticated Profile (@jackds1234 /…, run_step_1_services_health(), run_step_2_auth_status(), run_step_3_sync_from_x(), run_step_4_kol_sniper() (+4 more)
+### Community 36 - "e2e_authenticated_session_test.py"
+Cohesion: 0.38
+Nodes (11): main(), Profile, End-to-End Comprehensive Feature Test for Authenticated Profile (@jackds1234 /…, run_step_1_services_health(), run_step_2_auth_status(), run_step_3_sync_from_x(), run_step_4_kol_sniper(), run_step_5_viral_hook_optimizer() (+3 more)
 
 ### Community 37 - "Video Recording"
 Cohesion: 0.12
 Nodes (16): 1. Use Descriptive Filenames, 2. Record entire hero scripts., Add a chapter marker for section transitions, Add another chapter, Basic Recording, Best Practices, Video Recording, Include context in filename (+8 more)
 
-### Community 38 - "assembler.py"
-Cohesion: 0.11
-Nodes (22): db_session(), asyncio, AsyncSession, fixture, Path, Creates and teardowns the test database structure., Yields a clean database session., setup_db() (+14 more)
+### Community 38 - "ContextAssembler"
+Cohesion: 0.13
+Nodes (19): db_session(), asyncio, AsyncSession, fixture, Path, Creates and teardowns the test database structure., Yields a clean database session., setup_db() (+11 more)
 
-### Community 39 - "update_profile_config"
-Cohesion: 0.20
-Nodes (10): put, Updates persona.yaml configurations on disk., Updates strategy configuration (keywords, competitor accounts, topics) on disk., Updates automation limits and execution schedule configuration on disk and…, Updates learned_state.yaml on disk., update_profile(), update_profile_config(), update_profile_learned_state() (+2 more)
+### Community 39 - "inspect_profile_auth_status"
+Cohesion: 0.19
+Nodes (13): Path, Test inspect_profile_auth_status when storage_state.json does not exist., Test inspect_profile_auth_status with only auth_token present., Test inspect_profile_auth_status with expired cookies., Test inspect_profile_auth_status when storage_state.json is malformed., test_inspect_profile_auth_status_corrupt_file(), test_inspect_profile_auth_status_expired(), test_inspect_profile_auth_status_missing() (+5 more)
 
 ### Community 40 - "Technical Specification: XBot Autonomous AI Persona Platform & UI Modernization"
 Cohesion: 0.20
 Nodes (9): 1. Product Identity & Purpose, 2. Feature Inventory: Final Decisions, 3. System Architecture & Components, 4. Frontend Modularization (5-Tab Glassmorphic UI), 5. Implementation & Migration Steps, Central Tab Breakdown, Kept & Enhanced Features, Purged / Removed Features (+1 more)
 
-### Community 41 - "test_ai_decision_system.py"
-Cohesion: 0.41
-Nodes (12): db_session(), populate_profile_files(), asyncio, AsyncSession, fixture, Path, setup_db(), test_content_generator_with_retries() (+4 more)
+### Community 41 - "Profile"
+Cohesion: 0.14
+Nodes (28): db_session(), populate_profile_files(), asyncio, AsyncSession, fixture, Path, setup_db(), test_content_generator_with_retries() (+20 more)
 
-### Community 42 - "BrowserManager"
-Cohesion: 0.12
-Nodes (11): asyncio, Verifies BrowserManager startup, Redis-based locking, context creation, and…, test_browser_manager_flow(), BrowserManager, BrowserContext, Releases the execution lock for a profile., Creates or retrieves a persistent browser context for the profile. Picks a…, Manages Playwright browser automation contexts and anti-detection settings.… (+3 more)
+### Community 42 - ".get_context"
+Cohesion: 0.40
+Nodes (3): BrowserContext, Creates or retrieves a persistent browser context for the profile. Picks a…, Starts the Playwright driver.
 
 ### Community 43 - "Request Mocking"
 Cohesion: 0.13
 Nodes (15): Advanced Mocking with run-code, CLI Route Commands, Conditional Response Based on Request, Delayed Response, Request Mocking, List active routes, Mock with custom headers, Mock with custom status (+7 more)
 
-### Community 44 - "load_persona"
-Cohesion: 0.10
-Nodes (19): Path, test_diary_manager(), test_memory_manager(), test_persona_with_target_kols(), ExtractedMemoriesResponse, ExtractedMemory, GeneratedDiaryEntry, GeneratedDiaryResponse (+11 more)
+### Community 44 - "DiaryManager"
+Cohesion: 0.13
+Nodes (11): Path, test_diary_manager(), test_memory_manager(), AsyncSession, UUID, Runs the post-session diary updates and memory extraction operations., DiaryManager, Path (+3 more)
 
 ### Community 45 - "ThreadedUvicorn"
 Cohesion: 0.18
@@ -345,13 +345,13 @@ Nodes (9): home_feed(), profile_page(), get, Runs the mock FastAPI application i
 Cohesion: 0.25
 Nodes (7): Global Constraints, Task 1: Repository Purge & Legacy Cleanup, Task 2: Backend API & WebSocket Hardening, Task 3: Dashboard API Client & Modular Sub-Components, Task 4: Streamline Dashboard Root Container (`page.tsx`), Task 5: End-to-End Verification & Knowledge Graph Update, XBot Architecture & UI Redesign Implementation Plan
 
-### Community 47 - "CreatePoll"
-Cohesion: 0.26
+### Community 47 - "poll_action.py"
+Cohesion: 0.24
 Nodes (14): asyncio, Path, Tests creating a standard 2-option poll., Tests creating a 4-option poll with multiple extra choices added., Tests creating a 3-option poll with 1 extra choice., Tests navigating to compose post URL if textarea is not already on page., Tests that execution errors gracefully return False and capture failure…, test_create_poll_2_options_success() (+6 more)
 
-### Community 48 - "test_reflection_learning.py"
-Cohesion: 0.10
-Nodes (36): db_session(), populate_test_profile(), asyncio, AsyncSession, fixture, Path, setup_db(), test_normalize_event_payload() (+28 more)
+### Community 48 - "get_session_actions"
+Cohesion: 0.26
+Nodes (13): get_session_actions(), get_session_detail(), list_profile_sessions(), Any, AsyncSession, get, post, UUID (+5 more)
 
 ### Community 49 - "e2e_full_user_experience.py"
 Cohesion: 0.40
@@ -361,9 +361,13 @@ Nodes (10): main(), Profile, End-to-End User Experience Verification Script for 
 Cohesion: 0.15
 Nodes (13): 1. Initialize the Environment, 2. Startup Backend Service (FastAPI), 3. Launch Celery Worker & Beat Scheduler, 4. Launch Next.js Dashboard UI, 🛠 Project Structure, 🚀 Quick Start & Launch Runbook, 🧪 Running Tests, 🛡 Safety Guard & Webhook Alerting (+5 more)
 
-### Community 51 - "configure_db_override"
-Cohesion: 0.40
-Nodes (5): configure_db_override(), override_get_db(), AsyncSession, fixture, Configure dependency override for the duration of the test module.
+### Community 51 - ".assemble"
+Cohesion: 0.18
+Nodes (8): AssembledContext, AsyncSession, BaseModel, datetime, Helper to dump Strategy model to YAML string., Gathers files and database records to construct an AssembledContext for the…, Helper to format the Persona object into a markdown character sheet., Renders the user prompt context following the structure defined in…
+
+### Community 52 - "post_session.py"
+Cohesion: 0.23
+Nodes (9): ExtractedMemoriesResponse, ExtractedMemory, GeneratedDiaryEntry, GeneratedDiaryResponse, PostSessionProcessor, BaseModel, Implements Phase 2.5 Post-Session Processing. Evaluates session execution…, Evaluates recent session logs, episodic memories, and content performance to… (+1 more)
 
 ### Community 53 - "Decisions"
 Cohesion: 0.17
@@ -372,6 +376,10 @@ Nodes (12): 2026-06-18: Initial Architecture Mapping, DEC-001: Backend Framework
 ### Community 54 - "get_free_analytics"
 Cohesion: 0.33
 Nodes (6): AnalyticsRequest, get_free_analytics(), Any, BaseModel, post, Deprecated: Free analytics scraper sandbox has been removed.
+
+### Community 55 - "analyze_sentiment_rules"
+Cohesion: 0.50
+Nodes (4): analyze_sentiment_llm(), analyze_sentiment_rules(), Performs offline, fast rule-based sentiment classification on input text., Performs sentiment analysis using the fast LiteLLM model.
 
 ### Community 56 - "Project Status"
 Cohesion: 0.20
@@ -397,9 +405,9 @@ Nodes (9): Active Task, Tasks, Phase 0: Foundation, Phase 1: Browser Engine + Pe
 Cohesion: 0.62
 Nodes (5): ProfileBase, ProfileCreate, ProfileResponse, ProfileUpdate, BaseModel
 
-### Community 62 - "import_profile_character_card"
-Cohesion: 0.18
-Nodes (12): import_profile_character_card(), import_profile_cookies(), ImportCardRequest, ImportCookiesRequest, BaseModel, Loads and parses a character card (JSON/YAML/file path) into our 7-Dimension…, Imports auth cookies directly or from a raw cookie header/JSON string., load_raw_card() (+4 more)
+### Community 62 - "load_raw_card"
+Cohesion: 0.40
+Nodes (5): load_raw_card(), map_card_to_persona(), Any, Loads a character card from either an absolute file path on the server or raw…, Deterministically maps any structured character card (such as Kaya's JSON…
 
 ### Community 63 - "2026 08 18 Kol Sniper Reply Design"
 Cohesion: 0.25
@@ -417,9 +425,9 @@ Nodes (8): 1. Overview & Objectives, 2. Changes Made, 3. Verification & Test Res
 Cohesion: 0.25
 Nodes (8): 1. Overview & Objectives, 2. Files Modified & Created, 3. Verification & Test Results, 4. Git Commit, Task 4 Report, Full Unit & Integration Test Suite, Key Accomplishments, Targeted Integration Tests
 
-### Community 67 - "ai/__init__.py"
-Cohesion: 0.09
-Nodes (25): get_ai_client(), calculate_similarity(), clean_text_for_json(), ContentGenerationResponse, ContentGenerator, GeneratedContent, Any, AsyncSession (+17 more)
+### Community 67 - ".generate_content"
+Cohesion: 0.29
+Nodes (6): calculate_similarity(), clean_text_for_json(), AsyncSession, Calculates similarity ratio between two strings using difflib., Clean markdown json wrap., Generates content, validates it, and handles automatic regeneration on failure…
 
 ### Community 68 - "Element Attributes"
 Cohesion: 0.29
@@ -441,9 +449,17 @@ Nodes (6): Changes Made, Task 3 Report, Git Commit, Overview, Task 3 Report: Bui
 Cohesion: 0.33
 Nodes (6): 1. Summary of Changes, 2. Test Verification, 3. Next Steps, Task 1 Report, Files Created/Modified, Task 1 Report: Cookie Converter & Auth State Engine
 
-### Community 73 - "env.py"
-Cohesion: 0.29
-Nodes (7): do_run_migrations(), Any, Run migrations in 'offline' mode., Helper method to run migrations synchronously., Run migrations in 'online' mode using async engine., run_migrations_offline(), run_migrations_online()
+### Community 73 - "do_run_migrations"
+Cohesion: 0.40
+Nodes (5): do_run_migrations(), Any, Helper method to run migrations synchronously., Run migrations in 'online' mode using async engine., run_migrations_online()
+
+### Community 74 - "websocket_live_global_logs"
+Cohesion: 0.40
+Nodes (5): Streams real-time updates for a single session execution., Streams live session updates system-wide., websocket_live_global_logs(), websocket_session_logs(), websocket
+
+### Community 75 - "health_check"
+Cohesion: 0.40
+Nodes (5): health_check(), Any, get, Health check endpoint returning system status., root()
 
 ### Community 76 - "2026 08 18 Kol Sniper Reply Plan"
 Cohesion: 0.40
@@ -529,29 +545,25 @@ Nodes (3): Progress, Pre-flight Conflict Scan, Task Status
 Cohesion: 0.67
 Nodes (3): Changes Summary, Task 4 Report, Status: COMPLETE
 
-### Community 114 - "strategy.py"
-Cohesion: 0.21
-Nodes (12): AsyncSession, BaseModel, datetime, Implements Phase 2.6 Weekly Strategy Review Logic. Queries database performance…, Runs the weekly strategic analysis and updates strategy.yaml., StrategyResponse, StrategyReviewer, load_strategy() (+4 more)
-
 ## Knowledge Gaps
-- **649 isolated node(s):** `xbot`, `backup.sh script`, `eslintConfig`, `nextConfig`, `name` (+644 more)
+- **650 isolated node(s):** `xbot`, `backup.sh script`, `eslintConfig`, `nextConfig`, `name` (+645 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **18 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **20 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Profile` connect `Profile` to `profiles.py`, `test_safety_and_scheduling.py`, `tasks.py`, `config.py`, `models/profile.py`, `_check_trend_radar_async`, `test_sniper_task.py`, `ProfileStatus`, `persona/__init__.py`, `Persona`, `scheduler.py`, `test_profile_auth_api.py`, `engagement.py`, `get_all_rate_limits`, `generate_ai_content`, `assembler.py`, `update_profile_config`, `test_ai_decision_system.py`, `load_persona`, `test_reflection_learning.py`, `e2e_full_user_experience.py`, `import_profile_character_card`, `ai/__init__.py`, `strategy.py`?**
-  _High betweenness centrality (0.072) - this node is a cross-community bridge._
-- **Why does `Persona` connect `Persona` to `test_hook_optimizer.py`, `test_trend_generator.py`, `assembler.py`, `load_persona`, `test_poll_generator.py`, `_check_trend_radar_async`, `test_sniper_task.py`, `ProfileStatus`, `persona/__init__.py`?**
-  _High betweenness centrality (0.026) - this node is a cross-community bridge._
-- **Why does `get_ai_client()` connect `ai/__init__.py` to `profiles.py`, `test_hook_optimizer.py`, `test_trend_generator.py`, `tasks.py`, `load_persona`, `test_poll_generator.py`, `strategy.py`, `test_sniper_task.py`, `ProfileStatus`, `persona/__init__.py`, `RoutingClient`, `import_profile_character_card`, `engagement.py`?**
-  _High betweenness centrality (0.025) - this node is a cross-community bridge._
-- **Are the 92 inferred relationships involving `Profile` (e.g. with `test_assembler_missing_directory()` and `test_assembler_success()`) actually correct?**
-  _`Profile` has 92 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `Profile` connect `Profile` to `profiles.py`, `get_all_rate_limits`, `test_safety_and_scheduling.py`, `generate_ai_content`, `e2e_authenticated_session_test.py`, `ContextAssembler`, `x_actions.py`, `tasks.py`, `config.py`, `models/profile.py`, `e2e_full_user_experience.py`, `test_sniper_task.py`, `test_poll_integration.py`, `loader.py`, `post_session.py`, `test_trend_task.py`, `test_profile_auth_api.py`, `engagement.py`?**
+  _High betweenness centrality (0.061) - this node is a cross-community bridge._
+- **Why does `Persona` connect `Persona` to `ai/__init__.py`, `test_trend_generator.py`, `ContextAssembler`, `test_poll_generator.py`, `test_sniper_task.py`, `.assemble`, `test_poll_integration.py`, `loader.py`, `test_trend_task.py`?**
+  _High betweenness centrality (0.028) - this node is a cross-community bridge._
+- **Why does `get_ai_client()` connect `ai/__init__.py` to `profiles.py`, `.generate_content`, `ContextAssembler`, `test_trend_generator.py`, `Profile`, `tasks.py`, `DiaryManager`, `test_poll_generator.py`, `Persona`, `post_session.py`, `loader.py`, `analyze_sentiment_rules`, `RoutingClient`, `engagement.py`?**
+  _High betweenness centrality (0.028) - this node is a cross-community bridge._
+- **Are the 90 inferred relationships involving `Profile` (e.g. with `test_assembler_missing_directory()` and `test_assembler_success()`) actually correct?**
+  _`Profile` has 90 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 49 inferred relationships involving `Persona` (e.g. with `test_generate_sniper_reply_angles_and_prompts()` and `test_generate_sniper_reply_auto_angle_selection()`) actually correct?**
   _`Persona` has 49 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 39 inferred relationships involving `ProfileStatus` (e.g. with `test_assembler_missing_directory()` and `test_assembler_success()`) actually correct?**
-  _`ProfileStatus` has 39 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 36 inferred relationships involving `ProfileStatus` (e.g. with `test_assembler_missing_directory()` and `test_assembler_success()`) actually correct?**
+  _`ProfileStatus` has 36 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `xbot`, `backup.sh script`, `eslintConfig` to the rest of the system?**
-  _649 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _650 weakly-connected nodes found - possible documentation gaps or missing edges._
