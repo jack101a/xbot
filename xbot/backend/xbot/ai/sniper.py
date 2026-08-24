@@ -5,7 +5,7 @@ import logging
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from xbot.ai.client import get_ai_client
 from xbot.config import settings
@@ -13,14 +13,65 @@ from xbot.persona.loader import Persona
 
 logger = logging.getLogger(__name__)
 
-VALID_ANGLES = {"contrarian", "framework", "witty", "data", "insight"}
+VALID_ANGLES = {"contrarian", "framework", "question", "witty", "data", "insight"}
+
+SNIPER_PROMPT_TEMPLATE = """=== THE 3-STAGE SNIPER ARCHITECTURE (MANDATORY) ===
+Your reply MUST strictly follow this exact 3-stage formula:
+1. The Contrarian / Value Hook: Immediately validate or challenge the author's core premise with domain insight. Zero generic greetings, pleasantries, or praise (never say "Great post!", "Interesting point!", "100% agree!").
+2. Concrete Proof / Data Angle: Deliver a high-density takeaway, empirical metric, historical precedent, or counter-intuitive mechanism that proves your point.
+3. The Debate Catalyst: Conclude with a sharp, open-ended question that directly challenges the author's assumption or asks for their tactical nuance, compelling the author to reply back (+150x Phoenix algorithm multiplier).
+
+=== STRICT CONSTRAINTS ===
+- Length Constraint: STRICTLY between 140 and 260 characters total.
+- Closing Question: MUST end with a debate catalyst question mark ('?').
+- Sentence Case: Punchy, human, conversational voice.
+- Banned AI Clichés: delve, testament, tapestry, supercharge, beacon, plethora, moreover, furthermore, in conclusion, game-changer, leverage, multifaceted, pivotal, foster, vital, crucial, endeavor, Great post!, Awesome thread!
+- No Hashtags: Never include hashtags (#).
+- Indian Politics Ban: Zero political references.
+"""
 
 
-class SniperReplyResult(BaseModel):
-    reply_text: str = Field(..., description="The drafted high-value reply text (< 280 chars)")
-    angle_used: str = Field(..., description="The angle chosen: contrarian, framework, witty, data, or insight")
+class SniperResult(BaseModel):
+    reply_text: str = Field(..., description="The drafted high-value reply text (strictly 140–260 chars, sentence case, ending with debate catalyst question)")
+    debate_catalyst: str = Field(default="", description="The extracted closing question compelling the author to reply back")
+    angle: str = Field(default="insight", description="The angle chosen: contrarian, framework, question, witty, data, or insight")
+    angle_used: str | None = Field(default=None, description="Backwards compatibility alias for angle")
+    gif_query: str | None = Field(default=None, description="Optional search term for a reaction GIF if a GIF fits the emotion, or null")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     reasoning: str = Field(default="", description="Brief explanation of the chosen angle")
+
+    @field_validator("reply_text")
+    @classmethod
+    def validate_reply_ends_with_question(cls, v: str) -> str:
+        trimmed = v.strip()
+        if not trimmed:
+            return v
+        if not trimmed.endswith("?"):
+            raise ValueError("Sniper reply must end with a debate catalyst question mark ('?').")
+        return v
+
+    def __init__(self, **data: Any) -> None:
+        if "angle" in data and "angle_used" not in data:
+            data["angle_used"] = data["angle"]
+        elif "angle_used" in data and "angle" not in data:
+            data["angle"] = data["angle_used"]
+        elif "angle" not in data and "angle_used" not in data:
+            data["angle"] = "insight"
+            data["angle_used"] = "insight"
+
+        if "debate_catalyst" not in data or not data["debate_catalyst"]:
+            reply = data.get("reply_text", "")
+            if reply:
+                questions = re.findall(r'([^.!?\n]+\?)', reply)
+                if questions:
+                    data["debate_catalyst"] = questions[-1].strip()
+                elif reply.strip().endswith("?"):
+                    data["debate_catalyst"] = reply.strip()
+        super().__init__(**data)
+
+
+# Backwards compatibility alias
+SniperReplyResult = SniperResult
 
 
 def clean_text_for_json(text: str) -> str:
@@ -80,20 +131,35 @@ def _build_sniper_system_prompt(persona: Persona, preferred_angle: str | None = 
         prompt_parts.append("\n=== CUSTOM MASTER PROMPT ===")
         prompt_parts.append(persona.system_prompt)
 
+    prompt_parts.append(f"\n{SNIPER_PROMPT_TEMPLATE}")
+
     prompt_parts.append(
         "\n=== X ALGORITHM & RETENTION OPTIMIZATION RULES ===\n"
-        "1. HIGH DWELL TIME & CATALYST: Provide immediate insight, unique angle, or punchline that makes the reader stop scrolling.\n"
-        "2. CONCISE LENGTH: Strictly under 240 characters (hard limit 280 characters) so the entire reply is visible on mobile without 'Show more' truncation.\n"
-        "3. ANTI-BOT / ZERO CLICHÉS: NEVER use generic praise or filler like 'Great post!', '100% agree!', 'Awesome thread!', 'So true!', 'Interesting thoughts!'.\n"
-        "4. NO HASHTAGS: Never include hashtags (#).\n"
-        "5. AUTHENTIC PERSONA: Stay 100% in your unique persona voice and domain perspective."
+        "1. STRICT TOPIC RELEVANCE (MANDATORY): You MUST directly address the EXACT topic, premise, claim, or joke of the target post. If the tweet is about tech, coding, AI, or startups, reply with witty commentary on tech/coding. If it is about comedy, banter with comedy. If it is about traffic, talk about traffic. NEVER bring up unrelated persona hobbies (DO NOT mention gym, sarees, trial rooms, or tea unless the target tweet is specifically about fitness, styling, or drinks). Off-topic replies make the account look like a dumb spam bot.\n"
+        "2. MATCH ENERGY & SCALE: Match the vibe of the room. Keep your reply high-density, sharp, and punchy.\n"
+        "3. THE DEBATE CATALYST QUESTION (MANDATORY): Conclude the reply with a compelling, open-ended debate catalyst question that urges the author to defend their position or add nuance (earning +150x Phoenix algorithm multiplier). Avoid generic robotic survey filler like 'What do you think?' or 'Do you agree?'. Instead, ask specific, high-entropy questions regarding mechanics, trade-offs, or bottlenecks.\n"
+        "4. DYNAMIC HOOK OPENINGS & EMOTIONAL VARIETY (STRICT): NEVER start every reply with 'If...' or academic conditionals! Vary your opening sentence structure dynamically with genuine human emotion, humor, shock, or sarcasm:\n"
+        "   - Sarcastic Banter: 'Bro had 2 lines in 2019 and dipped 💀', 'We are really out here doing algorithm boot camp training in the replies instead of just shipping code...'\n"
+        "   - Shock & Hype: 'Masahide Fujii returning as Rocks is pure cinema. That laugh alone is carrying the entire arc 🔥'\n"
+        "   - Dry Disbelief/Humor: 'Marketing departments treating individual TV episodes like software patch notes is crazy 😭'\n"
+        "   - Direct Punchy Observation: 'The M4 Max efficiency gap is actually absurd. Intel needs a miracle.'\n"
+        "   - BANNED: DO NOT start multiple replies with 'If Toei...', 'If the...', 'If you...'. Write with distinct human flair!\n"
+        "5. HIGH DWELL TIME & VALUE-FIRST: Provide an immediate counter-intuitive insight, sharp angle, or high-density proof that stops the scroll.\n"
+        "6. CONCISE LENGTH: Strictly between 140 and 260 characters so the entire reply is visible on mobile without 'Show more' truncation.\n"
+        "7. ZERO EXPENSIVE / FAKE ACADEMIC AI ENGLISH: STRICTLY BANNED: delve, tapestry, testament, supercharge, beacon, plethora, moreover, furthermore, in conclusion, game-changer, leverage, multifaceted, pivotal, foster, vital, crucial, endeavor. Speak in natural, grounded conversational voice.\n"
+        "8. READ THE ROOM & THREAD CONTEXT: Look at the tweet and top comments. If people are roasting or joking, join the banter with witty sarcasm. If it's a technical debate, bring empirical nuance.\n"
+        "9. GIF USAGE POLICY (SELECTIVE & CONSERVATIVE): Most replies (75-80%) MUST be pure text (set gif_query: null). DO NOT attach a GIF to every reply. ONLY attach a GIF when a visual meme/reaction is genuinely necessary to punch up an extraordinary comedic joke, disbelief, or shock (e.g. 'side eye', 'facepalm', 'crying laughing'). For standard commentary, tech discussions, questions, insights, and intellectual takes, KEEP gif_query: null.\n"
+        "10. NO HASHTAGS: Never include hashtags (#).\n"
+        "11. ABSOLUTE ZERO TOLERANCE FOR INDIAN POLITICS (HARD BAN): STRICTLY FORBIDDEN from discussing, referencing, mentioning, or reacting to ANY Indian political party, politician, election, policy, or controversy (STRICTLY BANNED: BJP, Congress, AAP, Modi, Rahul Gandhi, Kejriwal, Amit Shah, Yogi, Hindutva, RSS, Lok Sabha, Indian government). If a target post touches Indian politics, NEVER reply to it!\n"
+        "12. ANTI-BOT: NEVER use generic praise like 'Great post!', '100% agree!', 'Awesome thread!'. Stand out."
     )
 
     prompt_parts.append(
         "\n=== HIGH-IMPACT REPLY ANGLES ===\n"
         "- contrarian: Respectfully challenge the core premise with a crisp, logical counter-example or alternative viewpoint.\n"
         "- framework: Distill the topic into a concise, actionable mental model or 2-3 point framework.\n"
-        "- witty: Deliver a sharp, clever insider observation or relatable punchline in character.\n"
+        "- question: Pose a deep, provocative technical dilemma that cuts straight to the trade-offs.\n"
+        "- witty: Deliver a sharp, clever insider observation or relatable punchline with an engaging closer.\n"
         "- data: Supply a concrete data point, metric, historical precedent, or empirical nuance.\n"
         "- insight: Provide profound domain depth, first-principles analysis, or unique tactical insight."
     )
@@ -104,42 +170,277 @@ def _build_sniper_system_prompt(persona: Persona, preferred_angle: str | None = 
         )
     else:
         prompt_parts.append(
-            "\nTARGET ANGLE: Auto-select the most impactful angle among (contrarian, framework, witty, data, insight) "
+            "\nTARGET ANGLE: Auto-select the most impactful angle among (contrarian, framework, question, witty, data, insight) "
             "that best matches your persona expertise and the target tweet content."
         )
 
     return "\n".join(prompt_parts)
 
 
+def _detect_language_vibe(text: str, top_comments: list[Any]) -> str:
+    """Detects whether the thread is Pure English or a Hinglish Mix based on vocabulary markers."""
+    hinglish_markers = {
+        "yaar", "bhai", "sahi", "mein", "nahi", "kya", "hai", "bhi", "toh", "arre",
+        "karo", "hoga", "wala", "wali", "matlab", "alag", "kuch", "didi", "bhaiya",
+        "sab", "bas", "par", "aur", "ek", "hum", "tum", "aaj", "kal", "kar", "raha",
+        "rahi", "gaya", "gayi", "batao", "dekh", "sun", "apna", "apne", "sirf", "bol",
+        "jugaad", "chal", "bhook", "neend", "paisa", "paise", "kaam", "zindagi"
+    }
+
+    all_text = text.lower()
+    for tc in top_comments:
+        c_str = tc.get("text", "") if isinstance(tc, dict) else str(tc)
+        all_text += " " + c_str.lower()
+
+    words = re.findall(r"\b[a-z]+\b", all_text)
+    if not words:
+        return "english"
+
+    hinglish_hits = sum(1 for w in words if w in hinglish_markers)
+    if hinglish_hits >= 2 or (hinglish_hits / max(1, len(words))) > 0.03:
+        return "hinglish"
+    return "english"
+
+
+TECH_KEYWORDS = {
+    "iphone", "macbook", "laptop", "smartphone", "android", "apple", "gpu", "nvidia",
+    "intel", "amd", "snapdragon", "ai", "llm", "chatgpt", "claude", "deepseek", "openai",
+    "anthropic", "coding", "developer", "software", "hardware", "battery", "benchmark",
+    "saas", "tech", "gadget", "chip", "semiconductor", "google", "meta", "microsoft"
+}
+
+ANIME_KEYWORDS = {
+    "one piece", "luffy", "zoro", "oda", "god valley", "manga", "anime", "powerscaling",
+    "shonen", "naruto", "bleach", "jujutsu", "jjk", "demon slayer", "chapter", "spoilers",
+    "toei", "dragon ball", "goku", "otaku", "cosplay", "sanji", "straw hat"
+}
+
+MOVIES_KEYWORDS = {
+    "movie", "film", "cinema", "trailer", "box office", "actor", "director",
+    "hollywood", "bollywood", "oscar", "streaming", "netflix", "hbo", "theatrical", "series"
+}
+
+GROWTH_KEYWORDS = {
+    "drop your handle", "follow back", "mutuals", "f4f", "verified mutuals",
+    "looking for mutuals", "follow everyone", "grow together", "drop handles"
+}
+
+
 def _build_sniper_user_prompt(target_tweet: dict[str, Any], preferred_angle: str | None = None) -> str:
-    """Constructs the user prompt containing target tweet details and schema instructions."""
+    """Constructs the user prompt containing target tweet details, top 5-10 comments, language directive, and schema instructions."""
     author = target_tweet.get("author") or target_tweet.get("handle") or target_tweet.get("author_handle") or "KOL"
     author = str(author).lstrip("@")
     text = target_tweet.get("text", "").strip()
+    top_comments = target_tweet.get("top_comments") or target_tweet.get("replies_sample") or []
+
+    lang_vibe = _detect_language_vibe(text, top_comments)
+    if lang_vibe == "english":
+        lang_instruction = (
+            "LANGUAGE DIRECTIVE (STRICT): The target post and discussion are in English. "
+            "DO NOT USE ANY HINDI OR HINGLISH WORDS (no 'yaar', 'bhai', 'sahi mein', 'arre', etc.). "
+            "Respond in clean, natural, witty conversational English that sounds 100% human."
+        )
+    else:
+        lang_instruction = (
+            "LANGUAGE DIRECTIVE: The target post and comments contain a natural Hinglish mix. "
+            "Respond in an authentic, natural blend of conversational English and subtle Hinglish "
+            "(e.g. 'yaar', 'sahi mein', 'scene kya hai', 'fr', 'ngl')."
+        )
+
+    # Domain / Niche Lock Detection
+    target_lower = text.lower()
+    is_tech = any(k in target_lower for k in TECH_KEYWORDS)
+    is_anime = any(k in target_lower for k in ANIME_KEYWORDS)
+    is_movies = any(k in target_lower for k in MOVIES_KEYWORDS)
+    is_growth = any(k in target_lower for k in GROWTH_KEYWORDS)
+
+    if is_tech and not is_anime:
+        domain_lock = (
+            "🎯 DOMAIN LOCK (MANDATORY - TECH CONVERSATION):\n"
+            "- The target post is strictly about TECHNOLOGY / HARDWARE / AI / COMPUTING.\n"
+            "- YOUR REPLY MUST BE 100% ABOUT TECH.\n"
+            "- STRICTLY FORBIDDEN: DO NOT mention anime, manga, One Piece, Oda, or unrelated pop culture! "
+            "Replying with anime on a tech post makes the bot look like a broken spam account."
+        )
+    elif is_anime and not is_tech:
+        domain_lock = (
+            "🎯 DOMAIN LOCK (MANDATORY - ANIME / MANGA CONVERSATION):\n"
+            "- The target post is strictly about ANIME / MANGA / ONE PIECE.\n"
+            "- YOUR REPLY MUST BE 100% ABOUT ANIME & MANGA.\n"
+            "- STRICTLY FORBIDDEN: DO NOT mention laptop chips, benchmarks, or coding!"
+        )
+    elif is_growth:
+        domain_lock = (
+            "🎯 DOMAIN LOCK (MANDATORY - MUTUALS & GROWTH THREAD):\n"
+            "- The target post is an active follow-back / mutuals train.\n"
+            "- Introduce yourself authentically (anime, tech & cinema enthusiast) and invite active mutuals to connect!"
+        )
+    elif is_movies:
+        domain_lock = (
+            "🎯 DOMAIN LOCK (MANDATORY - CINEMA & ENTERTAINMENT):\n"
+            "- The target post is strictly about MOVIES / SHOWS / DIRECTING / BOX OFFICE.\n"
+            "- Keep your response 100% grounded in cinema and filmmaking discussion."
+        )
+    else:
+        domain_lock = (
+            "🎯 DOMAIN LOCK (MANDATORY):\n"
+            "- Reply ONLY to the exact topic and premise stated in the target post above."
+        )
 
     prompt = (
-        f"Target Tweet to Reply To:\n"
+        f"Draft a high-impact Sniper Reply to the following post by @{author}:\n\n"
+        f"--- TARGET POST ---\n"
         f"Author: @{author}\n"
-        f"Tweet Content: \"{text}\"\n\n"
-        f"Craft a high-retention sniper reply adhering to your persona voice and algorithm rules.\n"
+        f"Content: \"{text}\"\n"
     )
+
+    if top_comments:
+        prompt += "\n--- TOP COMMENTS IN THREAD (READ THE ROOM - 5 TO 10 COMMENTS) ---\n"
+        for i, tc in enumerate(top_comments[:10], 1):
+            tc_text = tc.get("text", "") if isinstance(tc, dict) else str(tc)
+            prompt += f"{i}. \"{tc_text}\"\n"
+
+    media_alts = target_tweet.get("media_alts") or []
+    if media_alts:
+        prompt += "\n--- ATTACHED IMAGE VISUAL DESCRIPTIONS ---\n"
+        for i, alt in enumerate(media_alts, 1):
+            prompt += f"- Image {i}: {alt}\n"
+
+    prompt += "-------------------\n\n"
+    prompt += f"{domain_lock}\n\n"
+    prompt += f"{lang_instruction}\n\n"
+    prompt += "Craft a high-retention sniper reply strictly adhering to the post's exact topic, 3-stage formula, and algorithm rules.\n"
 
     if preferred_angle and preferred_angle.lower() in VALID_ANGLES:
         prompt += f"Guide your response using the '{preferred_angle.lower()}' angle.\n"
     else:
-        prompt += "Select the best angle: 'contrarian', 'framework', 'witty', 'data', or 'insight'.\n"
+        prompt += "Select the best angle: 'contrarian', 'framework', 'question', 'witty', 'data', or 'insight'.\n"
 
     prompt += (
         "\nReturn a JSON object with this exact schema:\n"
         "{\n"
-        "  \"reply_text\": \"Your concise reply text (< 240 chars, max 280 chars, no hashtags)\",\n"
-        "  \"angle_used\": \"contrarian | framework | witty | data | insight\",\n"
+        "  \"reply_text\": \"Your complete 3-stage reply text (strictly 140-260 characters, ending with a debate catalyst question '?')\",\n"
+        "  \"debate_catalyst\": \"The exact closing question extracted from reply_text that compels the author to reply back\",\n"
+        "  \"angle\": \"contrarian | framework | question | witty | data | insight\",\n"
+        "  \"gif_query\": \"null by default. ONLY provide a 1-2 word reaction GIF search keyword if a visual reaction is genuinely needed for comedic impact; otherwise ALWAYS return null\",\n"
         "  \"confidence\": 0.0-1.0,\n"
-        "  \"reasoning\": \"Brief explanation of the chosen angle and why it works\"\n"
+        "  \"reasoning\": \"Brief explanation of why the reply and debate catalyst fit the room vibe\"\n"
         "}\n"
         "Return ONLY the valid JSON object with no surrounding commentary."
     )
     return prompt
+
+
+# 5-Stage Verification Gatekeeper Regex Patterns
+BANNED_AI_WORDS_REGEX = re.compile(
+    r"\b(delve|delving|tapestry|tapestries|testament|beacon|plethora|"
+    r"moreover|furthermore|in conclusion|game[- ]?changer|leverage|leveraging|"
+    r"multifaceted|pivotal|foster|fostering|vital|crucial|endeavor|endeavors|"
+    r"supercharge|supercharged|supercharging|"
+    r"realm|buckle up|let'?s dive in|unpacking|navigating the)\b",
+    re.IGNORECASE,
+)
+
+BANNED_BOT_PRAISE_REGEX = re.compile(
+    r"^(great (post|tweet|thread)|100% agree|awesome (post|thread)|"
+    r"couldn'?t agree more|spot on|so true|well said)[!.]*",
+    re.IGNORECASE,
+)
+
+BANNED_ROUTINE_FILLER_REGEX = re.compile(
+    r"\b(my (morning|evening) (coffee|chai|tea)|sipping (my )?(chai|coffee)|"
+    r"adrak chai|iced matcha|terrace sunset|peace is underrated|"
+    r"just finished (my )?workout|in my gym gear|average day in)\b",
+    re.IGNORECASE,
+)
+
+BANNED_ROBOTIC_QUESTIONS_REGEX = re.compile(
+    r"\b(are you (trusting|ready for|excited for|holding onto|falling for|hyped for)|"
+    r"what do you think|do you agree|what are your thoughts|let me know in the comments|"
+    r"drop your thoughts|which side are you on)\b",
+    re.IGNORECASE,
+)
+
+BANNED_POLITICS_REGEX = re.compile(
+    r"\b(bjp|congress|aap|aam aadmi party|modi|narendra modi|rahul gandhi|"
+    r"kejriwal|arvind kejriwal|amit shah|yogi|adityanath|hindutva|rss|"
+    r"rashtriya swayamsevak|lok sabha|rajya sabha|bjp4india|incindia|"
+    r"indian politics|indian election|mamata banerjee|samajwadi party|"
+    r"bsp|dmk|aiadmk|shiv sena|trinamool)\b",
+    re.IGNORECASE,
+)
+
+
+def verify_sniper_reply(
+    reply_text: str,
+    language_mode: str = "english",
+    target_text: str | None = None,
+) -> tuple[bool, str | None]:
+    """
+    Validates candidate reply against quality, safety, and domain-matching gatekeepers.
+    Returns (is_valid, failure_reason).
+    """
+    text = reply_text.strip()
+    if not text:
+        return False, "Empty reply text."
+
+    # Stage 1: Length Constraint
+    if len(text) > 280:
+        return False, f"Length exceeds 280 characters ({len(text)} chars)."
+
+    # Stage 2: Cliché & Negative Token Filters
+    if BANNED_AI_WORDS_REGEX.search(text):
+        m = BANNED_AI_WORDS_REGEX.search(text)
+        return False, f"Contains banned AI academic word: '{m.group(0)}'."
+
+    if BANNED_BOT_PRAISE_REGEX.search(text):
+        return False, "Contains generic bot praise."
+
+    if BANNED_ROUTINE_FILLER_REGEX.search(text):
+        m = BANNED_ROUTINE_FILLER_REGEX.search(text)
+        return False, f"Contains banned routine/beverage filler: '{m.group(0)}'."
+
+    # Stage 3: Language Mode Adherence
+    if language_mode == "english":
+        hinglish_leak_markers = {"yaar", "bhai", "sahi", "mein", "kya", "hai", "arre", "matlab", "didi", "bhaiya"}
+        words = set(re.findall(r"\b[a-z]+\b", text.lower()))
+        leaks = words.intersection(hinglish_leak_markers)
+        if leaks:
+            return False, f"Language mode is Pure English but found Hindi words: {list(leaks)}."
+
+    # Stage 4: Cross-Domain Contamination Gatekeeper
+    if target_text:
+        t_low = target_text.lower()
+        r_low = text.lower()
+        is_tech_target = any(k in t_low for k in TECH_KEYWORDS) and not any(k in t_low for k in ANIME_KEYWORDS)
+        is_anime_target = any(k in t_low for k in ANIME_KEYWORDS) and not any(k in t_low for k in TECH_KEYWORDS)
+
+        if is_tech_target:
+            anime_contaminants = {"oda", "luffy", "zoro", "god valley", "anime", "manga", "powerscaling", "shonen", "chapter"}
+            hits = [w for w in anime_contaminants if re.search(r"\b" + re.escape(w) + r"\b", r_low)]
+            if hits:
+                return False, f"Domain mismatch: Target post is tech, but reply contains anime keywords: {hits}."
+
+        if is_anime_target:
+            tech_contaminants = {"macbook", "gpu", "snapdragon", "m4 max", "benchmark", "nvidia", "intel", "semiconductor"}
+            hits = [w for w in tech_contaminants if re.search(r"\b" + re.escape(w) + r"\b", r_low)]
+            if hits:
+                return False, f"Domain mismatch: Target post is anime, but reply contains tech hardware keywords: {hits}."
+
+    # Stage 5: Banned Robotic Survey Questions Gatekeeper
+    if BANNED_ROBOTIC_QUESTIONS_REGEX.search(text):
+        m = BANNED_ROBOTIC_QUESTIONS_REGEX.search(text)
+        return False, f"Contains robotic survey question: '{m.group(0)}'. Keep reply as a natural statement or banter."
+
+    # Stage 6: Hard Indian Politics Blacklist
+    if BANNED_POLITICS_REGEX.search(text):
+        m = BANNED_POLITICS_REGEX.search(text)
+        return False, f"Contains banned Indian political terms: '{m.group(0)}'."
+
+    if target_text and BANNED_POLITICS_REGEX.search(target_text):
+        return False, "Target post is related to Indian politics. Rejected by political safety filter."
+
+    return True, None
 
 
 async def generate_sniper_reply(
@@ -147,125 +448,168 @@ async def generate_sniper_reply(
     target_tweet: dict[str, Any],
     preferred_angle: str | None = None,
     client: Any | None = None,
-) -> SniperReplyResult:
+) -> SniperResult:
     """
     Generates an algorithm-optimized, high-retention sniper reply to a target KOL tweet.
-    Uses persona voice, rules, and selected angle (contrarian, framework, witty, data, insight).
+    Uses persona voice, rules, and selected angle (contrarian, framework, question, witty, data, insight).
+    Enforces verification with up to 2 retries.
     """
+    author = target_tweet.get("author") or target_tweet.get("handle") or "creator"
+    clean_author = str(author).lstrip("@")
+    target_text = target_tweet.get("text", "")
+    top_comments = target_tweet.get("top_comments") or []
+    lang_mode = _detect_language_vibe(target_text, top_comments)
+
     system_prompt = _build_sniper_system_prompt(persona, preferred_angle)
     user_prompt = _build_sniper_user_prompt(target_tweet, preferred_angle)
+
+    # Real-Time Web Search Fact-Grounding & Verification
+    try:
+        from xbot.ai.fact_grounder import ground_context_with_live_facts
+        grounding_block = await ground_context_with_live_facts(target_text)
+        if grounding_block:
+            user_prompt += f"\n\n{grounding_block}"
+    except Exception as g_err:
+        logger.debug("Live fact grounding lookup skipped: %s", g_err)
 
     model = getattr(
         settings,
         "MODEL_REPLY_ANALYSIS",
-        getattr(settings, "MODEL_GENERATION", getattr(settings, "MODEL_POST_CREATION", "litellm/deepseek-v4-flash")),
+        getattr(settings, "MODEL_GENERATION", getattr(settings, "MODEL_POST_CREATION", "gemini-3.5-flash-lite")),
     )
 
     ai_client = client if client is not None else get_ai_client()
-
     chosen_default_angle = preferred_angle.lower() if preferred_angle and preferred_angle.lower() in VALID_ANGLES else "insight"
 
+    # Multimodal Vision Payload Construction if Images Exist
+    media_urls = [u for u in target_tweet.get("media_urls", []) if isinstance(u, str) and u.startswith("http")]
+    if media_urls:
+        vision_user_content: list[dict[str, Any]] = [{"type": "text", "text": user_prompt}]
+        for u in media_urls[:2]:
+            vision_user_content.append({
+                "type": "image_url",
+                "image_url": {"url": u}
+            })
+    else:
+        vision_user_content = user_prompt
+
+    # 1. Attempt structured parse if supported by client
     try:
-        # 1. Attempt structured parse via beta endpoint
-        try:
+        if hasattr(ai_client, "beta") and hasattr(ai_client.beta, "chat") and hasattr(ai_client.beta.chat.completions, "parse"):
             completion = await ai_client.beta.chat.completions.parse(
                 model=model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                response_format=SniperReplyResult,
+                response_format=SniperResult,
             )
             parsed = completion.choices[0].message.parsed
-            if isinstance(parsed, SniperReplyResult):
-                # Ensure length constraint
-                if len(parsed.reply_text) > 280:
-                    parsed.reply_text = parsed.reply_text[:280].strip()
+            if isinstance(parsed, SniperResult):
+                if len(parsed.reply_text) > 260:
+                    parsed.reply_text = parsed.reply_text[:260].strip()
+                    if not parsed.reply_text.endswith("?"):
+                        parsed.reply_text = parsed.reply_text.rstrip(".! ") + "?"
                 return parsed
-        except Exception as parse_err:
-            logger.warning("Structured parse failed for sniper reply, falling back to JSON create: %s", parse_err)
+    except Exception as parse_err:
+        logger.debug("Structured parse skipped/failed: %s", parse_err)
 
-        # 2. Fallback to standard chat completions with JSON mode
+    # 2. Attempt standard completions with up to 3 retries and verification
+    for attempt in range(3):
         try:
-            completion = await ai_client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                response_format={"type": "json_object"},
-            )
-        except Exception:
-            # Final fallback without response_format if json_object mode not supported
-            completion = await ai_client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
+            try:
+                completion = await ai_client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": vision_user_content},
+                    ],
+                    response_format={"type": "json_object"},
+                )
+            except Exception:
+                completion = await ai_client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
 
-        raw_content = completion.choices[0].message.content or ""
-        cleaned_json = clean_text_for_json(raw_content)
+            raw_content = completion.choices[0].message.content or ""
+            if not isinstance(raw_content, str):
+                raw_content = str(raw_content)
 
-        try:
+            cleaned_json = clean_text_for_json(raw_content)
             data = json.loads(cleaned_json)
+
             if isinstance(data, dict):
-                # Check for wrapped structures
                 if "reply" in data and isinstance(data["reply"], dict):
                     data = data["reply"]
                 elif "content" in data and isinstance(data["content"], dict):
                     data = data["content"]
 
                 reply_text = str(data.get("reply_text") or data.get("content") or "").strip()
-                angle_used = str(data.get("angle_used") or chosen_default_angle).lower()
+                debate_catalyst = str(data.get("debate_catalyst") or "").strip()
+                angle_used = str(data.get("angle") or data.get("angle_used") or chosen_default_angle).lower()
                 if angle_used not in VALID_ANGLES:
                     angle_used = chosen_default_angle
                 confidence = float(data.get("confidence", 1.0))
-                confidence = max(0.0, min(1.0, confidence))
                 reasoning = str(data.get("reasoning") or "")
 
-                if len(reply_text) > 280:
-                    reply_text = reply_text[:280].strip()
+                # Verification Check
+                is_valid, fail_reason = verify_sniper_reply(
+                    reply_text, language_mode=lang_mode, target_text=target_text
+                )
+                if not is_valid and attempt < 2:
+                    logger.warning("Sniper reply verification failed on attempt %d: %s. Retrying...", attempt + 1, fail_reason)
+                    user_prompt += f"\n\nPREVIOUS GENERATION FAILED VERIFICATION: {fail_reason}. Please rewrite cleanly."
+                    continue
 
-                return SniperReplyResult(
+                raw_gif = data.get("gif_query")
+                gif_query = None
+                if raw_gif and str(raw_gif).strip().lower() not in ("null", "none", "", "n/a", "false"):
+                    if angle_used in ("witty", "contrarian"):
+                        gif_query = str(raw_gif).strip()
+
+                if not reply_text.endswith("?") and reply_text:
+                    reply_text = reply_text.rstrip(".! ") + "?"
+
+                return SniperResult(
                     reply_text=reply_text,
+                    debate_catalyst=debate_catalyst,
+                    angle=angle_used,
                     angle_used=angle_used,
+                    gif_query=gif_query,
                     confidence=confidence,
                     reasoning=reasoning,
                 )
-        except (json.JSONDecodeError, ValueError, TypeError) as json_err:
-            logger.warning("JSON decoding failed for sniper reply: %s. Using raw text fallback.", json_err)
+        except Exception as e:
+            logger.warning("Attempt %d failed during sniper reply generation: %s", attempt + 1, e)
 
-        # 3. Raw text fallback
+    # 3. Raw text fallback check
+    if 'raw_content' in locals() and raw_content:
         cleaned_raw = clean_raw_reply_text(raw_content)
-        if len(cleaned_raw) > 280:
-            cleaned_raw = cleaned_raw[:280].strip()
+        if cleaned_raw:
+            if not cleaned_raw.endswith("?"):
+                cleaned_raw = cleaned_raw.rstrip(".! ") + "?"
+            if len(cleaned_raw) > 260:
+                cleaned_raw = cleaned_raw[:259].rstrip() + "?"
+            return SniperResult(
+                reply_text=cleaned_raw,
+                angle=chosen_default_angle,
+                angle_used=chosen_default_angle,
+                confidence=0.8,
+                reasoning="Fallback parsed from raw text completion",
+            )
 
-        return SniperReplyResult(
-            reply_text=cleaned_raw,
-            angle_used=chosen_default_angle,
-            confidence=0.8 if cleaned_raw else 0.0,
-            reasoning="Fallback parsed from raw text completion",
-        )
-
-    except Exception as e:
-        logger.error("Error in generate_sniper_reply: %s", e)
-        # Construct an in-character fallback response based on angle
-        if chosen_default_angle == "contrarian":
-            fallback_text = "The bigger bottleneck isn't the scale itself, but how state and verification loops are maintained across sessions."
-        elif chosen_default_angle == "framework":
-            fallback_text = "Key pattern here:\n1. Isolate execution context\n2. Keep verification loops deterministic\n3. Reduce context drift"
-        elif chosen_default_angle == "witty":
-            fallback_text = "Funny how every autonomous agent demo looks like magic until you give it a real production database."
-        elif chosen_default_angle == "data":
-            fallback_text = "Data shows over 80% of agent failure modes trace back to context compaction errors rather than raw model capabilities."
-        else:
-            fallback_text = "High signal insight. The core differentiator in production agents is deterministic state management."
-
-        return SniperReplyResult(
-            reply_text=fallback_text,
-            angle_used=chosen_default_angle,
-            confidence=0.0,
-            reasoning=f"Offline heuristic fallback generated due to API issue: {e}",
-        )
+    # 4. If all top-tier writing models fail/timeout after retries, discard to avoid low-quality slop
+    logger.warning("All top-tier writing models exhausted for @%s. Discarding reply to retry in next session.", clean_author)
+    return SniperResult(
+        reply_text="",
+        debate_catalyst="",
+        angle=chosen_default_angle,
+        angle_used=chosen_default_angle,
+        gif_query=None,
+        confidence=0.0,
+        reasoning=f"Generation failed: All top-tier writing models failed or timed out after retries for @{clean_author}. Discarded to prevent posting low-quality output.",
+    )

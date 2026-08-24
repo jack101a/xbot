@@ -11,7 +11,7 @@ from xbot.ai.hook_optimizer import (
 from xbot.ai.planner import PlannedAction, SessionPlan, plan_session
 from xbot.ai.poll_generator import GeneratedPoll, generate_poll
 from xbot.ai.post_session import PostSessionProcessor
-from xbot.ai.sniper import SniperReplyResult, generate_sniper_reply
+from xbot.ai.sniper import SniperReplyResult, SniperResult, generate_sniper_reply
 from xbot.ai.strategy import StrategyReviewer
 from xbot.ai.trend_generator import TrendEvaluation, generate_trend_take
 from xbot.ai.trend_radar import TrendItem, fetch_rss_trends
@@ -28,6 +28,7 @@ __all__ = [
     "EngagementEvaluator",
     "PostSessionProcessor",
     "SniperReplyResult",
+    "SniperResult",
     "generate_sniper_reply",
     "StrategyReviewer",
     "HookCandidate",

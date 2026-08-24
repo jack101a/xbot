@@ -173,7 +173,7 @@ async def test_sniper_check_targets_executes_reply_and_records_db(
     }
 
     mock_sniper_result = SniperReplyResult(
-        reply_text="Compute efficiency doubles, but interconnect latency remains bound by physics.",
+        reply_text="Compute efficiency doubles, but interconnect latency remains bound by physics. How are you routing around the latency bottleneck?",
         angle_used="framework",
         confidence=0.92,
         reasoning="Framing compute gains vs physical latency bottleneck.",
