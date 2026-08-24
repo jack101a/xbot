@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from typing import Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from xbot.ai.client import get_ai_client
 from xbot.config import settings
@@ -16,6 +16,8 @@ VALID_ARCHETYPES = {
     "contrarian",
     "framework_breakdown",
     "story_relatable",
+    "statistical_data",
+    "bold_prediction",
 }
 
 ARCHETYPE_ALIASES = {
@@ -31,11 +33,222 @@ ARCHETYPE_ALIASES = {
     "story-relatable": "story_relatable",
     "story": "story_relatable",
     "relatable": "story_relatable",
+    "statistical_data": "statistical_data",
+    "statistical-data": "statistical_data",
+    "statistical": "statistical_data",
+    "data": "statistical_data",
+    "data_proof": "statistical_data",
+    "bold_prediction": "bold_prediction",
+    "bold-prediction": "bold_prediction",
+    "prediction": "bold_prediction",
+    "future_forecast": "bold_prediction",
+}
+
+VALID_VIRAL_ARCHETYPES = {
+    "contrarian_reversal",
+    "asymmetric_result",
+    "zero_to_hero",
+    "framework_breakdown",
+}
+
+VIRAL_ARCHETYPE_ALIASES = {
+    "contrarian": "contrarian_reversal",
+    "contrarian_reversal": "contrarian_reversal",
+    "contrarian-reversal": "contrarian_reversal",
+    "reversal": "contrarian_reversal",
+    "asymmetric": "asymmetric_result",
+    "asymmetric_result": "asymmetric_result",
+    "asymmetric-result": "asymmetric_result",
+    "asymmetry": "asymmetric_result",
+    "zero_to_hero": "zero_to_hero",
+    "zero-to-hero": "zero_to_hero",
+    "story": "zero_to_hero",
+    "transformation": "zero_to_hero",
+    "framework": "framework_breakdown",
+    "framework_breakdown": "framework_breakdown",
+    "framework-breakdown": "framework_breakdown",
+    "breakdown": "framework_breakdown",
+    "curiosity_gap": "contrarian_reversal",
+    "story_relatable": "zero_to_hero",
+    "statistical_data": "asymmetric_result",
+    "bold_prediction": "contrarian_reversal",
+}
+
+LINK_REGEX = re.compile(r'https?://[^\s)\]"]+|www\.[^\s)\]"]+', re.IGNORECASE)
+
+BOOKMARK_KEYWORDS = {
+    "framework", "cheat sheet", "cheatsheet", "swipe file", "checklist",
+    "playbook", "template", "roadmap", "architecture", "breakdown",
+    "actionable", "step-by-step", "blueprint", "heuristics", "mental model",
+    "rules", "guide", "guide to", "tips", "mistakes", "tools", "stack",
+    "lessons", "resources", "workflow", "system", "matrix", "scaling",
+    "production", "tutorial", "best practices", "deep dive", "how-to", "howto"
 }
 
 
+def extract_links(text: str) -> tuple[str, str | None]:
+    """
+    Strips external links from text to avoid the -70% to -80% algorithmic reach penalty
+    and isolates the primary URL for 1st-reply injection.
+    """
+    if not text:
+        return "", None
+
+    matches = LINK_REGEX.findall(text)
+    extracted_link = matches[0].rstrip(".,;:!?") if matches else None
+
+    # Replace markdown link syntax [text](url) -> text
+    clean_text = re.sub(r'\[([^\]]+)\]\((?:https?://|www\.)[^\s)]+\)', r'\1', text)
+
+    # Remove remaining URLs
+    clean_text = LINK_REGEX.sub('', clean_text)
+
+    # Clean up empty brackets, parens, trailing 'link:', 'url:', etc.
+    clean_text = re.sub(r'\(\s*\)', '', clean_text)
+    clean_text = re.sub(r'\[\s*\]', '', clean_text)
+    clean_text = re.sub(r'(?:link|url|source|read more):\s*$', '', clean_text, flags=re.IGNORECASE | re.MULTILINE)
+
+    # Clean multiple spaces on each line
+    lines = []
+    for line in clean_text.split('\n'):
+        line_clean = re.sub(r'[ \t]+', ' ', line).strip()
+        lines.append(line_clean)
+
+    # Collapse multiple blank lines
+    result = '\n'.join(lines)
+    result = re.sub(r'\n{3,}', '\n\n', result).strip()
+    return result, extracted_link
+
+
+def calculate_bookmark_score(text: str) -> float:
+    """
+    Evaluates bookmark-bait utility based on numbered frameworks, action steps,
+    cheat sheets, checklists, and high-density formatting (1.0 to 10.0).
+    """
+    if not text or not text.strip():
+        return 1.0
+
+    clean_text = text.strip()
+    score = 2.5  # Base score
+
+    # 1. Numbered items / action steps / bullets
+    list_item_pattern = re.compile(
+        r'^\s*(?:\d+[\.\)]|step\s*\d+[:\.]?|rule\s*\d+[:\.]?|phase\s*\d+[:\.]?|part\s*\d+[:\.]?|[•\-\*])\s+',
+        re.IGNORECASE | re.MULTILINE,
+    )
+    list_matches = list_item_pattern.findall(clean_text)
+    num_items = len(list_matches)
+
+    if num_items >= 5:
+        score += 3.5
+    elif num_items >= 3:
+        score += 2.5
+    elif num_items >= 1:
+        score += 1.5
+
+    # 2. High-utility bookmark keywords
+    text_lower = clean_text.lower()
+    keyword_hits = sum(1 for kw in BOOKMARK_KEYWORDS if kw in text_lower)
+    score += min(3.5, keyword_hits * 1.0)
+
+    # 3. Multiline structure & formatting
+    paragraphs = [p for p in clean_text.split('\n\n') if p.strip()]
+    if len(paragraphs) >= 2 or '\n' in clean_text:
+        score += 1.0
+
+    # 4. Code snippets or monospaced text
+    if '`' in clean_text:
+        score += 0.5
+
+    return max(1.0, min(10.0, round(score, 1)))
+
+
+def trim_open_loop_hook(text: str, max_len: int = 99) -> str:
+    """Cleans and trims hook to strictly <100 characters for mobile fold retention."""
+    text = clean_hook_text(text).strip()
+    if len(text) <= max_len:
+        return text
+    # Try to trim at punctuation boundary before max_len
+    trimmed = text[:max_len]
+    last_punct = max(trimmed.rfind('.'), trimmed.rfind('?'), trimmed.rfind('!'), trimmed.rfind(':'))
+    if last_punct > 40:
+        return trimmed[:last_punct + 1].strip()
+    last_space = trimmed.rfind(' ')
+    if last_space > 40:
+        return trimmed[:last_space].strip()
+    return trimmed.strip()
+
+
+class OptimizedPostResult(BaseModel):
+    open_loop_hook: str = Field(..., description="Curiosity cliffhanger strictly <100 characters before the mobile fold")
+    bookmark_score: float = Field(default=5.0, ge=1.0, le=10.0, description="Bookmark-bait utility score (1.0 to 10.0)")
+    clean_body: str = Field(default="", description="Link-free formatted body with numbered framework/bullet points")
+    extracted_link: str | None = Field(default=None, description="Isolated external URL for 1st-reply injection")
+    archetype: str = Field(
+        default="framework_breakdown",
+        description="Viral hook archetype: contrarian_reversal, asymmetric_result, zero_to_hero, framework_breakdown",
+    )
+    full_optimized_text: str = Field(default="", description="Complete formatted post combining open-loop hook and clean body")
+
+    @field_validator("open_loop_hook")
+    @classmethod
+    def validate_open_loop_hook(cls, v: str) -> str:
+        trimmed = v.strip()
+        if len(trimmed) >= 100:
+            trimmed = trim_open_loop_hook(trimmed, max_len=99)
+        return trimmed
+
+    @field_validator("bookmark_score")
+    @classmethod
+    def validate_bookmark_score(cls, v: float) -> float:
+        return max(1.0, min(10.0, round(float(v), 2)))
+
+    def __init__(self, **data: Any) -> None:
+        arch = str(data.get("archetype", "framework_breakdown")).strip().lower()
+        data["archetype"] = VIRAL_ARCHETYPE_ALIASES.get(arch, "framework_breakdown" if arch not in VALID_VIRAL_ARCHETYPES else arch)
+
+        if "open_loop_hook" in data and isinstance(data["open_loop_hook"], str):
+            hook = data["open_loop_hook"].strip()
+            if len(hook) >= 100:
+                data["open_loop_hook"] = trim_open_loop_hook(hook, max_len=99)
+
+        if "full_optimized_text" not in data or not data["full_optimized_text"]:
+            hook = data.get("open_loop_hook", "").strip()
+            body = data.get("clean_body", "").strip()
+            if hook and body:
+                if body.startswith(hook):
+                    data["full_optimized_text"] = body
+                else:
+                    data["full_optimized_text"] = f"{hook}\n\n{body}"
+            elif hook:
+                data["full_optimized_text"] = hook
+            else:
+                data["full_optimized_text"] = body
+        super().__init__(**data)
+
+
+class _ViralHookResponse(BaseModel):
+    open_loop_hook: str = Field(..., description="Curiosity cliffhanger strictly <100 characters before the mobile fold")
+    clean_body: str = Field(default="", description="Formatted body with numbered steps or frameworks, free of external links")
+    archetype: Literal[
+        "contrarian_reversal",
+        "asymmetric_result",
+        "zero_to_hero",
+        "framework_breakdown",
+    ] = Field(default="framework_breakdown", description="Viral hook archetype")
+    bookmark_score: float = Field(default=8.0, ge=1.0, le=10.0, description="Bookmark-bait score from 1.0 to 10.0")
+    reasoning: str = Field(default="", description="Why this hook creates curiosity and dwell time")
+
+
 class HookCandidate(BaseModel):
-    archetype: Literal["curiosity_gap", "contrarian", "framework_breakdown", "story_relatable"]
+    archetype: Literal[
+        "curiosity_gap",
+        "contrarian",
+        "framework_breakdown",
+        "story_relatable",
+        "statistical_data",
+        "bold_prediction",
+    ]
     hook_text: str = Field(..., description="Opening hook text (<140 chars)")
     score: float = Field(default=5.0, ge=1.0, le=10.0, description="Dwell retention score")
     reasoning: str = Field(default="", description="Evaluation reasoning")
@@ -51,7 +264,7 @@ class HookOptimizationResult(BaseModel):
 class _HookGenerationResponse(BaseModel):
     candidates: list[HookCandidate] = Field(
         default_factory=list,
-        description="The 4 hook archetype candidates evaluated and scored",
+        description="The 6 hook archetype candidates evaluated and scored",
     )
 
 
@@ -171,11 +384,13 @@ def _build_hook_optimizer_system_prompt(persona: Any, topic: str = "") -> str:
         prompt_parts.append(f"\n=== CUSTOM MASTER PROMPT ===\n{system_prompt}")
 
     prompt_parts.append(
-        "\n=== 4 VIRAL HOOK ARCHETYPES (REQUIRED) ===\n"
+        "\n=== 6 VIRAL HOOK ARCHETYPES (REQUIRED) ===\n"
         "1. curiosity_gap: Creates an irresistible information gap or provocative mystery that forces the reader to stop scrolling.\n"
         "2. contrarian: Directly challenges conventional wisdom, industry dogma, or common consensus with a sharp counter-intuitive claim.\n"
         "3. framework_breakdown: Promises a distilled, actionable mental model, taxonomy, or high-density tactical teardown.\n"
-        "4. story_relatable: Opens with an immediate, gritty, first-person narrative hook or battle-tested real-world scenario."
+        "4. story_relatable: Opens with an immediate, gritty, first-person narrative hook or battle-tested real-world scenario.\n"
+        "5. statistical_data: Leads with a startling metric, quantitative comparison, or empirical data point.\n"
+        "6. bold_prediction: Makes a polarizing, high-conviction forecast or forward-looking industry stake."
     )
 
     prompt_parts.append(
@@ -200,7 +415,7 @@ def _build_hook_optimizer_user_prompt(draft_content: str, topic: str = "") -> st
         f"{topic_str}"
         f"Original Post Draft:\n"
         f"\"\"\"\n{draft_content}\n\"\"\"\n\n"
-        f"Generate exactly 4 hook candidates (one for each archetype: curiosity_gap, contrarian, framework_breakdown, story_relatable).\n"
+        f"Generate exactly 6 hook candidates (one for each archetype: curiosity_gap, contrarian, framework_breakdown, story_relatable, statistical_data, bold_prediction).\n"
         f"Evaluate and score each hook from 1.0 to 10.0 based on scroll-stopping power and dwell retention.\n\n"
         f"Return a JSON object with this exact schema:\n"
         f"{{\n"
@@ -228,6 +443,18 @@ def _build_hook_optimizer_user_prompt(draft_content: str, topic: str = "") -> st
         f"      \"hook_text\": \"Relatable first-person war story hook text\",\n"
         f"      \"score\": 8.7,\n"
         f"      \"reasoning\": \"Why this story hook triggers empathy and engagement\"\n"
+        f"    }},\n"
+        f"    {{\n"
+        f"      \"archetype\": \"statistical_data\",\n"
+        f"      \"hook_text\": \"Punchy data-backed opening hook text\",\n"
+        f"      \"score\": 8.4,\n"
+        f"      \"reasoning\": \"Why hard data immediately establishes authority\"\n"
+        f"    }},\n"
+        f"    {{\n"
+        f"      \"archetype\": \"bold_prediction\",\n"
+        f"      \"hook_text\": \"High conviction forecast hook text\",\n"
+        f"      \"score\": 8.9,\n"
+        f"      \"reasoning\": \"Why bold predictions incite comment debates\"\n"
         f"    }}\n"
         f"  ]\n"
         f"}}\n"
@@ -424,26 +651,209 @@ async def optimize_post_hook(
                 candidates=candidates,
             )
 
-        # If candidates could not be parsed from JSON, fallback safely
-        logger.warning("No valid hook candidates parsed from LLM output. Returning original content.")
+        # If candidates could not be parsed from JSON, fallback safely returning original draft
+        logger.warning("No valid hook candidates parsed from LLM output. Returning safe original content fallback.")
+        win_cand = HookCandidate(
+            archetype="curiosity_gap",
+            hook_text=first_line[:140] if first_line else "Draft hook",
+            score=5.0,
+            reasoning="Fallback returned due to invalid JSON from LLM",
+        )
         return HookOptimizationResult(
             original_content=draft_content,
             optimized_content=draft_content,
-            winning_hook=fallback_hook,
-            candidates=[fallback_hook],
+            winning_hook=win_cand,
+            candidates=[win_cand],
         )
 
     except Exception as e:
         logger.error("Error in optimize_post_hook: %s", e)
-        error_fallback_hook = HookCandidate(
+        win_cand = HookCandidate(
             archetype="curiosity_gap",
             hook_text=first_line[:140] if first_line else "Draft hook",
             score=5.0,
-            reasoning=f"Fallback due to error: {e}",
+            reasoning=f"Fallback returned due to API error: {e}",
         )
         return HookOptimizationResult(
             original_content=draft_content,
             optimized_content=draft_content,
-            winning_hook=error_fallback_hook,
-            candidates=[error_fallback_hook],
+            winning_hook=win_cand,
+            candidates=[win_cand],
         )
+
+
+def _build_virality_system_prompt(persona: Any | None = None, goal: str = "bookmark_and_dwell") -> str:
+    """Builds the viral hook & bookmark optimization system prompt."""
+    display_name = _get_persona_field(persona, "display_name", default="Autonomous Creator")
+    x_handle = _get_persona_field(persona, "x_handle", default="creator")
+    tone = _get_persona_field(persona, "writing_style", "tone", default="sharp, authentic")
+    comm_style = _get_persona_field(persona, "personality", "communication_style", default="direct, high-density")
+
+    prompt_parts = [
+        f"You are {display_name} (@{x_handle}). You are an elite viral growth engineer and copywriter for X (Twitter).",
+        f"Voice Tone: {tone}. Communication Style: {comm_style}.\n",
+        "=== OBJECTIVE ===",
+        "Transform post drafts into high-performing X posts optimized for the Phoenix algorithm:",
+        "1. OPEN-LOOP CURIOSITY HOOK (<100 CHARACTERS): The opening hook MUST be strictly under 100 characters (<100 chars). It acts as an open-loop cliffhanger before the mobile 'Show more' fold to maximize dwell time (+20x Phoenix multiplier).",
+        "2. BOOKMARK-BAIT FORMATTING: Format actionable value as high-density numbered steps, cheat sheets, frameworks, or swipe files to drive bookmarks (+50x multiplier).",
+        "3. ZERO EXTERNAL LINKS: Never include external URLs in the post body (links will be routed to 1st reply to avoid the -70% reach penalty).",
+        "4. ZERO AI CLICHÉS: STRICTLY BANNED: 'Let's dive in', 'Buckle up', 'Game-changer', 'Delve', 'Here is why', 'In this thread', 'Mastering', 'Unpack'.\n",
+        "=== 4 VIRAL HOOK ARCHETYPES ===",
+        "- contrarian_reversal: Challenges industry dogma or common consensus with a sharp counter-intuitive truth.",
+        "- asymmetric_result: Highlights an outsized return, unexpected metric, or 10x differential.",
+        "- zero_to_hero: Real-world transformation from failure or ground zero to breakthrough.",
+        "- framework_breakdown: Introduces a distilled blueprint, cheat sheet, or step-by-step system.",
+    ]
+    return "\n".join(prompt_parts)
+
+
+def _build_virality_user_prompt(draft: str, goal: str = "bookmark_and_dwell") -> str:
+    """Builds the user prompt for viral hook & bookmark optimization."""
+    return (
+        f"Goal: {goal}\n\n"
+        f"Original Post Draft:\n\"\"\"\n{draft}\n\"\"\"\n\n"
+        "Optimize this draft for virality, dwell retention, and bookmarks:\n"
+        "1. Select the single best archetype from (contrarian_reversal, asymmetric_result, zero_to_hero, framework_breakdown).\n"
+        "2. Craft an irresistible open-loop hook that is STRICTLY UNDER 100 CHARACTERS (<100 chars).\n"
+        "3. Format the clean body with high-density numbered steps / bullet points / cheat sheet layout (NO external URLs).\n"
+        "4. Rate the bookmark-bait utility score from 1.0 to 10.0.\n\n"
+        "Return a JSON object matching this schema:\n"
+        "{\n"
+        "  \"open_loop_hook\": \"Cliffhanger hook strictly <100 chars\",\n"
+        "  \"clean_body\": \"Formatted link-free body with numbered framework/bullet points\",\n"
+        "  \"archetype\": \"contrarian_reversal | asymmetric_result | zero_to_hero | framework_breakdown\",\n"
+        "  \"bookmark_score\": 8.5,\n"
+        "  \"reasoning\": \"Why this hook and format drive dwell time and bookmarks\"\n"
+        "}\n"
+        "Return ONLY valid JSON."
+    )
+
+
+def _infer_archetype_from_text(text: str) -> str:
+    """Infers the most fitting viral archetype from text heuristics."""
+    text_lower = text.lower()
+    if any(k in text_lower for k in ("never", "don't", "stop", "wrong", "myth", "fake", "truth", "lie", "mistake", "isn't")):
+        return "contrarian_reversal"
+    if any(k in text_lower for k in ("10x", "100x", "50x", "%", "$", "saved", "roi", "grew", "scale", "qps", "latency")):
+        return "asymmetric_result"
+    if any(k in text_lower for k in ("years ago", "started with", "from zero", "failed", "crashed", "learned", "journey", "story", "struggle")):
+        return "zero_to_hero"
+    return "framework_breakdown"
+
+
+async def optimize_post_for_virality(
+    draft: str,
+    goal: str = "bookmark_and_dwell",
+    persona: Any | None = None,
+    client: Any | None = None,
+) -> OptimizedPostResult:
+    """
+    Optimizes a post draft for algorithmic virality:
+    1. Extracts & strips external links (isolating for 1st-reply injection).
+    2. Crafts an open-loop curiosity hook strictly <100 characters before the mobile fold.
+    3. Formats the body as high-utility bookmark-bait (cheat sheets, checklists, numbered steps).
+    4. Evaluates bookmark utility score (1.0 to 10.0).
+    5. Categorizes under 4 viral archetypes (contrarian_reversal, asymmetric_result, zero_to_hero, framework_breakdown).
+    """
+    clean_draft, extracted_link = extract_links(draft)
+    base_bookmark_score = calculate_bookmark_score(clean_draft)
+
+    # Separate draft into first line/paragraph vs remaining body
+    lines = [line.strip() for line in clean_draft.split('\n') if line.strip()]
+    first_line = lines[0] if lines else "Key insights on engineering & systems."
+    remaining_body = "\n\n".join(lines[1:]) if len(lines) > 1 else ""
+
+    fallback_hook = trim_open_loop_hook(first_line, max_len=99)
+    fallback_archetype = _infer_archetype_from_text(clean_draft)
+
+    ai_client = client if client is not None else get_ai_client()
+    model = getattr(
+        settings,
+        "MODEL_HOOK_OPTIMIZER",
+        getattr(settings, "MODEL_POST_CREATION", "litellm/gpt-oss-120b"),
+    )
+
+    system_prompt = _build_virality_system_prompt(persona, goal)
+    user_prompt = _build_virality_user_prompt(clean_draft, goal)
+
+    try:
+        # 1. Structured parse attempt
+        try:
+            completion = await ai_client.beta.chat.completions.parse(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format=_ViralHookResponse,
+            )
+            parsed = getattr(completion.choices[0].message, "parsed", None)
+            if parsed and isinstance(parsed, _ViralHookResponse):
+                hook = trim_open_loop_hook(parsed.open_loop_hook, max_len=99)
+                body_clean, body_link = extract_links(parsed.clean_body or remaining_body)
+                combined_link = extracted_link or body_link
+                calculated_score = calculate_bookmark_score(body_clean or clean_draft)
+                score = max(calculated_score, float(parsed.bookmark_score))
+
+                return OptimizedPostResult(
+                    open_loop_hook=hook,
+                    bookmark_score=min(10.0, max(1.0, score)),
+                    clean_body=body_clean,
+                    extracted_link=combined_link,
+                    archetype=parsed.archetype,
+                )
+        except Exception as parse_err:
+            logger.debug("Structured virality parse failed, trying standard JSON mode: %s", parse_err)
+
+        # 2. Standard JSON mode attempt
+        try:
+            completion = await ai_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format={"type": "json_object"},
+            )
+        except Exception:
+            completion = await ai_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+
+        raw_content = getattr(completion.choices[0].message, "content", None)
+        if isinstance(raw_content, str):
+            cleaned = clean_text_for_json(raw_content)
+            data = json.loads(cleaned)
+            if isinstance(data, dict):
+                raw_hook = str(data.get("open_loop_hook") or data.get("hook") or fallback_hook)
+                hook = trim_open_loop_hook(raw_hook, max_len=99)
+                raw_body = str(data.get("clean_body") or data.get("body") or remaining_body)
+                body_clean, body_link = extract_links(raw_body)
+                combined_link = extracted_link or body_link
+                calculated_score = calculate_bookmark_score(body_clean or clean_draft)
+                raw_score = float(data.get("bookmark_score", calculated_score))
+                score = max(calculated_score, raw_score)
+                archetype = str(data.get("archetype", fallback_archetype))
+
+                return OptimizedPostResult(
+                    open_loop_hook=hook,
+                    bookmark_score=min(10.0, max(1.0, score)),
+                    clean_body=body_clean,
+                    extracted_link=combined_link,
+                    archetype=archetype,
+                )
+    except Exception as e:
+        logger.warning("Virality optimization model call failed: %s. Returning clean heuristic result.", e)
+
+    # 3. Offline Heuristic Fallback
+    return OptimizedPostResult(
+        open_loop_hook=fallback_hook,
+        bookmark_score=base_bookmark_score,
+        clean_body=remaining_body,
+        extracted_link=extracted_link,
+        archetype=fallback_archetype,
+    )

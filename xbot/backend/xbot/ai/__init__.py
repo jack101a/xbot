@@ -6,11 +6,16 @@ from xbot.ai.generator import ContentGenerator, GeneratedContent
 from xbot.ai.hook_optimizer import (
     HookCandidate,
     HookOptimizationResult,
+    OptimizedPostResult,
+    calculate_bookmark_score,
+    extract_links,
+    optimize_post_for_virality,
     optimize_post_hook,
 )
 from xbot.ai.planner import PlannedAction, SessionPlan, plan_session
 from xbot.ai.poll_generator import GeneratedPoll, generate_poll
 from xbot.ai.post_session import PostSessionProcessor
+from xbot.ai.post_synthesizer import SynthesizedPostResult, synthesize_creator_post
 from xbot.ai.sniper import SniperReplyResult, SniperResult, generate_sniper_reply
 from xbot.ai.strategy import StrategyReviewer
 from xbot.ai.trend_generator import TrendEvaluation, generate_trend_take
@@ -35,6 +40,12 @@ __all__ = [
     "HookCandidate",
     "HookOptimizationResult",
     "optimize_post_hook",
+    "OptimizedPostResult",
+    "optimize_post_for_virality",
+    "extract_links",
+    "calculate_bookmark_score",
+    "SynthesizedPostResult",
+    "synthesize_creator_post",
     "GeneratedPoll",
     "generate_poll",
     "TrendItem",
