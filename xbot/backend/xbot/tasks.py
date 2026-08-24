@@ -14,6 +14,8 @@ import json
 from pathlib import Path
 import redis
 
+from xbot.ai.growth_scorer import score_tweet_opportunity
+from xbot.ai.hook_optimizer import extract_links
 from xbot.ai.planner import plan_session
 from xbot.ai.poll_generator import generate_poll
 from xbot.ai.post_session import PostSessionProcessor
@@ -37,8 +39,9 @@ from xbot.browser.actions.x_actions import (
     FollowEngagers,
     ScrapeFollowList,
 )
+from xbot.browser.actions.selectors import SELECTORS
 from xbot.browser.manager import BrowserManager
-from xbot.browser.timing import sleep_with_jitter
+from xbot.browser.timing import sleep_with_jitter, sleep_think_time
 from xbot.celery_app import celery_app
 from xbot.config import settings
 from xbot.database import AsyncSessionLocal
@@ -101,6 +104,39 @@ async def _extract_or_generate_poll_data(
     )
 
     return full_question, poll_options, poll_duration_days, poll_context_hook, poll_reasoning
+
+
+async def has_already_acted(
+    db: AsyncSession,
+    profile_id: uuid.UUID,
+    target_url: str | None,
+    action_type: Any,
+    hours: int = 48,
+) -> bool:
+    """
+    Checks if an action of the specified type has already been executed
+    against the given target_url within the last `hours` (default 48h).
+    Prevents duplicate likes, replies, and quotes on the exact same tweets.
+    """
+    if not target_url:
+        return False
+    clean_target = target_url.strip().rstrip("/")
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=hours)
+    act_type_str = action_type.value if hasattr(action_type, "value") else str(action_type)
+
+    stmt = (
+        select(Action)
+        .where(
+            Action.profile_id == profile_id,
+            Action.action_type == act_type_str,
+            Action.status == ActionStatus.COMPLETED,
+            Action.executed_at >= cutoff,
+            (Action.target_url == clean_target) | (Action.target_url == f"{clean_target}/"),
+        )
+        .limit(1)
+    )
+    res = await db.execute(stmt)
+    return res.scalar_one_or_none() is not None
 
 
 async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
@@ -170,12 +206,140 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                 )
                 page = await context.new_page()
                 
-                # Navigate to home
-                await page.goto("https://x.com/home")
-                
-                # Scrape feed
+                # 1. Scrape feed
                 browse_feed = BrowseFeed()
-                feed_snapshot = await browse_feed.execute(page, max_scrolls=1)
+                try:
+                    feed_snapshot = await browse_feed.execute(page, max_scrolls=1)
+                except Exception as e:
+                    logger.warning("Feed browsing encountered non-fatal error: %s", e)
+                    feed_snapshot = []
+
+                if feed_snapshot is None:
+                    feed_snapshot = []
+
+                # 2. Live Opportunity Hunting: Scan target creators (KOLs) defined in persona
+                try:
+                    persona = load_persona(manager.base_profile_dir / profile_slug)
+                    if persona and getattr(persona, "target_kols", None):
+                        checker = CheckUserLatestTweet()
+                        # Shuffle and rotate target KOLs so we don't scan the same creators in the same order
+                        shuffled_kols = list(persona.target_kols)
+                        random.shuffle(shuffled_kols)
+
+                        for kol in shuffled_kols[:5]:
+                            clean_h = kol.handle.lstrip("@")
+                            try:
+                                logger.info("Scanning target creator @%s for live reply opportunities...", clean_h)
+                                kol_tweet = await checker.execute(page, handle=clean_h)
+                                if kol_tweet and kol_tweet.get("text"):
+                                    t_url = kol_tweet.get("url") or f"https://x.com/{clean_h}"
+
+                                    # Deduplication: check if we already replied to this exact tweet in last 48h
+                                    already_replied = await has_already_acted(db, profile_id, t_url, "reply", hours=48)
+                                    already_liked = await has_already_acted(db, profile_id, t_url, "like", hours=48)
+
+                                    if already_replied or already_liked:
+                                        logger.info("Skipping creator tweet %s: already replied/liked in last 48h", t_url)
+                                        continue
+
+                                    already_quoted = await has_already_acted(db, profile_id, t_url, "quote", hours=48)
+
+                                    feed_snapshot.append({
+                                        "author": clean_h,
+                                        "text": kol_tweet.get("text"),
+                                        "url": t_url,
+                                        "likes": kol_tweet.get("likes", 0),
+                                        "retweets": kol_tweet.get("retweets", 0),
+                                        "replies": kol_tweet.get("replies", 0),
+                                        "top_comments": kol_tweet.get("top_comments", []),
+                                        "already_replied": already_replied,
+                                        "already_quoted": already_quoted,
+                                    })
+                            except Exception as k_err:
+                                logger.warning("Could not check target creator @%s: %s", clean_h, k_err)
+                except Exception as p_err:
+                    logger.warning("Error during KOL opportunity scanning: %s", p_err)
+
+                # 2b. Live Growth & Follow-Back Search Hunting: Scan live Twitter Search for active mutuals/f4f posts
+                try:
+                    growth_queries = [
+                        '("drop your handle" OR "follow back") (tech OR anime OR "blue tick" OR mutuals)',
+                        '("looking for mutuals" OR "verified mutuals") (anime OR tech OR AI)',
+                        '("follow back everyone" OR "f4f") (tech OR anime OR "blue tick")',
+                        '("drop your handle" OR "mutuals connect")',
+                    ]
+                    chosen_query = random.choice(growth_queries)
+                    logger.info("Hunting active follow-back posts on live X Search: %s", chosen_query)
+                    searcher = SearchQuery()
+                    growth_results = await searcher.execute(page, query=chosen_query)
+                    for gr in growth_results[:5]:
+                        g_url = gr.get("url")
+                        if g_url and await has_already_acted(db, profile_id, g_url, "reply", hours=48):
+                            logger.info("Skipping growth thread %s: already replied in last 48h", g_url)
+                            continue
+                        feed_snapshot.append({
+                            "author": gr.get("author", "mutuals_creator"),
+                            "text": f"🤝 [ACTIVE FOLLOW-BACK / MUTUALS THREAD]: {gr.get('text', '')}",
+                            "url": g_url,
+                            "is_blue_tick": gr.get("is_blue_tick", True),
+                            "likes": gr.get("likes", 25),
+                            "retweets": gr.get("retweets", 15),
+                            "replies": gr.get("replies", 20),
+                            "is_growth_thread": True,
+                        })
+
+                    # Harvest active commenters from the top growth thread into FollowCandidate table
+                    if growth_results:
+                        top_growth_url = growth_results[0].get("url")
+                        if top_growth_url:
+                            from xbot.browser.actions.x_actions import HarvestFollowBackThread
+                            from xbot.models.follow_growth import FollowCandidate
+                            harvester = HarvestFollowBackThread()
+                            thread_candidates = await harvester.execute(page, tweet_url=top_growth_url, max_candidates=6)
+                            for tc in thread_candidates:
+                                c_handle = tc["handle"]
+                                ex_stmt = select(FollowCandidate).where(
+                                    FollowCandidate.profile_id == profile_id,
+                                    FollowCandidate.handle == c_handle
+                                )
+                                ex_res = await db.execute(ex_stmt)
+                                if not ex_res.scalar_one_or_none():
+                                    cand = FollowCandidate(
+                                        profile_id=profile_id,
+                                        handle=c_handle,
+                                        display_name=tc.get("display_name"),
+                                        niche="growth_mutuals",
+                                        is_blue_tick=tc.get("is_blue_tick", True),
+                                        source_discussion=f"Commenter in follow-back thread: {top_growth_url}",
+                                        source_tweet_url=top_growth_url,
+                                        reciprocity_score=tc.get("reciprocity_score", 85.0),
+                                        status="discovered"
+                                    )
+                                    db.add(cand)
+                            await db.commit()
+                except Exception as s_err:
+                    logger.warning("Live follow-back search scan encountered non-fatal error: %s", s_err)
+
+                # 3. Live Trends Ingestion: Fetch breaking trends and viral discussions
+                try:
+                    from xbot.ai.trend_radar import fetch_rss_trends
+                    rss_urls = [
+                        "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGRqTVhZU0FtVnVHZ0pWVXlnQVAB?hl=en-IN&gl=IN&ceid=IN%3Aen",
+                        "https://feeds.feedburner.com/TechCrunch/",
+                    ]
+                    live_trends = await fetch_rss_trends(rss_urls[:2], max_items_per_feed=3)
+                    for tr in live_trends[:4]:
+                        feed_snapshot.append({
+                            "author": f"LiveNews ({tr.source_name})",
+                            "text": f"🔥 [BREAKING NEWS/TOPIC FOR STANDALONE POST ONLY]: {tr.title}",
+                            "url": None,  # Non-tweet URL nullified so it cannot be chosen as a reply/like/quote target
+                            "type": "trend_topic",
+                            "is_news_article": True,
+                        })
+                except Exception as t_err:
+                    logger.debug("Trend pre-scan skipped or failed: %s", t_err)
+
+                logger.info("Total live opportunities & trends assembled in feed snapshot: %d items", len(feed_snapshot))
             
             # 4. Generate AI session plan
             plan = await plan_session(
@@ -263,16 +427,29 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                         await asyncio.sleep(0.5)
                         success = True
                         if p_action.type == "post" and p_action.content:
+                            clean_mock_content, mock_extracted_link = extract_links(p_action.content)
                             mock_c = Content(
                                 profile_id=profile_id,
                                 content_type=ContentType.ORIGINAL,
-                                body=p_action.content,
+                                body=clean_mock_content,
                                 status=ContentStatus.POSTED,
                                 posted_at=t_start,
-                                ai_metadata={"mock_mode": True}
+                                ai_metadata={"mock_mode": True, "extracted_link": mock_extracted_link}
                             )
                             db.add(mock_c)
                             await db.commit()
+
+                            if mock_extracted_link:
+                                mock_reply_c = Content(
+                                    profile_id=profile_id,
+                                    content_type=ContentType.REPLY,
+                                    body=f"Link / source breakdown: {mock_extracted_link}",
+                                    status=ContentStatus.POSTED,
+                                    posted_at=t_start,
+                                    ai_metadata={"mock_mode": True, "is_1st_reply_injection": True}
+                                )
+                                db.add(mock_reply_c)
+                                await db.commit()
                         elif p_action.type in ("poll", ActionType.POLL):
                             full_q, options, duration_days, context_hook, reasoning = await _extract_or_generate_poll_data(
                                 p_action, profile_slug, manager.base_profile_dir
@@ -315,40 +492,170 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                         if p_action.target:
                             if "/status/" in p_action.target:
                                 tweet_url = p_action.target if p_action.target.startswith("http") else f"https://x.com{p_action.target}"
+                            elif p_action.target.startswith("http"):
+                                tweet_url = None
+                                username_target = None
                             else:
                                 username_target = p_action.target
 
                         if p_action.type == "post" and p_action.content:
-                            success = await ComposePost().execute(page, p_action.content)
+                            clean_post_text, extracted_link = extract_links(p_action.content.strip())
+                            post_text = clean_post_text
+                            
+                            # Anti-duplication check against recent posts/drafts (last 7 days)
+                            cutoff_7d = datetime.datetime.utcnow() - datetime.timedelta(days=7)
+                            stmt_dup = select(Content).where(
+                                Content.profile_id == profile_id,
+                                Content.created_at >= cutoff_7d
+                            )
+                            res_dup = await db.execute(stmt_dup)
+                            existing_posts = res_dup.scalars().all()
+                            
+                            is_duplicate = False
+                            for ep in existing_posts:
+                                if ep.body:
+                                    clean_ep = ep.body.lower().strip()
+                                    clean_pt = post_text.lower().strip()
+                                    if clean_ep == clean_pt or (len(clean_pt) > 30 and clean_pt in clean_ep) or (len(clean_ep) > 30 and clean_ep in clean_pt):
+                                        is_duplicate = True
+                                        break
+                            
+                            if is_duplicate:
+                                logger.info("Skipping duplicate post '%s' - already drafted/posted in last 7 days", post_text[:50])
+                                db_action.status = ActionStatus.SKIPPED
+                                db_action.error = "Duplicate post content detected from recent history."
+                                success = True
+                                continue
+
+                            require_approval = getattr(config, "require_post_approval", True)
+                            if require_approval:
+                                logger.info("Staging new standalone post for user approval on dashboard: '%s'", post_text[:50])
+                                draft_c = Content(
+                                    profile_id=profile_id,
+                                    content_type=ContentType.ORIGINAL,
+                                    body=post_text,
+                                    status=ContentStatus.DRAFT,
+                                    ai_metadata={
+                                        "require_approval": True,
+                                        "staged_at": datetime.datetime.utcnow().isoformat(),
+                                        "reasoning": getattr(p_action, "reasoning", None),
+                                        "gif_query": getattr(p_action, "gif_query", None),
+                                        "extracted_link": extracted_link,
+                                        "first_reply_text": f"Link / source breakdown: {extracted_link}" if extracted_link else None,
+                                    }
+                                )
+                                db.add(draft_c)
+                                await db.commit()
+                                await db.refresh(draft_c)
+                                db_action.result = {
+                                    "staged": True,
+                                    "content_id": str(draft_c.id),
+                                    "message": "Post draft created and queued for user approval before publishing to live X.",
+                                    "extracted_link": extracted_link,
+                                }
+                                success = True
+                                broadcast_session_log(session.id, "post_staged_for_approval", {
+                                    "content_id": str(draft_c.id),
+                                    "body": post_text,
+                                    "reasoning": getattr(p_action, "reasoning", None),
+                                    "extracted_link": extracted_link,
+                                })
+                            else:
+                                success = await ComposePost().execute(
+                                    page,
+                                    post_text,
+                                    gif_query=getattr(p_action, "gif_query", None),
+                                )
+                                if success:
+                                    c_rec = Content(
+                                        profile_id=profile_id,
+                                        content_type=ContentType.ORIGINAL,
+                                        body=post_text,
+                                        status=ContentStatus.POSTED,
+                                        posted_at=t_start,
+                                        ai_metadata={
+                                            "direct_publish": True,
+                                            "extracted_link": extracted_link,
+                                        }
+                                    )
+                                    db.add(c_rec)
+                                    await db.commit()
+
+                                    if extracted_link:
+                                        try:
+                                            await sleep_with_jitter(2500)
+                                            first_reply_msg = f"Link / source breakdown: {extracted_link}"
+                                            reply_ok = await ReplyToTweet().execute(page, first_reply_msg)
+                                            if reply_ok:
+                                                reply_rec = Content(
+                                                    profile_id=profile_id,
+                                                    content_type=ContentType.REPLY,
+                                                    body=first_reply_msg,
+                                                    status=ContentStatus.POSTED,
+                                                    posted_at=datetime.datetime.utcnow(),
+                                                    ai_metadata={"is_1st_reply_injection": True, "direct_publish": True}
+                                                )
+                                                db.add(reply_rec)
+                                                await db.commit()
+                                                logger.info("1st-reply link injection successfully posted: '%s'", first_reply_msg)
+                                        except Exception as link_e:
+                                            logger.warning("Failed to post 1st-reply link injection: %s", link_e)
                         elif p_action.type in ("poll", ActionType.POLL):
                             full_q, options, duration_days, context_hook, reasoning = await _extract_or_generate_poll_data(
                                 p_action, profile_slug, manager.base_profile_dir
                             )
                             db_action.content = full_q
-                            db_action.result = {
-                                "poll": {
-                                    "question": full_q,
-                                    "options": options,
-                                    "duration_days": duration_days,
-                                    "context_hook": context_hook,
-                                    "reasoning": reasoning,
-                                }
-                            }
-                            screenshot_dir = str(manager.base_profile_dir / profile_slug / "screenshots")
-                            success = await CreatePoll(screenshot_dir=screenshot_dir).execute(
-                                page,
-                                question=full_q,
-                                options=options,
-                                duration_days=duration_days,
-                            )
-                            if success:
-                                c_rec = Content(
+                            require_approval = getattr(config, "require_post_approval", True)
+                            if require_approval:
+                                logger.info("Staging new poll for user approval on dashboard: '%s'", full_q[:50])
+                                draft_c = Content(
                                     profile_id=profile_id,
                                     content_type=ContentType.POLL,
                                     body=f"{full_q}\n" + "\n".join(f"🔘 {opt}" for opt in options),
-                                    status=ContentStatus.POSTED,
-                                    posted_at=t_start,
+                                    status=ContentStatus.DRAFT,
                                     ai_metadata={
+                                        "require_approval": True,
+                                        "poll": {
+                                            "question": full_q,
+                                            "options": options,
+                                            "duration_days": duration_days,
+                                            "context_hook": context_hook,
+                                            "reasoning": reasoning,
+                                        },
+                                        "staged_at": datetime.datetime.utcnow().isoformat(),
+                                    }
+                                )
+                                db.add(draft_c)
+                                await db.commit()
+                                await db.refresh(draft_c)
+                                db_action.result = {
+                                    "staged": True,
+                                    "content_id": str(draft_c.id),
+                                    "poll": {
+                                        "question": full_q,
+                                        "options": options,
+                                        "duration_days": duration_days,
+                                        "context_hook": context_hook,
+                                        "reasoning": reasoning,
+                                    },
+                                    "message": "Poll draft created and queued for user approval before publishing.",
+                                }
+                                success = True
+                                broadcast_session_log(session.id, "poll_staged_for_approval", {
+                                    "content_id": str(draft_c.id),
+                                    "question": full_q,
+                                    "options": options,
+                                })
+                            else:
+                                screenshot_dir = str(manager.base_profile_dir / profile_slug / "screenshots")
+                                success = await CreatePoll(screenshot_dir=screenshot_dir).execute(
+                                    page,
+                                    question=full_q,
+                                    options=options,
+                                    duration_days=duration_days,
+                                )
+                                if success:
+                                    db_action.result = {
                                         "poll": {
                                             "question": full_q,
                                             "options": options,
@@ -356,18 +663,262 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                             "context_hook": context_hook,
                                         }
                                     }
+                                    c_rec = Content(
+                                        profile_id=profile_id,
+                                        content_type=ContentType.POLL,
+                                        body=f"{full_q}\n" + "\n".join(f"🔘 {opt}" for opt in options),
+                                        status=ContentStatus.POSTED,
+                                        posted_at=t_start,
+                                        ai_metadata={
+                                            "poll": {
+                                                "question": full_q,
+                                                "options": options,
+                                                "duration_days": duration_days,
+                                                "context_hook": context_hook,
+                                            }
+                                        }
+                                    )
+                                    db.add(c_rec)
+                                    await db.commit()
+                        elif p_action.type == "thread":
+                            raw_tweets = getattr(p_action, "thread_items", None)
+                            topic = p_action.content or "Creator Strategy & Growth Breakdown"
+                            if not raw_tweets or len(raw_tweets) < 2:
+                                from xbot.ai.thread_generator import generate_thread
+                                persona = load_persona(manager.base_profile_dir / profile_slug)
+                                gen_thread = await generate_thread(topic=topic, persona=persona, num_tweets=4)
+                                raw_tweets = gen_thread.tweets
+
+                            db_action.content = f"Thread: {topic} ({len(raw_tweets)} tweets)"
+                            require_approval = getattr(config, "require_post_approval", True)
+                            if require_approval:
+                                logger.info("Staging new multi-tweet thread for user approval on dashboard: '%s' (%d tweets)", topic[:50], len(raw_tweets))
+                                from xbot.models.content import ThreadItem
+                                draft_c = Content(
+                                    profile_id=profile_id,
+                                    content_type=ContentType.THREAD,
+                                    body=raw_tweets[0] if raw_tweets else topic,
+                                    status=ContentStatus.DRAFT,
+                                    ai_metadata={
+                                        "require_approval": True,
+                                        "topic": topic,
+                                        "tweets": raw_tweets,
+                                        "staged_at": datetime.datetime.utcnow().isoformat(),
+                                    }
                                 )
-                                db.add(c_rec)
+                                db.add(draft_c)
                                 await db.commit()
+                                await db.refresh(draft_c)
+
+                                for idx, t_text in enumerate(raw_tweets):
+                                    t_item = ThreadItem(
+                                        content_id=draft_c.id,
+                                        position=idx,
+                                        item_type="hook" if idx == 0 else "closer" if idx == len(raw_tweets) - 1 else "body",
+                                        text=t_text,
+                                    )
+                                    db.add(t_item)
+                                await db.commit()
+
+                                db_action.result = {
+                                    "staged": True,
+                                    "content_id": str(draft_c.id),
+                                    "topic": topic,
+                                    "total_tweets": len(raw_tweets),
+                                    "message": "Thread draft created and queued for user approval before publishing.",
+                                }
+                                success = True
+                                broadcast_session_log(session.id, "thread_staged_for_approval", {
+                                    "content_id": str(draft_c.id),
+                                    "topic": topic,
+                                    "total_tweets": len(raw_tweets),
+                                })
+                            else:
+                                from xbot.browser.actions.x_actions import ComposeThread
+                                res = await ComposeThread().execute(page, tweets=raw_tweets)
+                                success = res.get("status") == "success"
+                                if success:
+                                    db_action.result = res
+                                    c_rec = Content(
+                                        profile_id=profile_id,
+                                        content_type=ContentType.THREAD,
+                                        body=raw_tweets[0],
+                                        status=ContentStatus.POSTED,
+                                        tweet_id=res.get("root_tweet_id"),
+                                        posted_at=t_start,
+                                        ai_metadata={"tweets": raw_tweets}
+                                    )
+                                    db.add(c_rec)
+                                    await db.commit()
                         elif p_action.type == "like":
-                            # tweet_url from planner (specific tweet) or random visible tweet
+                            if not tweet_url or "/status/" not in tweet_url:
+                                logger.warning("Like action skipped: target '%s' is not a valid X tweet status URL.", p_action.target)
+                                db_action.status = ActionStatus.SKIPPED
+                                db_action.error = f"Invalid like target: '{p_action.target}' is not an X tweet status URL."
+                                success = True
+                                continue
+                            if await has_already_acted(db, profile_id, tweet_url, "like", hours=48):
+                                logger.info("Target tweet %s already liked in last 48h. Skipping duplicate.", tweet_url)
+                                db_action.status = ActionStatus.SKIPPED
+                                db_action.error = "Already liked this tweet in last 48 hours."
+                                success = True
+                                continue
                             success = await LikeTweet().execute(page, tweet_url=tweet_url)
-                        elif p_action.type == "reply" and p_action.content:
-                            success = await ReplyToTweet().execute(page, p_action.content, tweet_url=tweet_url)
+
+                        elif p_action.type == "reply":
+                            if not tweet_url or "/status/" not in tweet_url:
+                                logger.warning("Reply action skipped: target '%s' is not a valid X tweet status URL.", p_action.target)
+                                db_action.status = ActionStatus.SKIPPED
+                                db_action.error = f"Invalid reply target: '{p_action.target}' is not an X tweet status URL."
+                                success = True
+                                continue
+
+                            if await has_already_acted(db, profile_id, tweet_url, "reply", hours=48):
+                                logger.info("Target tweet %s already replied to in last 48h. Skipping duplicate.", tweet_url)
+                                db_action.status = ActionStatus.SKIPPED
+                                db_action.error = "Already replied to this tweet in last 48 hours."
+                                success = True
+                                continue
+
+                            reply_action = ReplyToTweet()
+                            logger.info("Navigating directly to target tweet URL to reply: %s", tweet_url)
+                            try:
+                                await page.goto(tweet_url, wait_until="commit", timeout=20000)
+                                await page.wait_for_selector(SELECTORS["tweet"], timeout=15000)
+                            except Exception as nav_e:
+                                logger.warning("Target tweet navigation / selector wait warning: %s", nav_e)
+                            await sleep_think_time(1000, 2500)
+
+                            # Scrape live tweet context & top comments directly from THIS specific tweet page
+                            live_ctx = await reply_action.scrape_target_tweet_context(page, target_idx=0)
+
+                            persona = load_persona(manager.base_profile_dir / profile_slug)
+                            if persona and live_ctx.get("text"):
+                                # Evaluate algorithmic opportunity score (Phoenix Recommender weights)
+                                opp_score = score_tweet_opportunity(live_ctx)
+                                if opp_score.recommended_action == "skip":
+                                    logger.info(
+                                        "Phoenix Growth Scorer recommended skipping target tweet %s (score=%.1f): %s",
+                                        tweet_url,
+                                        opp_score.score,
+                                        opp_score.reasoning,
+                                    )
+                                    db_action.status = ActionStatus.SKIPPED
+                                    db_action.error = f"Opportunity score too low ({opp_score.score:.1f}/100): {opp_score.reasoning}"
+                                    db_action.result = {"opportunity_score": opp_score.model_dump()}
+                                    await db.commit()
+                                    success = True
+                                    continue
+
+                                logger.info(
+                                    "Synthesizing JIT Sniper Reply for live tweet by @%s (opp_score=%.1f): '%s'",
+                                    live_ctx.get("author"),
+                                    opp_score.score,
+                                    live_ctx.get("text", "")[:60],
+                                )
+                                sniper_res = await generate_sniper_reply(
+                                    persona=persona,
+                                    target_tweet=live_ctx,
+                                    preferred_angle=getattr(p_action, "preferred_angle", None) or getattr(p_action, "angle", None),
+                                    opportunity_score=opp_score,
+                                )
+                                final_reply_text = sniper_res.reply_text
+                                final_gif_query = sniper_res.gif_query or getattr(p_action, "gif_query", None)
+                                db_action.content = final_reply_text
+                                res_dict = sniper_res.model_dump()
+                                res_dict["opportunity_score"] = opp_score.model_dump()
+                                db_action.result = res_dict
+                                await db.commit()
+
+                                # If top-tier writing models failed/timed out, safely skip this action
+                                if not final_reply_text or sniper_res.confidence == 0.0:
+                                    logger.warning("Sniper reply safely skipped: Top-tier writing models timed out. Will retry in next session.")
+                                    db_action.status = ActionStatus.SKIPPED
+                                    db_action.error = "Top-tier writing models busy/unavailable after retries. Discarded to prevent posting low quality."
+                                    await db.commit()
+                                    success = True
+                                    continue
+                            else:
+                                final_reply_text = p_action.content
+                                final_gif_query = getattr(p_action, "gif_query", None)
+
+                                if not final_reply_text:
+                                    logger.warning("Reply skipped: No content provided or planned.")
+                                    db_action.status = ActionStatus.SKIPPED
+                                    db_action.error = "No reply content available."
+                                    await db.commit()
+                                    success = True
+                                    continue
+
+                            success = await reply_action.execute(
+                                page,
+                                reply_text=final_reply_text,
+                                tweet_url=tweet_url,
+                                tweet_index=0,
+                                gif_query=final_gif_query,
+                            )
                         elif p_action.type == "retweet":
                             success = await Retweet().execute(page, tweet_url=tweet_url)
-                        elif p_action.type == "follow" and (username_target or p_action.target):
-                            success = await FollowUser().execute(page, username_target or p_action.target)
+                        elif p_action.type == "quote":
+                            if not tweet_url or "/status/" not in tweet_url:
+                                logger.warning("Quote action skipped: target '%s' is not a valid X tweet status URL.", p_action.target)
+                                db_action.status = ActionStatus.SKIPPED
+                                db_action.error = f"Invalid quote target: '{p_action.target}' is not an X tweet status URL."
+                                success = True
+                                continue
+                            if await has_already_acted(db, profile_id, tweet_url, "quote", hours=48):
+                                logger.info("Target tweet %s already quote-tweeted in last 48h. Skipping duplicate.", tweet_url)
+                                db_action.status = ActionStatus.SKIPPED
+                                db_action.error = "Already quoted this tweet in last 48 hours."
+                                success = True
+                                continue
+
+                            from xbot.browser.actions.x_actions import QuoteTweet
+                            quote_text = p_action.content or "Sharp perspective on this. Adding to the discussion."
+                            success = await QuoteTweet().execute(page, quote_text=quote_text, tweet_url=tweet_url)
+                        elif p_action.type == "follow":
+                            from xbot.models.follow_growth import FollowCandidate, FollowRelationship
+                            target_to_follow = username_target or p_action.target
+                            if target_to_follow:
+                                clean_target = target_to_follow.lstrip("@")
+                                rel_chk = await db.execute(
+                                    select(FollowRelationship).where(
+                                        FollowRelationship.profile_id == profile_id,
+                                        FollowRelationship.target_handle == clean_target,
+                                    )
+                                )
+                                if rel_chk.scalar_one_or_none():
+                                    logger.info("Account @%s already followed. Finding next un-followed candidate...", clean_target)
+                                    target_to_follow = None
+
+                            if not target_to_follow:
+                                c_stmt = (
+                                    select(FollowCandidate)
+                                    .where(FollowCandidate.profile_id == profile_id)
+                                    .where(FollowCandidate.status.in_(["discovered", "queued"]))
+                                    .order_by(FollowCandidate.reciprocity_score.desc())
+                                    .limit(1)
+                                )
+                                c_res = await db.execute(c_stmt)
+                                top_c = c_res.scalar_one_or_none()
+                                if top_c:
+                                    target_to_follow = top_c.handle
+                                    top_c.status = "followed"
+                                    await db.commit()
+
+                            if target_to_follow:
+                                clean_f_handle = target_to_follow.lstrip("@")
+                                success = await FollowUser().execute(page, clean_f_handle)
+                                if success:
+                                    from xbot.growth.f4f_engine import record_follow_action
+                                    await record_follow_action(
+                                        profile_id=profile_id,
+                                        target_handle=clean_f_handle,
+                                        db=db,
+                                        is_blue_tick=True,
+                                    )
+                            else:
+                                success = False
                         elif p_action.type == "search" and p_action.target:
                             results = await SearchQuery().execute(page, p_action.target)
                             success = len(results) > 0
@@ -397,7 +948,17 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                         # Record limit success
                         await guard.record_action_success(profile_slug, p_action.type, t_end)
                     else:
-                        error_msg = "Browser action script returned False."
+                        if not error_msg:
+                            if p_action.type == "like":
+                                error_msg = "Tweet could not be liked (target unavailable or button not reachable)."
+                            elif p_action.type == "follow":
+                                error_msg = f"User @{username_target or p_action.target} could not be followed (account private, suspended, or button unavailable)."
+                            elif p_action.type == "reply":
+                                error_msg = "Reply could not be posted (target tweet unavailable or editor failed to mount)."
+                            elif p_action.type in ("retweet", "quote"):
+                                error_msg = f"{p_action.type.capitalize()} could not be posted (target tweet unavailable or menu failed)."
+                            else:
+                                error_msg = f"Browser action '{p_action.type}' returned False."
                         
                 except Exception as ex:
                     error_msg = str(ex)
@@ -421,6 +982,151 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                     "duration_ms": db_action.duration_ms,
                 })
                     
+            # 6b. Reciprocity Audit & Automated 4-5 Day Unfollow Pruning
+            if not is_mock and page:
+                try:
+                    from xbot.models.follow_growth import FollowRelationship
+                    from xbot.browser.actions.x_actions import CheckProfileFollowsYou, UnfollowUser
+                    
+                    now_time = datetime.datetime.utcnow()
+                    stmt_expired = (
+                        select(FollowRelationship)
+                        .where(
+                            FollowRelationship.profile_id == profile_id,
+                            FollowRelationship.status == "following",
+                            FollowRelationship.grace_period_expires_at <= now_time
+                        )
+                        .limit(3)  # Prune at most 3 per session to stay within stealth limits
+                    )
+                    res_expired = await db.execute(stmt_expired)
+                    expired_rels = res_expired.scalars().all()
+                    
+                    if expired_rels:
+                        logger.info("Auditing %d relationships with expired 4-day grace period for @%s", len(expired_rels), profile_slug)
+                        checker = CheckProfileFollowsYou()
+                        unfollower = UnfollowUser()
+                        
+                        for rel in expired_rels:
+                            target = rel.target_handle.lstrip("@")
+                            rel.last_checked_at = now_time
+                            follows_us = await checker.execute(page, username=target)
+                            
+                            if follows_us:
+                                logger.info("Mutual follow confirmed: @%s follows us back!", target)
+                                rel.status = "followed_back"
+                                await db.commit()
+                            else:
+                                logger.info("Grace period (4 days) expired without follow-back from @%s. Pruning unfollow...", target)
+                                unfollow_ok = await unfollower.execute(page, username=target)
+                                if unfollow_ok:
+                                    rel.status = "unfollowed"
+                                    rel.unfollowed_at = now_time
+                                    
+                                    unf_action = Action(
+                                        profile_id=profile_id,
+                                        session_id=session.id,
+                                        action_type=ActionType.UNFOLLOW,
+                                        target_url=f"https://x.com/{target}",
+                                        status=ActionStatus.COMPLETED,
+                                        executed_at=now_time,
+                                    )
+                                    db.add(unf_action)
+                                    await db.commit()
+                                    
+                                    broadcast_session_log(session.id, "unfollow_pruned", {
+                                        "target": f"@{target}",
+                                        "reason": "Grace period (4 days) expired without reciprocity. Unfollowed to maintain ratio.",
+                                    })
+                except Exception as audit_err:
+                    logger.warning("Reciprocity audit and unfollow pruning encountered non-fatal error: %s", audit_err)
+
+            # 6c. Automated Post-Publishing Self-Healing & Misalignment Pruner
+            if not is_mock and page:
+                try:
+                    from xbot.ai.sniper import BANNED_POLITICS_REGEX, TECH_KEYWORDS, ANIME_KEYWORDS
+                    from xbot.browser.actions.x_actions import human_click
+
+                    cutoff_recent = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+                    stmt_recent_replies = (
+                        select(Action)
+                        .where(
+                            Action.profile_id == profile_id,
+                            Action.action_type == ActionType.REPLY,
+                            Action.status == ActionStatus.COMPLETED,
+                            Action.executed_at >= cutoff_recent
+                        )
+                        .order_by(desc(Action.executed_at))
+                        .limit(10)
+                    )
+                    res_rr = await db.execute(stmt_recent_replies)
+                    recent_actions = res_rr.scalars().all()
+
+                    for act in recent_actions:
+                        if not act.content:
+                            continue
+                        
+                        has_politics = bool(BANNED_POLITICS_REGEX.search(act.content))
+                        has_cross_domain = False
+                        if act.target_url:
+                            t_url_lower = act.target_url.lower()
+                            c_lower = act.content.lower()
+                            if any(k in t_url_lower for k in TECH_KEYWORDS) and any(k in c_lower for k in {"oda", "god valley", "luffy", "zoro"}):
+                                has_cross_domain = True
+                            if any(k in t_url_lower for k in ANIME_KEYWORDS) and any(k in c_lower for k in {"snapdragon", "m4 max", "benchmark"}):
+                                has_cross_domain = True
+
+                        if has_politics or has_cross_domain:
+                            logger.warning("Integrity auditor flagged misaligned action %s: politics=%s, cross_domain=%s. Auto-pruning from live X...", act.id, has_politics, has_cross_domain)
+                            try:
+                                await page.goto("https://x.com/jackds1234/with_replies", wait_until="domcontentloaded", timeout=25000)
+                                await sleep_think_time(2000, 4000)
+                                tweets = await page.query_selector_all('[data-testid="tweet"]')
+                                for tw in tweets:
+                                    t_txt_el = await tw.query_selector('[data-testid="tweetText"]')
+                                    if t_txt_el:
+                                        t_txt = await t_txt_el.inner_text()
+                                        if act.content[:25].lower() in t_txt.lower():
+                                            caret = await tw.query_selector('button[aria-label="More"], [data-testid="caret"]')
+                                            if caret:
+                                                await human_click(page, caret, 200, 400)
+                                                await sleep_think_time(600, 1200)
+                                                del_btn = await page.query_selector('[data-testid="Dropdown"] [role="menuitem"]:has-text("Delete")')
+                                                if del_btn:
+                                                    await human_click(page, del_btn, 200, 400)
+                                                    await sleep_think_time(600, 1000)
+                                                    confirm = await page.query_selector('[data-testid="confirmationSheetConfirm"]')
+                                                    if confirm:
+                                                        await human_click(page, confirm, 200, 400)
+                                                        await sleep_with_jitter(1500)
+                                                        logger.info("Successfully auto-deleted misaligned tweet from live X.")
+                                                        act.status = ActionStatus.FAILED
+                                                        act.error = "Auto-pruned by post-publishing integrity auditor."
+                                                        await db.commit()
+                                                        break
+                            except Exception as del_err:
+                                logger.warning("Could not auto-delete misaligned tweet: %s", del_err)
+                except Exception as prune_err:
+                    logger.debug("Post-session self-healing pruner skipped: %s", prune_err)
+
+            # 6d. Storage Maintenance & Temp Artifacts Cleaner (Zero Disk Bloat)
+            try:
+                temp_storage_dirs = [
+                    Path("/home/ubuntu/projects/xbot/data/temp_media"),
+                    Path("/home/ubuntu/projects/xbot/backend/logs"),
+                ]
+                now_ts = datetime.datetime.utcnow().timestamp()
+                cutoff_7d = now_ts - (7 * 86400)
+                for sdir in temp_storage_dirs:
+                    if sdir.exists():
+                        for f in sdir.glob("*"):
+                            if f.is_file() and f.stat().st_mtime < cutoff_7d:
+                                try:
+                                    f.unlink()
+                                except Exception:
+                                    pass
+            except Exception as store_err:
+                logger.debug("Storage maintenance pruner skipped: %s", store_err)
+
             # 6. Update Session Stats
             session.actions_completed = completed
             session.actions_failed = failed
@@ -1330,8 +2036,20 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
                         seen_key = f"xbot:seen_tweets:{profile_id}:{tweet_id}"
                         seen_set_key = f"xbot:seen_tweets:{profile_id}"
 
-                        if r.exists(seen_key) or r.sismember(seen_set_key, tweet_id):
-                            logger.info("Tweet %s from @%s already seen for profile %s; skipping.", tweet_id, kol_handle, profile_slug)
+                        if r.exists(seen_key) or r.sismember(seen_set_key, tweet_id) or await has_already_acted(db, profile_id, tweet_url, "reply", hours=48):
+                            logger.info("Tweet %s from @%s already replied to for profile %s; skipping.", tweet_id, kol_handle, profile_slug)
+                            continue
+
+                        # Evaluate algorithmic opportunity score (Phoenix Recommender weights)
+                        opp_score = score_tweet_opportunity(tweet_data)
+                        if opp_score.recommended_action == "skip":
+                            logger.info(
+                                "Phoenix Growth Scorer skipped target KOL @%s tweet %s (score=%.1f): %s",
+                                kol_handle,
+                                tweet_id,
+                                opp_score.score,
+                                opp_score.reasoning,
+                            )
                             continue
 
                         # AI Sniper Reply Generation
@@ -1339,6 +2057,7 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
                             persona=persona,
                             target_tweet=tweet_data,
                             preferred_angle=kol.preferred_angle,
+                            opportunity_score=opp_score,
                         )
 
                         if not reply_result.reply_text:
@@ -1395,6 +2114,7 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
                                     "confidence": reply_result.confidence,
                                     "reasoning": reply_result.reasoning,
                                     "tweet_id": tweet_id,
+                                    "opportunity_score": opp_score.model_dump(),
                                 },
                                 executed_at=t_now,
                             )
