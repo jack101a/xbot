@@ -15,6 +15,7 @@ from xbot.ai.sniper import SniperReplyResult, SniperResult, generate_sniper_repl
 from xbot.ai.strategy import StrategyReviewer
 from xbot.ai.trend_generator import TrendEvaluation, generate_trend_take
 from xbot.ai.trend_radar import TrendItem, fetch_rss_trends
+from xbot.ai.visual_engine import VisualPostSpec, generate_visual_post_spec
 
 __all__ = [
     "AssembledContext",
@@ -40,5 +41,7 @@ __all__ = [
     "fetch_rss_trends",
     "TrendEvaluation",
     "generate_trend_take",
+    "VisualPostSpec",
+    "generate_visual_post_spec",
 ]
 
