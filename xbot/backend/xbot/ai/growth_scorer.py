@@ -31,6 +31,33 @@ BOOKMARK_KEYWORDS = [
     "deep dive",
 ]
 
+F4F_AND_GROWTH_KEYWORDS = [
+    "f4f",
+    "follow for follow",
+    "follow-for-follow",
+    "follow back",
+    "drop your handle",
+    "looking for mutuals",
+    "gain mutuals",
+    "follow train",
+    "growth mutuals",
+    "engagement growth",
+    "follow back everyone",
+    "verified mutuals",
+    "connect with mutuals",
+    "drop your @",
+    "mutuals train",
+    "follow-back",
+]
+
+
+def is_f4f_or_engagement_growth_post(text: str) -> bool:
+    """Detects if a post is a follow-for-follow train, mutuals party, or engagement growth thread."""
+    if not text:
+        return False
+    lower = text.lower()
+    return any(k in lower for k in F4F_AND_GROWTH_KEYWORDS)
+
 
 class OpportunityScore(BaseModel):
     score: float = Field(..., ge=0.0, le=100.0, description="Compound opportunity score (0.0 to 100.0)")
@@ -331,14 +358,18 @@ def score_tweet_opportunity(
     else:
         reasoning_parts.append(f"Engagement velocity: {velocity:.1f}/h (age: {delta_hours:.1f}h)")
 
+    is_f4f = is_f4f_or_engagement_growth_post(text)
+    if is_f4f:
+        reasoning_parts.append("Growth/F4F train detected (quoting forbidden; engage via reply/follow or create original post)")
+
     # Determine recommended action:
     # 1. Skip stale tweets (>12h), explicit bots, or dead link spam (score < 25)
     if is_bot or delta_hours > 12.0 or (has_link_penalty and final_score < 25.0):
         recommended_action = "skip"
     elif bookmark_potential >= 25.0 and final_score >= 50.0:
         recommended_action = "bookmark_reference"
-    elif impressions >= 100_000 and final_score >= 40.0:
-        # Strictly reserve quote-tweets for viral posts with >=100k impressions
+    elif impressions >= 100_000 and final_score >= 40.0 and not is_f4f:
+        # Strictly reserve quote-tweets for viral posts with >=100k impressions (NEVER quote F4F/growth trains)
         recommended_action = "quote_tweet"
     elif final_score >= 35.0:
         recommended_action = "sniper_reply"

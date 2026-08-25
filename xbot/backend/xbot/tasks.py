@@ -874,9 +874,18 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                 success = True
                                 continue
 
-                            # Check target tweet popularity before quoting (minimum 100k views threshold)
+                            # Check target tweet popularity before quoting (minimum 100k views threshold & no F4F trains)
                             if not is_mock:
                                 live_ctx = await ReplyToTweet().scrape_target_tweet_context(page, tweet_url=tweet_url, target_idx=0)
+                                target_text = live_ctx.get("text", "")
+                                from xbot.ai.growth_scorer import is_f4f_or_engagement_growth_post
+                                if is_f4f_or_engagement_growth_post(target_text) or is_f4f_or_engagement_growth_post(p_action.content or ""):
+                                    logger.info("Target tweet is a follow-for-follow / engagement-growth train. Quoting forbidden. Skipping quote action.")
+                                    db_action.status = ActionStatus.SKIPPED
+                                    db_action.error = "Quoting F4F / engagement-growth posts is forbidden. Synthesize original posts instead."
+                                    success = True
+                                    continue
+
                                 target_views = int(live_ctx.get("impressions", 0) or live_ctx.get("views", 0) or 0)
                                 if 0 < target_views < 100_000:
                                     logger.info("Target tweet %s has only %d views (< 100,000 required for quote-tweeting). Skipping quote action.", tweet_url, target_views)
@@ -907,7 +916,7 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                     select(FollowCandidate)
                                     .where(FollowCandidate.profile_id == profile_id)
                                     .where(FollowCandidate.status.in_(["discovered", "queued"]))
-                                    .order_by(FollowCandidate.reciprocity_score.desc())
+                                    .order_by(FollowCandidate.is_blue_tick.desc(), FollowCandidate.reciprocity_score.desc())
                                     .limit(1)
                                 )
                                 c_res = await db.execute(c_stmt)
@@ -1575,8 +1584,9 @@ async def _run_follower_audit_async(profile_id_str: str) -> dict[str, Any]:
                         )
                     )
                 
-                # New followers
+                # New followers: record log and queue for immediate reciprocal follow-back
                 new_followers = new_followers_set - old_followers_set
+                from xbot.models.follow_growth import FollowCandidate
                 for f in new_followers:
                     new_changelogs.append(
                         FollowerChangeLog(
@@ -1585,6 +1595,26 @@ async def _run_follower_audit_async(profile_id_str: str) -> dict[str, Any]:
                             handle=f
                         )
                     )
+                    clean_f = f.lstrip("@")
+                    if clean_f not in current_following:
+                        chk_c = await db.execute(
+                            select(FollowCandidate).where(
+                                FollowCandidate.profile_id == profile_id,
+                                FollowCandidate.handle == clean_f,
+                            )
+                        )
+                        if not chk_c.scalar_one_or_none():
+                            db.add(
+                                FollowCandidate(
+                                    profile_id=profile_id,
+                                    handle=clean_f,
+                                    display_name=clean_f,
+                                    niche="incoming_follower",
+                                    is_blue_tick=True,
+                                    reciprocity_score=100.0,
+                                    status="queued",
+                                )
+                            )
             
             # 4. Diff following list
             if last_following_snap:

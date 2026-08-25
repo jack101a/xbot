@@ -18,6 +18,11 @@ from xbot.ai.post_session import PostSessionProcessor
 from xbot.ai.post_synthesizer import SynthesizedPostResult, synthesize_creator_post
 from xbot.ai.sniper import SniperReplyResult, SniperResult, generate_sniper_reply
 from xbot.ai.strategy import StrategyReviewer
+from xbot.ai.growth_scorer import (
+    OpportunityScore,
+    is_f4f_or_engagement_growth_post,
+    score_tweet_opportunity,
+)
 from xbot.ai.trend_generator import TrendEvaluation, generate_trend_take
 from xbot.ai.trend_radar import TrendItem, fetch_rss_trends
 from xbot.ai.visual_engine import VisualPostSpec, generate_visual_post_spec
@@ -48,6 +53,9 @@ __all__ = [
     "synthesize_creator_post",
     "GeneratedPoll",
     "generate_poll",
+    "OpportunityScore",
+    "score_tweet_opportunity",
+    "is_f4f_or_engagement_growth_post",
     "TrendItem",
     "fetch_rss_trends",
     "TrendEvaluation",
