@@ -14,6 +14,7 @@ from xbot.ai.hook_optimizer import extract_links
 from xbot.ai.sniper import SniperResult
 from xbot.models.base import Base
 from xbot.models.content import Content, ContentStatus, ContentType
+from xbot.models.follow_growth import FollowCandidate, FollowRelationship
 from xbot.models.profile import Profile, ProfileStatus
 from xbot.models.session import Action, ActionStatus, ActionType, Session, SessionStatus
 from xbot.persona.loader import (
@@ -41,8 +42,11 @@ async def setup_db() -> None:
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    try:
+        async with test_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+    except Exception:
+        pass
 
 
 @pytest_asyncio.fixture

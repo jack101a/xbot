@@ -27,17 +27,18 @@ from xbot.browser.actions.x_actions import (
     BrowseFeed,
     CheckUserLatestTweet,
     ComposePost,
+    FollowEngagers,
     FollowUser,
     LikeTweet,
+    QuoteTweet,
     ReplyToTweet,
     Retweet,
-    SearchQuery,
-    ScrapeTrends,
-    ScrapeProfileMetrics,
-    UnfollowUser,
-    UnfollowNonFollowers,
-    FollowEngagers,
     ScrapeFollowList,
+    ScrapeProfileMetrics,
+    ScrapeTrends,
+    SearchQuery,
+    UnfollowNonFollowers,
+    UnfollowUser,
 )
 from xbot.browser.actions.selectors import SELECTORS
 from xbot.browser.manager import BrowserManager
@@ -873,7 +874,17 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                 success = True
                                 continue
 
-                            from xbot.browser.actions.x_actions import QuoteTweet
+                            # Check target tweet popularity before quoting (minimum 100k views threshold)
+                            if not is_mock:
+                                live_ctx = await ReplyToTweet().scrape_target_tweet_context(page, tweet_url=tweet_url, target_idx=0)
+                                target_views = int(live_ctx.get("impressions", 0) or live_ctx.get("views", 0) or 0)
+                                if 0 < target_views < 100_000:
+                                    logger.info("Target tweet %s has only %d views (< 100,000 required for quote-tweeting). Skipping quote action.", tweet_url, target_views)
+                                    db_action.status = ActionStatus.SKIPPED
+                                    db_action.error = f"Target tweet has only {target_views:,} views (< 100,000 required for quote-tweet virality)."
+                                    success = True
+                                    continue
+
                             quote_text = p_action.content or "Sharp perspective on this. Adding to the discussion."
                             success = await QuoteTweet().execute(page, quote_text=quote_text, tweet_url=tweet_url)
                         elif p_action.type == "follow":

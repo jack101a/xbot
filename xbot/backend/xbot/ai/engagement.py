@@ -202,6 +202,13 @@ class EngagementEvaluator:
             action = "skip"
             confidence = 1.0
 
+        # Enforce min 100k views rule for quote-tweeting
+        if action == "quote":
+            impressions = int(tweet_data.get("impressions", 0) or tweet_data.get("views", 0) or 0)
+            if 0 < impressions < 100_000:
+                logger.info("Downgrading quote to reply: tweet has %d views (< 100k minimum for quote-tweets)", impressions)
+                action = "reply"
+
         decision = EngagementDecision(action=action, confidence=confidence, content=None)
 
         # Check limits early to avoid generating content if not needed

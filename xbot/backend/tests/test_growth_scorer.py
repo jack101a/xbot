@@ -209,3 +209,37 @@ def test_score_tweet_opportunity_broadcast_bot_penalty() -> None:
     assert result.reply_loop_multiplier <= 1.0
     assert result.score < 40.0
     assert result.recommended_action == "skip"
+
+
+def test_score_tweet_opportunity_quote_tweet_requires_100k_views() -> None:
+    """Tests that quote_tweet recommendation requires a minimum of 100k views / impressions."""
+    ref_time = datetime(2026, 8, 25, 12, 0, 0, tzinfo=timezone.utc)
+
+    # 1. Low-view post (8,000 views) -> should NOT recommend quote_tweet
+    low_view_tweet = {
+        "tweet_id": "190011223350",
+        "author": "casual_dev",
+        "text": "Interesting take on local LLMs vs cloud APIs for small projects.",
+        "is_verified": False,
+        "likes": 50,
+        "replies": 8,
+        "impressions": 8000,
+        "created_at_utc": ref_time - timedelta(minutes=30),
+    }
+    low_view_score = score_tweet_opportunity(low_view_tweet, reference_time=ref_time)
+    assert low_view_score.recommended_action != "quote_tweet"
+    assert low_view_score.recommended_action == "sniper_reply"
+
+    # 2. Viral post (180,000 views) -> should recommend quote_tweet
+    viral_tweet = {
+        "tweet_id": "190011223351",
+        "author": "viral_creator",
+        "text": "The entire software industry is undergoing a massive shift right before our eyes.",
+        "is_verified": True,
+        "likes": 3500,
+        "replies": 420,
+        "impressions": 180000,
+        "created_at_utc": ref_time - timedelta(hours=2),
+    }
+    viral_score = score_tweet_opportunity(viral_tweet, reference_time=ref_time)
+    assert viral_score.recommended_action == "quote_tweet"

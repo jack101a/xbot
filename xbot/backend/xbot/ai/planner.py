@@ -111,7 +111,7 @@ async def plan_session(
         "   - Synthesize your posts and polls to analyze, debate, or offer a contrarian take on these specific live trending discussions.\n"
         "2. 🎯 BALANCED ACTIVE ENGAGEMENT MIX:\n"
         "   - Plan 1-2 🎯 SNIPER REPLIES (type: 'reply'): Target MUST be a specific Twitter tweet status URL ('https://x.com/.../status/...'). NEVER use a news/RSS link or null target for replies!\n"
-        "   - Plan 1 💬 QUOTE TWEET (type: 'quote'): Target MUST be a specific Twitter tweet status URL ('https://x.com/.../status/...').\n"
+        "   - Plan 1 💬 QUOTE TWEET (type: 'quote'): Target MUST be a specific Twitter tweet status URL ('https://x.com/.../status/...'). ONLY quote viral, high-reach tweets with MINIMUM 100k views / impressions (100,000+ views). NEVER quote small, low-traffic, or personal posts with low views!\n"
         "   - Plan 1-2 ❤️ LIKES (type: 'like'): Target MUST be a specific Twitter tweet status URL ('https://x.com/.../status/...').\n"
         "   - Plan 1 👥 FOLLOW (type: 'follow') targeting an active Blue Tick peer username (e.g. 'handle') or mutuals train participant.\n"
         "   - Plan 1 ✍️ POST or POLL (type: 'post' or 'poll') analyzing the #1 most active debate or breaking news in the feed snapshot (target is null).\n"

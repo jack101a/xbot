@@ -332,15 +332,18 @@ def score_tweet_opportunity(
         reasoning_parts.append(f"Engagement velocity: {velocity:.1f}/h (age: {delta_hours:.1f}h)")
 
     # Determine recommended action:
-    # Skip stale tweets (>12h), explicit bots, or dead link spam (score < 25)
+    # 1. Skip stale tweets (>12h), explicit bots, or dead link spam (score < 25)
     if is_bot or delta_hours > 12.0 or (has_link_penalty and final_score < 25.0):
         recommended_action = "skip"
     elif bookmark_potential >= 25.0 and final_score >= 50.0:
         recommended_action = "bookmark_reference"
+    elif impressions >= 100_000 and final_score >= 40.0:
+        # Strictly reserve quote-tweets for viral posts with >=100k impressions
+        recommended_action = "quote_tweet"
     elif final_score >= 35.0:
         recommended_action = "sniper_reply"
     else:
-        recommended_action = "quote_tweet"
+        recommended_action = "sniper_reply"
 
     reasoning = ". ".join(reasoning_parts) + "."
 

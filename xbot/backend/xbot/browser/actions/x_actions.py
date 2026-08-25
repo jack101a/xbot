@@ -823,16 +823,59 @@ class ReplyToTweet(BaseAction):
             except Exception:
                 pass
 
+            # Extract root tweet engagement metrics (views/impressions, likes, replies, retweets)
+            views_count = 0
+            likes_count = 0
+            replies_count = 0
+            retweets_count = 0
+            try:
+                # 1. Views / Analytics
+                view_el = await target_tweet.query_selector('a[href*="/analytics"], [data-testid="app-text-transition-container"], [aria-label*="Views"], [aria-label*="views"]')
+                if view_el:
+                    v_aria = await view_el.get_attribute("aria-label") or ""
+                    v_text = await view_el.inner_text() or ""
+                    views_count = _parse_comment_likes(v_aria) or _parse_comment_likes(v_text)
+
+                # 2. Likes
+                like_el = await target_tweet.query_selector('[data-testid="like"], button[aria-label*="Like"]')
+                if like_el:
+                    l_aria = await like_el.get_attribute("aria-label") or ""
+                    l_text = await like_el.inner_text() or ""
+                    likes_count = _parse_comment_likes(l_aria) or _parse_comment_likes(l_text)
+
+                # 3. Replies
+                reply_el = await target_tweet.query_selector('[data-testid="reply"], button[aria-label*="Reply"]')
+                if reply_el:
+                    r_aria = await reply_el.get_attribute("aria-label") or ""
+                    r_text = await reply_el.inner_text() or ""
+                    replies_count = _parse_comment_likes(r_aria) or _parse_comment_likes(r_text)
+
+                # 4. Retweets
+                rt_el = await target_tweet.query_selector('[data-testid="retweet"], button[aria-label*="Repost"]')
+                if rt_el:
+                    rt_aria = await rt_el.get_attribute("aria-label") or ""
+                    rt_text = await rt_el.inner_text() or ""
+                    retweets_count = _parse_comment_likes(rt_aria) or _parse_comment_likes(rt_text)
+            except Exception:
+                pass
+
             logger.info(
-                "Scraped live thread context on page: author=@%s, text_preview='%s', captured_comments=%d, images=%d",
+                "Scraped live thread context on page: author=@%s, text_preview='%s', views=%d, likes=%d, captured_comments=%d, images=%d",
                 author,
                 text[:40],
+                views_count,
+                likes_count,
                 len(top_comments),
                 len(media_urls),
             )
             return {
                 "author": author,
                 "text": text,
+                "views": views_count,
+                "impressions": views_count,
+                "likes": likes_count,
+                "replies": replies_count,
+                "retweets": retweets_count,
                 "top_comments": top_comments[:10],
                 "media_urls": media_urls[:4],
                 "media_alts": media_alts[:4],
