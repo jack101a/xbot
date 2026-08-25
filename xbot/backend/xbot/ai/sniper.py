@@ -15,16 +15,18 @@ logger = logging.getLogger(__name__)
 
 VALID_ANGLES = {"contrarian", "framework", "question", "witty", "data", "insight"}
 
-SNIPER_PROMPT_TEMPLATE = """=== THE 3-STAGE SNIPER ARCHITECTURE (MANDATORY) ===
-Your reply MUST strictly follow this exact 3-stage formula:
-1. The Contrarian / Value Hook: Immediately validate or challenge the author's core premise with domain insight. Zero generic greetings, pleasantries, or praise (never say "Great post!", "Interesting point!", "100% agree!").
-2. Concrete Proof / Data Angle: Deliver a high-density takeaway, empirical metric, historical precedent, or counter-intuitive mechanism that proves your point.
-3. The Debate Catalyst: Conclude with a sharp, open-ended question that directly challenges the author's assumption or asks for their tactical nuance, compelling the author to reply back (+150x Phoenix algorithm multiplier).
+SNIPER_PROMPT_TEMPLATE = """=== HIGH-IMPACT SNIPER REPLY ARCHITECTURE ===
+Select the most natural, high-signal reply archetype based on the tweet and room vibe:
+1. Sharp One-Liner / Witty Banter (40-100 chars): Direct observation, sarcastic humor, or dry roast.
+2. High-Value Counter-Take / Insight (90-250 chars): Nuanced trade-off, data angle, or contrarian perspective.
+3. Engaging Debate Catalyst (80-240 chars): Provocative observation concluding in a compelling question ('?') to compel an author reply-back (+150x Phoenix multiplier).
 
-=== STRICT CONSTRAINTS ===
-- Length Constraint: STRICTLY between 140 and 260 characters total.
-- Closing Question: MUST end with a debate catalyst question mark ('?').
-- Sentence Case: Punchy, human, conversational voice.
+=== STRICT EMOJI & TONE RULES ===
+- NO TOPIC-LABELING EMOJIS: NEVER use literal category icons (NO 🍿 for cinema/movies, NO 🏴‍☠️ for anime/One Piece, NO ⌚ for watches, NO 🤖 for AI/tech, NO 💻 for code).
+- EMOTION-DRIVEN CONTEXT ONLY: Use an emoji ONLY if it reflects real human facial expression / emotional subtext (e.g. 😭, 🫠, 🤦‍♂️, 😮‍💨, 🤝, 🔥, 👀).
+- ZERO EMOJIS IS NATURAL: At least 50% of the time, use NO emoji at all (especially for deadpan, cynical, witty, or technical takes).
+- DO NOT PUT A FIXED EMOJI AT THE END OF EVERY POST.
+- DYNAMIC LENGTH: Do NOT force every reply into the same character length. Adapt naturally to the thought.
 - Banned AI Clichés: delve, testament, tapestry, supercharge, beacon, plethora, moreover, furthermore, in conclusion, game-changer, leverage, multifaceted, pivotal, foster, vital, crucial, endeavor, Great post!, Awesome thread!
 - No Hashtags: Never include hashtags (#).
 - Indian Politics Ban: Zero political references.
@@ -32,23 +34,13 @@ Your reply MUST strictly follow this exact 3-stage formula:
 
 
 class SniperResult(BaseModel):
-    reply_text: str = Field(..., description="The drafted high-value reply text (strictly 140–260 chars, sentence case, ending with debate catalyst question)")
-    debate_catalyst: str = Field(default="", description="The extracted closing question compelling the author to reply back")
+    reply_text: str = Field(..., description="The drafted high-value reply text (natural length, sentence case)")
+    debate_catalyst: str = Field(default="", description="Optional extracted closing question or hook")
     angle: str = Field(default="insight", description="The angle chosen: contrarian, framework, question, witty, data, or insight")
     angle_used: str | None = Field(default=None, description="Backwards compatibility alias for angle")
-    gif_query: str | None = Field(default=None, description="Optional search term for a reaction GIF if a GIF fits the emotion, or null")
+    gif_query: str | None = Field(default=None, description="Optional search term for a reaction GIF if a visual meme/reaction fits the emotion, or null")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     reasoning: str = Field(default="", description="Brief explanation of the chosen angle")
-
-    @field_validator("reply_text")
-    @classmethod
-    def validate_reply_ends_with_question(cls, v: str) -> str:
-        trimmed = v.strip()
-        if not trimmed:
-            return v
-        if not trimmed.endswith("?"):
-            raise ValueError("Sniper reply must end with a debate catalyst question mark ('?').")
-        return v
 
     def __init__(self, **data: Any) -> None:
         if "angle" in data and "angle_used" not in data:
@@ -136,19 +128,18 @@ def _build_sniper_system_prompt(persona: Persona, preferred_angle: str | None = 
     prompt_parts.append(
         "\n=== X ALGORITHM & RETENTION OPTIMIZATION RULES ===\n"
         "1. STRICT TOPIC RELEVANCE (MANDATORY): You MUST directly address the EXACT topic, premise, claim, or joke of the target post. If the tweet is about tech, coding, AI, or startups, reply with witty commentary on tech/coding. If it is about comedy, banter with comedy. If it is about traffic, talk about traffic. NEVER bring up unrelated persona hobbies (DO NOT mention gym, sarees, trial rooms, or tea unless the target tweet is specifically about fitness, styling, or drinks). Off-topic replies make the account look like a dumb spam bot.\n"
-        "2. MATCH ENERGY & SCALE: Match the vibe of the room. Keep your reply high-density, sharp, and punchy.\n"
-        "3. THE DEBATE CATALYST QUESTION (MANDATORY): Conclude the reply with a compelling, open-ended debate catalyst question that urges the author to defend their position or add nuance (earning +150x Phoenix algorithm multiplier). Avoid generic robotic survey filler like 'What do you think?' or 'Do you agree?'. Instead, ask specific, high-entropy questions regarding mechanics, trade-offs, or bottlenecks.\n"
-        "4. DYNAMIC HOOK OPENINGS & EMOTIONAL VARIETY (STRICT): NEVER start every reply with 'If...' or academic conditionals! Vary your opening sentence structure dynamically with genuine human emotion, humor, shock, or sarcasm:\n"
+        "2. MATCH ENERGY & SCALE: Match the vibe of the room. Keep your reply sharp, authentic, and human.\n"
+        "3. HIGH ENGAGEMENT & CLOSERS: When asking a question, make it specific and thought-provoking. When making a strong statement or witty roast, deliver it with conviction without needing a forced survey question.\n"
+        "4. DYNAMIC HOOK OPENINGS & EMOTIONAL VARIETY (STRICT): Vary your opening sentence structure dynamically with genuine human emotion, humor, shock, or sarcasm (never start every reply with 'If...'):\n"
         "   - Sarcastic Banter: 'Bro had 2 lines in 2019 and dipped 💀', 'We are really out here doing algorithm boot camp training in the replies instead of just shipping code...'\n"
         "   - Shock & Hype: 'Masahide Fujii returning as Rocks is pure cinema. That laugh alone is carrying the entire arc 🔥'\n"
         "   - Dry Disbelief/Humor: 'Marketing departments treating individual TV episodes like software patch notes is crazy 😭'\n"
         "   - Direct Punchy Observation: 'The M4 Max efficiency gap is actually absurd. Intel needs a miracle.'\n"
-        "   - BANNED: DO NOT start multiple replies with 'If Toei...', 'If the...', 'If you...'. Write with distinct human flair!\n"
-        "5. HIGH DWELL TIME & VALUE-FIRST: Provide an immediate counter-intuitive insight, sharp angle, or high-density proof that stops the scroll.\n"
-        "6. CONCISE LENGTH: Strictly between 140 and 260 characters so the entire reply is visible on mobile without 'Show more' truncation.\n"
+        "5. DYNAMIC LENGTH VARIETY: Do not force all replies to be the exact same length. Allow natural variety from a punchy 1-sentence observation (40-90 chars) to a multi-line thought (120-250 chars).\n"
+        "6. EMOJI EMOTION CONTEXT: Never use emojis as literal topic category tags (no 🍿 for movies, no 🏴‍☠️ for anime, no ⌚ for watches). Use emojis strictly for facial expression, tone, or sarcasm (😭, 🫠, 🤦‍♂️, 😮‍💨, 🤝, 🔥, 👀), and frequently use ZERO emojis for deadpan or technical takes.\n"
         "7. ZERO EXPENSIVE / FAKE ACADEMIC AI ENGLISH: STRICTLY BANNED: delve, tapestry, testament, supercharge, beacon, plethora, moreover, furthermore, in conclusion, game-changer, leverage, multifaceted, pivotal, foster, vital, crucial, endeavor. Speak in natural, grounded conversational voice.\n"
-        "8. READ THE ROOM & THREAD CONTEXT: Look at the tweet and top comments. If people are roasting or joking, join the banter with witty sarcasm. If it's a technical debate, bring empirical nuance.\n"
-        "9. GIF USAGE POLICY (SELECTIVE & CONSERVATIVE): Most replies (75-80%) MUST be pure text (set gif_query: null). DO NOT attach a GIF to every reply. ONLY attach a GIF when a visual meme/reaction is genuinely necessary to punch up an extraordinary comedic joke, disbelief, or shock (e.g. 'side eye', 'facepalm', 'crying laughing'). For standard commentary, tech discussions, questions, insights, and intellectual takes, KEEP gif_query: null.\n"
+        "8. READ THE ROOM & POPULAR COMMENTS: Look at the tweet and top comments. If people are roasting or joking, join the banter with witty sarcasm. If it's a technical debate, bring empirical nuance.\n"
+        "9. GIF / REACTION ATTACHMENT: When a reply has strong comedic timing, reaction, shock, or sarcasm, provide a 1-3 word gif_query (e.g. 'side eye', 'facepalm', 'smug nod', 'confused math', 'holding back tears') to attach a visual meme/reaction. For dry analytical takes, return null.\n"
         "10. NO HASHTAGS: Never include hashtags (#).\n"
         "11. ABSOLUTE ZERO TOLERANCE FOR INDIAN POLITICS (HARD BAN): STRICTLY FORBIDDEN from discussing, referencing, mentioning, or reacting to ANY Indian political party, politician, election, policy, or controversy (STRICTLY BANNED: BJP, Congress, AAP, Modi, Rahul Gandhi, Kejriwal, Amit Shah, Yogi, Hindutva, RSS, Lok Sabha, Indian government). If a target post touches Indian politics, NEVER reply to it!\n"
         "12. ANTI-BOT: NEVER use generic praise like 'Great post!', '100% agree!', 'Awesome thread!'. Stand out."

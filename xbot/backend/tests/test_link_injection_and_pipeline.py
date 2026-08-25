@@ -135,7 +135,7 @@ async def test_growth_scorer_integration_skips_low_quality_targets(db_session: A
     mock_redis.sismember.return_value = False
 
     with patch("xbot.tasks.redis.from_url", return_value=mock_redis), \
-         patch("xbot.tasks.AsyncSessionLocal", return_value=db_session), \
+         patch("xbot.tasks.AsyncSessionLocal", TestSessionLocal), \
          patch("xbot.tasks.load_persona", return_value=sample_persona_with_kol), \
          patch("xbot.tasks.SafetyGuard.is_action_safe", AsyncMock(return_value=True)), \
          patch("xbot.tasks.SafetyGuard.record_action_success", AsyncMock()), \
@@ -190,7 +190,7 @@ async def test_growth_scorer_integration_executes_high_opportunity_target(db_ses
     )
 
     with patch("xbot.tasks.redis.from_url", return_value=mock_redis), \
-         patch("xbot.tasks.AsyncSessionLocal", return_value=db_session), \
+         patch("xbot.tasks.AsyncSessionLocal", TestSessionLocal), \
          patch("xbot.tasks.load_persona", return_value=sample_persona_with_kol), \
          patch("xbot.tasks.SafetyGuard.is_action_safe", AsyncMock(return_value=True)), \
          patch("xbot.tasks.SafetyGuard.record_action_success", AsyncMock()), \
@@ -243,7 +243,7 @@ async def test_session_post_link_extraction_and_1st_reply_staging(db_session: As
     mock_config.schedule.timezone = "Asia/Kolkata"
     mock_config.proxy_url = None
 
-    with patch("xbot.tasks.AsyncSessionLocal", return_value=db_session), \
+    with patch("xbot.tasks.AsyncSessionLocal", TestSessionLocal), \
          patch("xbot.tasks.load_persona", return_value=sample_persona_with_kol), \
          patch("xbot.tasks.load_config", return_value=mock_config), \
          patch("xbot.tasks.plan_session", AsyncMock(return_value=plan)), \
@@ -309,7 +309,7 @@ async def test_session_post_link_extraction_and_direct_publishing_1st_reply(db_s
     mock_page = AsyncMock()
     mock_context.new_page.return_value = mock_page
 
-    with patch("xbot.tasks.AsyncSessionLocal", return_value=db_session), \
+    with patch("xbot.tasks.AsyncSessionLocal", TestSessionLocal), \
          patch("xbot.tasks.load_persona", return_value=sample_persona_with_kol), \
          patch("xbot.tasks.load_config", return_value=mock_config), \
          patch("xbot.tasks.plan_session", AsyncMock(return_value=plan)), \

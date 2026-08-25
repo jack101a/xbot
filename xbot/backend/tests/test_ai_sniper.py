@@ -408,7 +408,7 @@ def test_verify_sniper_reply_indian_politics_rejection() -> None:
 
 
 def test_sniper_result_model_validation() -> None:
-    """Tests SniperResult Pydantic schema validation, question mark enforcement, and debate catalyst extraction."""
+    """Tests SniperResult Pydantic schema validation and debate catalyst extraction."""
     # 1. Valid SniperResult ending with ?
     valid_res = SniperResult(
         reply_text="Compute scaling is sub-linear beyond 100k clusters; interconnect topology caps GPU utilization at 45%. How are you mitigating tail latency?",
@@ -419,13 +419,13 @@ def test_sniper_result_model_validation() -> None:
     assert valid_res.angle == "data"
     assert valid_res.angle_used == "data"
 
-    # 2. Invalid SniperResult without question mark -> raises ValidationError
-    with pytest.raises(ValidationError) as exc_info:
-        SniperResult(
-            reply_text="Compute scaling is sub-linear beyond 100k clusters; interconnect topology caps GPU utilization at 45%.",
-            angle="data",
-        )
-    assert "debate catalyst question mark" in str(exc_info.value)
+    # 2. Valid SniperResult without question mark (strong punchy statement / dry humor)
+    punchy_res = SniperResult(
+        reply_text="Compute scaling is sub-linear beyond 100k clusters; interconnect topology caps GPU utilization at 45%.",
+        angle="data",
+    )
+    assert punchy_res.reply_text.startswith("Compute scaling")
+    assert punchy_res.angle == "data"
 
     # 3. Empty reply_text in error fallbacks does not throw
     fallback_res = SniperResult(reply_text="", confidence=0.0)
@@ -434,21 +434,18 @@ def test_sniper_result_model_validation() -> None:
 
 
 def test_sniper_3_part_structure_and_debate_catalyst() -> None:
-    """Tests that 3-part replies adhere to Value Hook + Concrete Proof + Debate Catalyst formula."""
+    """Tests that replies adhere to Value Hook + Concrete Proof / Debate Catalyst formula without clichés."""
     reply = "Compute scaling is only half the equation; thermal density at datacenter scale will be the true cap over the next decade. What is your cooling headroom?"
     
-    # 1. Assert length is strictly 140-260 characters
-    assert 140 <= len(reply) <= 260
+    # 1. Assert length is within mobile tweet bounds
+    assert 40 <= len(reply) <= 260
     
-    # 2. Assert ending with question mark
-    assert reply.endswith("?")
-    
-    # 3. Assert no generic AI clichés
+    # 2. Assert no generic AI clichés
     cliches = ["delve", "testament", "tapestry", "supercharge", "Great post!", "100% agree"]
     for c in cliches:
         assert c.lower() not in reply.lower()
 
-    # 4. Instantiate model and verify catalyst extraction
+    # 3. Instantiate model and verify catalyst extraction
     result = SniperResult(reply_text=reply, angle="contrarian")
     assert result.debate_catalyst == "What is your cooling headroom?"
     assert result.angle == "contrarian"
@@ -488,12 +485,10 @@ def test_verify_sniper_reply_banned_cliches() -> None:
 
 
 def test_sniper_prompt_template_contents() -> None:
-    """Tests that SNIPER_PROMPT_TEMPLATE includes the 3-stage formula, constraints, and banned words."""
-    assert "THE 3-STAGE SNIPER ARCHITECTURE" in SNIPER_PROMPT_TEMPLATE
-    assert "Contrarian / Value Hook" in SNIPER_PROMPT_TEMPLATE
-    assert "Concrete Proof / Data Angle" in SNIPER_PROMPT_TEMPLATE
-    assert "Debate Catalyst" in SNIPER_PROMPT_TEMPLATE
-    assert "140 and 260 characters" in SNIPER_PROMPT_TEMPLATE
+    """Tests that SNIPER_PROMPT_TEMPLATE includes high-impact archetypes, emoji rules, and banned words."""
+    assert "HIGH-IMPACT SNIPER REPLY ARCHITECTURE" in SNIPER_PROMPT_TEMPLATE
+    assert "NO TOPIC-LABELING EMOJIS" in SNIPER_PROMPT_TEMPLATE
+    assert "EMOTION-DRIVEN CONTEXT ONLY" in SNIPER_PROMPT_TEMPLATE
     assert "delve" in SNIPER_PROMPT_TEMPLATE
     assert "testament" in SNIPER_PROMPT_TEMPLATE
     assert "tapestry" in SNIPER_PROMPT_TEMPLATE

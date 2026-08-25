@@ -796,7 +796,7 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                             if persona and live_ctx.get("text"):
                                 # Evaluate algorithmic opportunity score (Phoenix Recommender weights)
                                 opp_score = score_tweet_opportunity(live_ctx)
-                                if opp_score.recommended_action == "skip":
+                                if opp_score.recommended_action == "skip" and opp_score.score < 25.0:
                                     logger.info(
                                         "Phoenix Growth Scorer recommended skipping target tweet %s (score=%.1f): %s",
                                         tweet_url,
@@ -2042,7 +2042,7 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
 
                         # Evaluate algorithmic opportunity score (Phoenix Recommender weights)
                         opp_score = score_tweet_opportunity(tweet_data)
-                        if opp_score.recommended_action == "skip":
+                        if opp_score.recommended_action == "skip" and opp_score.score < 25.0:
                             logger.info(
                                 "Phoenix Growth Scorer skipped target KOL @%s tweet %s (score=%.1f): %s",
                                 kol_handle,
@@ -2072,7 +2072,12 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
                                 await asyncio.sleep(0.5)
                                 success = True
                             else:
-                                success = await ReplyToTweet().execute(page, reply_result.reply_text, tweet_url=tweet_url)
+                                success = await ReplyToTweet().execute(
+                                    page,
+                                    reply_result.reply_text,
+                                    tweet_url=tweet_url,
+                                    gif_query=reply_result.gif_query,
+                                )
                         except Exception as ex:
                             error_msg = str(ex)
                             logger.error("Error executing sniper reply to %s: %s", tweet_url, ex)

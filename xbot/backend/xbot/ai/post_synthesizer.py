@@ -99,8 +99,10 @@ def _build_clean_creator_prompt(
             "## ✍️ Standalone Post Instructions:\n"
             "- Opening Hook: Start with an irresistible open-loop curiosity hook strictly < 100 characters before the mobile fold ('Show more').\n"
             "- Value & Bookmark-Bait: Frame through 1st-person creator experience, relatable irony, or high-utility numbered cheat sheets/frameworks (+50x bookmark reach).\n"
-            "- Native Text Only: DO NOT include external URLs in the post body (100% native text/media to avoid -70% link reach penalty).\n"
-            "- Keep total length punchy and mobile-optimized (< 260 chars)."
+            "- Dynamic Length: Allow natural variety from a punchy 1-line observation to a multi-line breakdown (< 260 chars).\n"
+            "- Single Topic Focus: Keep the post strictly centered on ONE clear premise. NEVER mash two unrelated topics together in one sentence.\n"
+            "- Emoji Context: Use emojis strictly for genuine human emotion, sarcasm, shock, or reaction (😭, 🫠, 🤦‍♂️, 😮‍💨, 🤝, 🔥, 👀). NEVER use topic-labeling emojis (no 🍿 for cinema, no 🏴‍☠️ for anime, no ⌚ for watches, no 🤖 for tech). Use 0 emojis for deadpan or technical takes.\n"
+            "- Native Text Only: DO NOT include external URLs in the post body (100% native text/media to avoid -70% link reach penalty)."
         )
 
     return "\n\n".join(sections)

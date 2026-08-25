@@ -268,22 +268,26 @@ def score_tweet_opportunity(
     # Velocity Signal (0 to 35 pts)
     vel_signal = min(35.0, 35.0 * (velocity / (velocity + 40.0))) if velocity > 0 else 0.0
 
-    # Freshness floor for tweets under 30 minutes with active replies
+    # Freshness golden window: tweets under 4 hours are prime sniper opportunities even before viral metrics accumulate
     delta_hours = max(0.0, (reference_time - created_at_utc).total_seconds() / 3600.0)
-    if delta_hours <= 0.5 and replies >= 3:
-        vel_signal = max(vel_signal, 25.0)
+    if delta_hours <= 4.0:
+        fresh_bonus = 28.0 * math.exp(-0.25 * delta_hours)
+        vel_signal = max(vel_signal, fresh_bonus)
+    elif delta_hours <= 12.0 and replies >= 2:
+        vel_signal = max(vel_signal, 18.0)
 
     # Reply Loop Signal (0 to 35 pts)
     if author_history is not None:
         reply_signal = 35.0 * (reply_loop_multiplier / 150.0)
     else:
-        reply_signal = 12.0
+        # Healthy creator baseline when author history is not yet populated
+        reply_signal = 22.0
 
     # Bookmark Signal (0 to 25 pts)
     bookmark_signal = 25.0 * (bookmark_potential / 50.0)
 
     # Verified Bonus (0 to 15 pts)
-    verified_signal = 15.0 if author_is_verified else 0.0
+    verified_signal = 15.0 if author_is_verified else 5.0
 
     # Raw score summation (0 to 100)
     raw_score = vel_signal + reply_signal + bookmark_signal + verified_signal
@@ -297,7 +301,7 @@ def score_tweet_opportunity(
     # Broadcast Bot Penalty
     is_bot = bool(author_history and (author_history.get("is_broadcast_bot") or author_history.get("reply_rate") == 0.0))
     if is_bot:
-        decayed_score = min(decayed_score, 30.0) * 0.4
+        decayed_score = min(decayed_score, 20.0) * 0.2
 
     # External Link Penalty (0.3x multiplier / -70% suppression)
     if has_link_penalty:
@@ -325,14 +329,15 @@ def score_tweet_opportunity(
     if delta_hours > 12.0:
         reasoning_parts.append(f"Aged tweet ({delta_hours:.1f}h old), decayed opportunity window")
     else:
-        reasoning_parts.append(f"Engagement velocity: {velocity:.1f}/h")
+        reasoning_parts.append(f"Engagement velocity: {velocity:.1f}/h (age: {delta_hours:.1f}h)")
 
-    # Determine recommended action
-    if final_score < 40.0 or (has_link_penalty and final_score < 50.0) or (delta_hours > 12.0 and final_score < 50.0):
+    # Determine recommended action:
+    # Skip stale tweets (>12h), explicit bots, or dead link spam (score < 25)
+    if is_bot or delta_hours > 12.0 or (has_link_penalty and final_score < 25.0):
         recommended_action = "skip"
-    elif bookmark_potential >= 30.0 and final_score >= 60.0:
+    elif bookmark_potential >= 25.0 and final_score >= 50.0:
         recommended_action = "bookmark_reference"
-    elif final_score >= 70.0:
+    elif final_score >= 35.0:
         recommended_action = "sniper_reply"
     else:
         recommended_action = "quote_tweet"

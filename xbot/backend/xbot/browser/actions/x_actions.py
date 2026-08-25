@@ -11,8 +11,10 @@ Every action in this module is designed to behave like a real human:
 """
 from __future__ import annotations
 
+import json
 import logging
 import random
+import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -41,13 +43,46 @@ logger = logging.getLogger(__name__)
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+async def check_target_tweet_status(page: Page, timeout: int = 15000) -> dict[str, Any]:
+    """
+    Checks if a target tweet page is loaded, or if it is deleted/suspended/unavailable.
+    Returns: {"available": bool, "reason": str | None}
+    """
+    try:
+        # Fast check for X error banners or deleted post indicators
+        err_banner = await page.query_selector(
+            '[data-testid="error-detail"], [data-testid="emptyState"], [data-testid="empty_timeline"]'
+        )
+        if err_banner:
+            txt = (await err_banner.inner_text()).lower()
+            if any(w in txt for w in ("deleted", "does not exist", "suspended", "protected", "not available", "something went wrong")):
+                logger.warning("Target tweet unavailable banner: %s", txt.replace("\n", " ")[:100])
+                return {"available": False, "reason": f"Tweet unavailable: {txt.splitlines()[0]}"}
+
+        # Wait for tweet article element
+        await page.wait_for_selector(
+            SELECTORS["tweet"],
+            timeout=timeout
+        )
+        return {"available": True, "reason": None}
+    except Exception as e:
+        # Fallback query
+        articles = await page.query_selector_all(SELECTORS["tweet"])
+        if articles:
+            return {"available": True, "reason": None}
+        return {"available": False, "reason": f"Tweet element not found: {e}"}
+
+
 async def _navigate_home_if_needed(page: Page) -> None:
     """Navigate to the X home feed if not already there."""
     current = page.url
     if "x.com/home" not in current and "twitter.com/home" not in current:
-        await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=20000)
-        await page.wait_for_selector(SELECTORS["tweet"], timeout=15000)
-        await sleep_with_jitter(2500)
+        try:
+            await page.goto("https://x.com/home", wait_until="commit", timeout=25000)
+            await page.wait_for_selector(SELECTORS["tweet"], timeout=15000)
+        except Exception:
+            pass
+        await sleep_with_jitter(2000)
 
 
 async def _random_tab_detour(page: Page) -> None:
@@ -66,11 +101,13 @@ async def _random_tab_detour(page: Page) -> None:
         "https://x.com/i/lists",
     ]
     detour = random.choice(detour_urls)
-    logger.debug("Taking random tab detour to %s", detour)
-    await page.goto(detour, wait_until="domcontentloaded", timeout=20000)
-    await sleep_think_time(2000, 6000)  # Browse briefly
-    await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=20000)
-    await page.wait_for_selector(SELECTORS["tweet"], timeout=10000)
+    try:
+        await page.goto(detour, wait_until="domcontentloaded", timeout=20000)
+        await sleep_think_time(1500, 4000)  # Browse briefly
+        await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=20000)
+        await page.wait_for_selector(SELECTORS["tweet"], timeout=8000)
+    except Exception:
+        pass
     await sleep_with_jitter(1500)
 
 
@@ -150,9 +187,55 @@ class BrowseFeed(BaseAction):
                 for el in tweet_elements:
                     text_el = await el.query_selector(SELECTORS["tweet_text"])
                     if text_el:
-                        text = await text_el.inner_text()
-                        # Also try to extract author and tweet URL
-                        tweet_data: dict[str, Any] = {"text": text}
+                        text = (await text_el.inner_text()).strip()
+                        if not text:
+                            continue
+
+                        # Global Political Safety Filter
+                        from xbot.ai.sniper import BANNED_POLITICS_REGEX
+                        if BANNED_POLITICS_REGEX.search(text):
+                            continue
+
+                        # Extract author handle & name
+                        author = ""
+                        display_name = ""
+                        is_blue_tick = False
+                        user_el = await el.query_selector('[data-testid="User-Name"]')
+                        if user_el:
+                            user_text = await user_el.inner_text()
+                            match = re.search(r"@([A-Za-z0-9_]+)", user_text)
+                            if match:
+                                author = match.group(1)
+                            # Blue tick detection
+                            verified_icon = await user_el.query_selector(
+                                'svg[data-testid="icon-verified"], svg[aria-label*="Verified"]'
+                            )
+                            if verified_icon:
+                                is_blue_tick = True
+
+                        tweet_data: dict[str, Any] = {
+                            "text": text,
+                            "author": author or "creator",
+                            "is_blue_tick": is_blue_tick,
+                        }
+
+                        # Scrape attached images
+                        try:
+                            img_el = await el.query_selector('[data-testid="tweetPhoto"] img, div[aria-label="Image"] img')
+                            if img_el:
+                                img_src = await img_el.get_attribute("src")
+                                img_alt = await img_el.get_attribute("alt")
+                                if img_src and img_src.startswith("http") and "profile_images" not in img_src and "emoji" not in img_src:
+                                    tweet_data["media_urls"] = [img_src]
+                                if img_alt and img_alt.strip() and img_alt != "Image":
+                                    tweet_data["media_alts"] = [img_alt.strip()]
+                        except Exception:
+                            pass
+
+                        # Check if this is an active growth or follow-back thread
+                        if re.search(r"(follow\s*back|drop\s*your\s*handle|mutuals|f4f|verified\s*mutuals|connect)", text, re.IGNORECASE):
+                            tweet_data["is_growth_thread"] = True
+
                         try:
                             link_el = await el.query_selector("a[href*='/status/']")
                             if link_el:
@@ -162,7 +245,9 @@ class BrowseFeed(BaseAction):
                                     tweet_data["tweet_id"] = _extract_tweet_id_from_url(tweet_data["url"])
                         except Exception:
                             pass
-                        if tweet_data not in tweets:
+
+                        # Deduplicate by URL or text
+                        if not any(t.get("url") == tweet_data.get("url") and t.get("text") == text for t in tweets):
                             tweets.append(tweet_data)
 
             logger.info("Browsed %d scrolls, gathered %d tweets", max_scrolls, len(tweets))
@@ -173,45 +258,183 @@ class BrowseFeed(BaseAction):
             return []
 
 
+async def _attach_gif_if_requested(page: Page, gif_query: str | None) -> bool:
+    """Helper to open X native GIF search, search for a query, and select a relevant GIF."""
+    if not gif_query:
+        return False
+    try:
+        logger.info("Attempting to search and attach GIF for query: '%s'", gif_query)
+        gif_btn_sel = (
+            'button[data-testid="gifSearchButton"], '
+            'button[aria-label="Add a GIF"], '
+            'button[aria-label*="GIF"], '
+            '[data-testid="fileInput"] + div button'
+        )
+        gif_btn = await page.query_selector(gif_btn_sel)
+        if not gif_btn:
+            logger.debug("GIF search button not found in composer.")
+            return False
+
+        await human_click(page, gif_btn, 200, 500)
+        await sleep_think_time(800, 1500)
+
+        # Search input in GIF modal
+        search_input_sel = (
+            'input[data-testid="SearchBox_Search_Input"], '
+            'input[placeholder*="Search for GIFs"], '
+            'input[aria-label*="Search for GIFs"]'
+        )
+        search_input = await page.wait_for_selector(search_input_sel, timeout=6000)
+        if search_input:
+            await human_type(page, search_input_sel, gif_query)
+            await sleep_think_time(1200, 2500)
+
+            # Select top GIF result
+            gif_result_sel = (
+                '[data-testid="gifSearchResults"] [role="button"], '
+                '[data-testid="gifCategory"], '
+                'div[role="button"][data-testid*="gif"]'
+            )
+            gif_items = await page.query_selector_all(gif_result_sel)
+            if gif_items:
+                target_gif = gif_items[0] if len(gif_items) == 1 else random.choice(gif_items[:min(3, len(gif_items))])
+                await human_click(page, target_gif, 300, 700)
+                await sleep_think_time(1000, 2000)
+                logger.info("Successfully attached GIF for query: '%s'", gif_query)
+                return True
+    except Exception as e:
+        logger.warning("Could not attach GIF: %s", e)
+    return False
+
+
+async def _attach_media_files(page: Page, media_paths: list[str] | None) -> bool:
+    """Helper to upload local image/video files into X composer using input[type=file]."""
+    if not media_paths:
+        return False
+    valid_paths = [p for p in media_paths if os.path.exists(p)]
+    if not valid_paths:
+        logger.warning("No valid media files found in paths: %s", media_paths)
+        return False
+
+    try:
+        logger.info("Uploading %d media files to X composer: %s", len(valid_paths), valid_paths)
+        file_input_sel = (
+            'input[data-testid="fileInput"], '
+            'input[type="file"][accept*="image"], '
+            'input[type="file"]'
+        )
+        file_input = await page.query_selector(file_input_sel)
+        if not file_input:
+            file_input = await page.wait_for_selector(file_input_sel, state="attached", timeout=6000)
+
+        if file_input:
+            await file_input.set_input_files(valid_paths)
+            await sleep_think_time(1500, 3000)
+            
+            # Wait for upload thumbnail preview to appear
+            attachment_sel = (
+                '[data-testid="attachments"], '
+                '[data-testid="tweetPhoto"], '
+                'div[role="group"][aria-label*="Media"], '
+                'img[alt*="Image"]'
+            )
+            try:
+                await page.wait_for_selector(attachment_sel, timeout=10000)
+                logger.info("Media attachment preview loaded successfully.")
+            except Exception:
+                logger.warning("Attachment thumbnail selector timed out, proceeding.")
+
+            return True
+    except Exception as e:
+        logger.warning("Could not upload media files: %s", e)
+    return False
+
+
 class ComposePost(BaseAction):
-    """Composes and publishes a new post (tweet)."""
+    """Composes and publishes a new post (tweet), optionally with attached images/GIF."""
 
-    async def execute(self, page: Page, text: str) -> bool:
+    async def execute(
+        self,
+        page: Page,
+        text: str,
+        media_paths: list[str] | None = None,
+        gif_query: str | None = None,
+    ) -> bool:
         try:
-            logger.info("Composing new post: %s...", text[:40])
+            # Ensure text is strictly <= 260 chars for free tier X accounts
+            if len(text) > 260:
+                text = text[:257].rstrip() + "..."
 
-            # Navigate home if needed
-            await _navigate_home_if_needed(page)
+            logger.info("Composing new post (%d chars, media=%s, gif=%s): %s...", len(text), media_paths, gif_query, text[:40])
 
-            # Random detour before posting (realistic context switch)
-            await _random_tab_detour(page)
+            textarea_sel = (
+                'div[data-testid="tweetTextarea_0"], '
+                'textarea[data-testid="tweetTextarea_0"], '
+                'div[role="textbox"][data-testid*="tweetTextarea"], '
+                'div[contenteditable="true"][role="textbox"]'
+            )
 
-            # Scroll slightly and pause as if deciding to post
-            await human_scroll(page, random.randint(100, 300), "down")
-            await sleep_think_time(1500, 4000)
+            # 1. Check if composer textarea is already visible on the current page
+            textarea_el = await page.query_selector(textarea_sel)
+            is_visible = False
+            if textarea_el:
+                try:
+                    is_visible = await textarea_el.is_visible()
+                except Exception:
+                    is_visible = False
 
-            # Click compose button using human-like click
-            await human_click_selector(page, SELECTORS["nav_post_button"], 400, 1000)
+            # 2. If not visible, try clicking SideNav_NewTweet_Button to open compose modal
+            if not is_visible:
+                side_nav_btn = await page.query_selector('[data-testid="SideNav_NewTweet_Button"]')
+                if side_nav_btn:
+                    await human_click(page, side_nav_btn, 300, 700)
+                    await sleep_think_time(800, 1500)
 
-            # Wait for textarea
-            await page.wait_for_selector(SELECTORS["tweet_textarea"], timeout=8000)
-            await sleep_think_time(800, 2000)
+            # 3. If still not visible, navigate to /compose/post directly
+            try:
+                textarea_el = await page.wait_for_selector(textarea_sel, state="visible", timeout=6000)
+            except Exception:
+                await page.goto("https://x.com/compose/post", wait_until="domcontentloaded", timeout=25000)
+                await sleep_think_time(1200, 2500)
+                try_again = await page.query_selector("button:has-text('Try again'), [role='button']:has-text('Try again')")
+                if try_again:
+                    await human_click(page, try_again, 300, 600)
+                    await sleep_think_time(1000, 2000)
+                textarea_el = await page.wait_for_selector(textarea_sel, timeout=15000)
+
+            if not textarea_el:
+                raise RuntimeError("Could not locate tweet composer textarea")
+
+            # Click textarea to focus
+            await human_click(page, textarea_el, 200, 500)
+            await sleep_think_time(600, 1500)
 
             # Type text like a human
-            await human_type(page, SELECTORS["tweet_textarea"], text)
-            await sleep_think_time(1000, 2500)  # Review what was typed
+            await human_type(page, textarea_sel, text)
+            await sleep_think_time(1000, 2000)
 
-            # Occasionally move mouse away and back (as if re-reading before posting)
-            if random.random() < 0.4:
-                await human_mouse_move(page, random.uniform(200, 600), random.uniform(100, 400))
-                await sleep_think_time(500, 1500)
+            # Attach media files (images/videos) if provided
+            if media_paths:
+                await _attach_media_files(page, media_paths)
+                await sleep_think_time(1000, 2000)
+
+            # Attach GIF if requested
+            if gif_query and not media_paths:
+                await _attach_gif_if_requested(page, gif_query)
+                await sleep_think_time(1000, 2000)
 
             # Submit post
-            await human_click_selector(page, SELECTORS["tweet_submit_button"], 300, 700)
-            await sleep_with_jitter(3000)
-
-            # Post-action cool-down browse (check feed after posting)
-            await _post_action_cooldown_browse(page, scrolls=random.randint(1, 3))
+            submit_sel = (
+                'button[data-testid="tweetButton"], '
+                'button[data-testid="tweetButtonInline"], '
+                '[data-testid="tweetButtonContainer"] button, '
+                'button[data-testid*="tweetButton"], '
+                'button:not([data-testid*="SideNav"]):not(#nav-post-btn):has-text("Post")'
+            )
+            submit_btn = await page.wait_for_selector(submit_sel, timeout=10000)
+            if submit_btn:
+                await human_click(page, submit_btn, 300, 700)
+            await sleep_with_jitter(4000)
 
             logger.info("Post published successfully.")
             return True
@@ -219,6 +442,145 @@ class ComposePost(BaseAction):
             await self.capture_failure(page, "compose_post")
             logger.error("Failed to compose post: %s", e)
             return False
+
+
+class ComposeThread(BaseAction):
+    """
+    Publishes a multi-tweet thread atomically using X's native composer 'Add Tweet' (+) button.
+    Emulates realistic human typing, think time between tweets, and captures created tweet IDs.
+    """
+
+    SELECTORS = {
+        "nav_post_btn": '[data-testid="SideNav_NewTweet_Button"]',
+        "add_tweet_btn": (
+            'button[data-testid="addButton"], '
+            'button[aria-label="Add Tweet"], '
+            'button[aria-label="Add another tweet"], '
+            '[data-testid="tweetButtonInline"] ~ button'
+        ),
+        "post_all_btn": (
+            'button[data-testid="tweetButton"], '
+            'button[data-testid="tweetButtonInline"], '
+            'button:has-text("Post all"), '
+            'button:not([data-testid*="SideNav"]):not(#nav-post-btn):has-text("Post")'
+        ),
+    }
+
+    async def execute(
+        self,
+        page: Page,
+        tweets: list[str],
+    ) -> dict[str, Any]:
+        if not tweets or len(tweets) < 2:
+            return {"status": "failed", "error": "Threads must contain at least 2 tweets."}
+
+        # Truncate any tweet exceeding free-tier limits
+        clean_tweets = []
+        for text in tweets:
+            if len(text) > 280:
+                clean_tweets.append(text[:277].rstrip() + "...")
+            else:
+                clean_tweets.append(text)
+
+        captured_tweet_ids: list[str] = []
+
+        async def handle_response(response: Any) -> None:
+            try:
+                if "CreateTweet" in response.url or "CreateDraft" in response.url:
+                    if response.status == 200:
+                        data = await response.json()
+                        tweet_data = data.get("data", {}).get("create_tweet", {}).get("tweet_results", {}).get("result", {})
+                        rest_id = tweet_data.get("rest_id") or tweet_data.get("tweet", {}).get("rest_id")
+                        if rest_id and rest_id not in captured_tweet_ids:
+                            captured_tweet_ids.append(rest_id)
+            except Exception:
+                pass
+
+        page.on("response", handle_response)
+
+        try:
+            logger.info("Composing %d-tweet thread on X...", len(clean_tweets))
+
+            # 1. Open compose modal if not already open
+            textarea_sel = (
+                'div[data-testid="tweetTextarea_0"], '
+                'textarea[data-testid="tweetTextarea_0"], '
+                'div[role="textbox"][data-testid*="tweetTextarea"]'
+            )
+            textarea_el = await page.query_selector(textarea_sel)
+            is_visible = False
+            if textarea_el:
+                try:
+                    is_visible = await textarea_el.is_visible()
+                except Exception:
+                    is_visible = False
+
+            if not is_visible:
+                side_nav_btn = await page.query_selector(self.SELECTORS["nav_post_btn"])
+                if side_nav_btn:
+                    await human_click(page, side_nav_btn, 300, 700)
+                    await sleep_think_time(800, 1500)
+
+            try:
+                await page.wait_for_selector(textarea_sel, state="visible", timeout=6000)
+            except Exception:
+                await page.goto("https://x.com/compose/post", wait_until="domcontentloaded", timeout=25000)
+                await sleep_think_time(1200, 2500)
+                await page.wait_for_selector(textarea_sel, timeout=15000)
+
+            # 2. Sequentially populate each tweet in the composer
+            for idx, tweet_text in enumerate(clean_tweets):
+                target_sel = f'div[data-testid="tweetTextarea_{idx}"], textarea[data-testid="tweetTextarea_{idx}"]'
+                # Fallback to any visible textarea if specific index not found
+                target_el = await page.query_selector(target_sel)
+                if not target_el:
+                    all_textareas = await page.query_selector_all('div[data-testid^="tweetTextarea_"], textarea[data-testid^="tweetTextarea_"]')
+                    if idx < len(all_textareas):
+                        target_el = all_textareas[idx]
+                    elif all_textareas:
+                        target_el = all_textareas[-1]
+
+                if not target_el:
+                    target_el = await page.wait_for_selector(textarea_sel, state="visible", timeout=8000)
+
+                await human_click(page, target_el, 200, 400)
+                await sleep_micro(200, 500)
+                await human_type(page, target_sel if await page.query_selector(target_sel) else textarea_sel, tweet_text)
+                await sleep_think_time(1000, 2500)
+
+                # Click "+" (Add Tweet) button if not on last tweet
+                if idx < len(clean_tweets) - 1:
+                    add_btn = await page.query_selector(self.SELECTORS["add_tweet_btn"])
+                    if add_btn:
+                        await human_click(page, add_btn, 250, 550)
+                        await sleep_with_jitter(1200)
+
+            # 3. Submit post all
+            logger.info("Submitting entire thread via 'Post all'...")
+            submit_btn = await page.wait_for_selector(self.SELECTORS["post_all_btn"], timeout=10000)
+            if submit_btn:
+                await human_click(page, submit_btn, 300, 800)
+
+            await sleep_with_jitter(5000)
+
+            root_id = captured_tweet_ids[0] if captured_tweet_ids else None
+            logger.info("Thread published successfully. Root ID: %s, Total: %d", root_id, len(clean_tweets))
+            return {
+                "status": "success",
+                "root_tweet_id": root_id,
+                "tweet_ids": captured_tweet_ids,
+                "total_tweets": len(clean_tweets),
+            }
+
+        except Exception as e:
+            await self.capture_failure(page, "compose_thread")
+            logger.error("Failed to compose thread: %s", e)
+            return {"status": "failed", "error": str(e), "tweet_ids": captured_tweet_ids}
+        finally:
+            try:
+                page.remove_listener("response", handle_response)
+            except Exception:
+                pass
 
 
 class LikeTweet(BaseAction):
@@ -238,9 +600,12 @@ class LikeTweet(BaseAction):
             # Navigate to specific tweet URL if provided
             if tweet_url:
                 logger.info("Navigating to tweet URL to like: %s", tweet_url)
-                await page.goto(tweet_url, wait_until="domcontentloaded", timeout=20000)
-                await page.wait_for_selector(SELECTORS["tweet"], timeout=10000)
-                await sleep_think_time(1500, 3500)  # Simulate reading the tweet
+                await page.goto(tweet_url, wait_until="commit", timeout=20000)
+                status_check = await check_target_tweet_status(page, timeout=15000)
+                if not status_check["available"]:
+                    logger.warning("Like target tweet unavailable: %s", status_check["reason"])
+                    return False
+                await sleep_think_time(1000, 2500)  # Simulate reading the tweet
                 tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
                 target_idx = 0
             else:
@@ -264,7 +629,22 @@ class LikeTweet(BaseAction):
                     tweet_el = tweet_elements[target_idx]
                     await human_scroll_to_tweet(page, tweet_el)
 
+            # Check if tweet is already liked on page
+            unlike_btn_direct = await page.query_selector(SELECTORS["unlike_button"])
+            if unlike_btn_direct and tweet_url:
+                logger.info("Tweet already liked (detected unlike button).")
+                return True
+
             tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
+            if not tweet_elements and tweet_url:
+                # Direct like button fallback on page
+                like_btn_direct = await page.query_selector(SELECTORS["like_button"])
+                if like_btn_direct:
+                    await human_click(page, like_btn_direct, 200, 600)
+                    logger.info("Liked direct tweet element successfully.")
+                    return True
+                return False
+
             if target_idx >= len(tweet_elements):
                 return False
 
@@ -276,7 +656,10 @@ class LikeTweet(BaseAction):
                 if unlike_btn:
                     logger.info("Tweet already liked.")
                     return True
-                return False
+                # Fallback to page-level like button
+                like_btn = await page.query_selector(SELECTORS["like_button"])
+                if not like_btn:
+                    return False
 
             # Hover over tweet first, then find and click like
             box = await target_tweet.bounding_box()
@@ -307,7 +690,156 @@ class ReplyToTweet(BaseAction):
     """
     Replies to a tweet. Uses tweet_url when available (from AI planner).
     Falls back to a randomly chosen visible tweet (not always index 0).
+    Supports optional reaction GIF attachment.
     """
+
+    async def scrape_target_tweet_context(self, page: Page, target_idx: int = 0) -> dict[str, Any]:
+        """
+        Scrapes full live text, author, and top 5-10 visible comment replies from the current tweet thread.
+        Performs smooth scroll to ensure deep thread comprehension (5-10 comments).
+        """
+        try:
+            tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
+            if not tweet_elements or target_idx >= len(tweet_elements):
+                return {}
+
+            target_tweet = tweet_elements[target_idx]
+
+            # Author handle
+            author = ""
+            user_el = await target_tweet.query_selector('[data-testid="User-Name"]')
+            if user_el:
+                user_text = await user_el.inner_text()
+                match = re.search(r"@([A-Za-z0-9_]+)", user_text)
+                if match:
+                    author = match.group(1)
+
+            # Main tweet text
+            text = ""
+            text_el = await target_tweet.query_selector(SELECTORS.get("tweet_text", '[data-testid="tweetText"]'))
+            if text_el:
+                text = (await text_el.inner_text()).strip()
+
+            # Helper to parse metric numbers like "1.2K", "450", "2M"
+            def _parse_comment_likes(val_str: str) -> int:
+                val = val_str.strip().replace(",", "")
+                if not val:
+                    return 0
+                m = re.search(r'([\d\.]+)\s*([KkMm]?)', val)
+                if not m:
+                    return 0
+                try:
+                    n = float(m.group(1))
+                    unit = m.group(2).upper()
+                    if unit == "K":
+                        return int(n * 1000)
+                    elif unit == "M":
+                        return int(n * 1000000)
+                    return int(n)
+                except Exception:
+                    return 0
+
+            # Scrape top 5-10 comments in thread (filtered & sorted by popularity/likes)
+            collected_comments: list[dict[str, Any]] = []
+            seen_texts: set[str] = set()
+
+            async def _collect_comments():
+                nonlocal collected_comments, seen_texts
+                all_tweets = await page.query_selector_all(SELECTORS["tweet"])
+                for comment_el in all_tweets[1:]:
+                    c_text_el = await comment_el.query_selector(SELECTORS.get("tweet_text", '[data-testid="tweetText"]'))
+                    if not c_text_el:
+                        continue
+                    c_text = (await c_text_el.inner_text()).strip()
+                    if not c_text or c_text == text or c_text in seen_texts:
+                        continue
+                    seen_texts.add(c_text)
+
+                    # Commenter handle
+                    c_author = ""
+                    c_user_el = await comment_el.query_selector('[data-testid="User-Name"]')
+                    if c_user_el:
+                        c_user_text = await c_user_el.inner_text()
+                        c_match = re.search(r"@([A-Za-z0-9_]+)", c_user_text)
+                        if c_match:
+                            c_author = c_match.group(1)
+
+                    # Extract like count / popularity
+                    c_likes = 0
+                    try:
+                        like_el = await comment_el.query_selector('[data-testid="like"], button[aria-label*="Like"], div[data-testid="like"]')
+                        if like_el:
+                            aria_label = await like_el.get_attribute("aria-label") or ""
+                            like_text = await like_el.inner_text() or ""
+                            c_likes = _parse_comment_likes(aria_label) or _parse_comment_likes(like_text)
+                    except Exception:
+                        pass
+
+                    collected_comments.append({
+                        "author": c_author,
+                        "text": c_text,
+                        "likes": c_likes,
+                    })
+
+            # First pass
+            await _collect_comments()
+
+            # Scroll gently down to load 15-20 comments to find the most popular/top-liked
+            if len(collected_comments) < 8:
+                await page.evaluate("window.scrollBy(0, 600)")
+                await sleep_with_jitter(1000)
+                await _collect_comments()
+
+            if len(collected_comments) < 15:
+                await page.evaluate("window.scrollBy(0, 800)")
+                await sleep_with_jitter(1000)
+                await _collect_comments()
+
+            # Sort descending by likes / popularity (most popular first)
+            collected_comments.sort(key=lambda c: c["likes"], reverse=True)
+
+            top_comments: list[str] = []
+            for c in collected_comments[:10]:
+                if c["author"]:
+                    like_info = f" ({c['likes']} likes)" if c['likes'] > 0 else ""
+                    top_comments.append(f"@{c['author']}{like_info}: {c['text']}")
+                else:
+                    top_comments.append(c['text'])
+
+            # Scrape attached media images and alt text
+            media_urls: list[str] = []
+            media_alts: list[str] = []
+            try:
+                img_elements = await target_tweet.query_selector_all(
+                    '[data-testid="tweetPhoto"] img, div[aria-label="Image"] img, img[alt*="Image"]'
+                )
+                for img in img_elements:
+                    src = await img.get_attribute("src")
+                    alt = await img.get_attribute("alt")
+                    if src and src.startswith("http") and "profile_images" not in src and "emoji" not in src and "svg" not in src:
+                        media_urls.append(src)
+                    if alt and alt.strip() and alt != "Image":
+                        media_alts.append(alt.strip())
+            except Exception:
+                pass
+
+            logger.info(
+                "Scraped live thread context on page: author=@%s, text_preview='%s', captured_comments=%d, images=%d",
+                author,
+                text[:40],
+                len(top_comments),
+                len(media_urls),
+            )
+            return {
+                "author": author,
+                "text": text,
+                "top_comments": top_comments[:10],
+                "media_urls": media_urls[:4],
+                "media_alts": media_alts[:4],
+            }
+        except Exception as e:
+            logger.debug("Error scraping target tweet context: %s", e)
+            return {}
 
     async def execute(
         self,
@@ -315,13 +847,18 @@ class ReplyToTweet(BaseAction):
         reply_text: str,
         tweet_url: str | None = None,
         tweet_index: int | None = None,
+        gif_query: str | None = None,
     ) -> bool:
         try:
             if tweet_url:
-                logger.info("Navigating to tweet URL to reply: %s", tweet_url)
-                await page.goto(tweet_url, wait_until="domcontentloaded", timeout=20000)
-                await page.wait_for_selector(SELECTORS["tweet"], timeout=10000)
-                await sleep_think_time(2000, 5000)  # Read the tweet thread
+                if page.url != tweet_url and not page.url.startswith(tweet_url.split("?")[0]):
+                    logger.info("Navigating to tweet URL to reply: %s", tweet_url)
+                    await page.goto(tweet_url, wait_until="commit", timeout=20000)
+                    status_check = await check_target_tweet_status(page, timeout=15000)
+                    if not status_check["available"]:
+                        logger.warning("Reply target tweet unavailable: %s", status_check["reason"])
+                        return False
+                    await sleep_think_time(1000, 2500)  # Read the tweet thread
                 tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
                 target_idx = 0
             else:
@@ -336,36 +873,49 @@ class ReplyToTweet(BaseAction):
                     visible_count = min(len(tweet_elements), 6)
                     target_idx = random.randint(0, visible_count - 1)
 
-            logger.info("Replying to tweet at index %d", target_idx)
+            logger.info("Replying to tweet at index %d (gif=%s)", target_idx, gif_query)
 
             tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
-            if target_idx >= len(tweet_elements):
-                return False
-
-            target_tweet = tweet_elements[target_idx]
+            target_tweet = tweet_elements[target_idx] if tweet_elements and target_idx < len(tweet_elements) else None
 
             # Scroll to tweet and "read" it
-            await human_scroll_to_tweet(page, target_tweet)
+            if target_tweet:
+                await human_scroll_to_tweet(page, target_tweet)
 
-            reply_btn = await target_tweet.query_selector(SELECTORS["reply_button"])
+            reply_btn = await target_tweet.query_selector(SELECTORS["reply_button"]) if target_tweet else None
             if not reply_btn:
+                reply_btn = await page.query_selector(SELECTORS["reply_button"])
+            if not reply_btn:
+                logger.warning("Could not find reply button on tweet.")
                 return False
 
             # Click reply button with human movement
             await human_click(page, reply_btn, 300, 800)
 
             # Wait for compose modal
-            await page.wait_for_selector(SELECTORS["tweet_textarea"], timeout=8000)
-            await sleep_think_time(1200, 3000)  # Formulate reply
+            textarea_sel = SELECTORS["tweet_textarea"]
+            await page.wait_for_selector(textarea_sel, timeout=12000)
+            await sleep_think_time(1000, 2500)  # Formulate reply
+
+            # Ensure reply_text is strictly <= 260 chars
+            if len(reply_text) > 260:
+                reply_text = reply_text[:257].rstrip() + "..."
 
             # Type reply
-            await human_type(page, SELECTORS["tweet_textarea"], reply_text)
+            await human_type(page, textarea_sel, reply_text)
             await sleep_think_time(800, 2000)  # Review reply
 
-            submit_sel = SELECTORS["tweet_submit_button"]
-            if await page.query_selector(SELECTORS["inline_tweet_submit_button"]):
-                submit_sel = SELECTORS["inline_tweet_submit_button"]
-            await human_click_selector(page, submit_sel, 300, 700)
+            # Attach GIF if requested
+            if gif_query:
+                await _attach_gif_if_requested(page, gif_query)
+                await sleep_think_time(1000, 2000)
+
+            submit_btn = await page.wait_for_selector(
+                '[data-testid="tweetButtonInline"], [data-testid="tweetButton"], button[data-testid*="tweetButton"]',
+                timeout=5000
+            )
+            if submit_btn:
+                await human_click(page, submit_btn, 300, 700)
             await sleep_with_jitter(2500)
 
             await _post_action_cooldown_browse(page, scrolls=random.randint(1, 2))
@@ -389,9 +939,12 @@ class Retweet(BaseAction):
     ) -> bool:
         try:
             if tweet_url:
-                await page.goto(tweet_url, wait_until="domcontentloaded", timeout=20000)
-                await page.wait_for_selector(SELECTORS["tweet"], timeout=10000)
-                await sleep_think_time(1500, 3500)
+                await page.goto(tweet_url, wait_until="commit", timeout=20000)
+                status_check = await check_target_tweet_status(page, timeout=15000)
+                if not status_check["available"]:
+                    logger.warning("Retweet target tweet unavailable: %s", status_check["reason"])
+                    return False
+                await sleep_think_time(1000, 2500)
                 tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
                 target_idx = 0
             else:
@@ -433,6 +986,88 @@ class Retweet(BaseAction):
             return False
 
 
+class QuoteTweet(BaseAction):
+    """Quote-tweets a tweet with custom commentary text."""
+
+    async def execute(
+        self,
+        page: Page,
+        quote_text: str,
+        tweet_url: str | None = None,
+        tweet_index: int | None = None,
+    ) -> bool:
+        try:
+            if tweet_url:
+                await page.goto(tweet_url, wait_until="commit", timeout=20000)
+                status_check = await check_target_tweet_status(page, timeout=15000)
+                if not status_check["available"]:
+                    logger.warning("Quote target tweet unavailable: %s", status_check["reason"])
+                    return False
+                await sleep_think_time(1000, 2500)
+                target_idx = 0
+            else:
+                await _navigate_home_if_needed(page)
+                tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
+                if not tweet_elements:
+                    return False
+                visible_count = min(len(tweet_elements), 6)
+                target_idx = tweet_index if tweet_index is not None else random.randint(0, visible_count - 1)
+
+            tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
+            if target_idx >= len(tweet_elements):
+                return False
+
+            target_tweet = tweet_elements[target_idx]
+            await human_scroll_to_tweet(page, target_tweet)
+
+            rt_btn = await target_tweet.query_selector(SELECTORS["retweet_button"])
+            if not rt_btn:
+                return False
+
+            await human_click(page, rt_btn, 300, 800)
+
+            # Wait for quote option in dropdown menu
+            quote_item = await page.wait_for_selector(
+                '[data-testid="Dropdown"] [role="menuitem"]:has-text("Quote"), [role="menuitem"]:has-text("Quote"), a[href*="/compose/post?quote="]',
+                timeout=5000,
+            )
+            if not quote_item:
+                logger.warning("Could not find Quote Tweet dropdown item.")
+                return False
+
+            await sleep_think_time(400, 1000)
+            await human_click(page, quote_item, 200, 500)
+
+            # Wait for modal composer
+            composer_sel = '[role="dialog"] [data-testid="tweetTextarea_0"], [data-testid="tweetTextarea_0"]'
+            editor = await page.wait_for_selector(composer_sel, timeout=8000)
+            if not editor:
+                logger.warning("Could not locate quote composer textarea.")
+                return False
+
+            await sleep_think_time(600, 1500)
+            await human_type(page, composer_sel, quote_text)
+            await sleep_think_time(1000, 2500)
+
+            post_btn = await page.wait_for_selector(
+                '[role="dialog"] [data-testid="tweetButton"], [data-testid="tweetButton"]',
+                timeout=5000,
+            )
+            if not post_btn:
+                return False
+
+            await human_click(page, post_btn, 300, 700)
+            await sleep_with_jitter(2000)
+            await _post_action_cooldown_browse(page, scrolls=1)
+            logger.info("Quote Tweet published successfully.")
+            return True
+        except Exception as e:
+            await self.capture_failure(page, "quote_tweet")
+            logger.error("Failed to quote tweet: %s", e)
+            return False
+
+
+
 class FollowUser(BaseAction):
     """Follows a user by navigating to their profile."""
 
@@ -440,35 +1075,43 @@ class FollowUser(BaseAction):
         try:
             clean = username.lstrip("@")
             logger.info("Navigating to user profile to follow: %s", clean)
-            await page.goto(f"https://x.com/{clean}", wait_until="domcontentloaded", timeout=20000)
+            await page.goto(f"https://x.com/{clean}", wait_until="commit", timeout=20000)
             
-            # Wait for profile header (try UserName first, fallback to UserAvatar or heading)
+            # Wait for profile header or follow button
             try:
-                await page.wait_for_selector('[data-testid="UserName"], [data-testid*="UserAvatar"], h2', timeout=12000)
+                await page.wait_for_selector('[data-testid="UserName"], [data-testid*="UserAvatar"], [data-testid*="follow"], h2', timeout=15000)
             except Exception:
                 pass
 
-            # Human: scan profile for a moment
-            await sleep_think_time(2000, 5000)
-            await human_scroll(page, random.randint(100, 300), "down")
-            await sleep_think_time(1000, 2500)
-            await human_scroll(page, random.randint(100, 200), "up")
-            await sleep_think_time(800, 2000)
+            # Check for account suspended / non-existent banners
+            err_banner = await page.query_selector('[data-testid="error-detail"], [data-testid="emptyState"]')
+            if err_banner:
+                txt = (await err_banner.inner_text()).lower()
+                if any(w in txt for w in ("suspended", "does not exist", "blocked", "protected", "not available")):
+                    logger.warning("Target user @%s unavailable: %s", clean, txt.replace("\n", " ")[:80])
+                    return False
 
-            # Check already-following via stable aria-label or inner text
+            # Human: scan profile for a moment
+            await sleep_think_time(1500, 3500)
+            await human_scroll(page, random.randint(100, 250), "down")
+            await sleep_think_time(800, 1800)
+            await human_scroll(page, random.randint(50, 150), "up")
+            await sleep_think_time(600, 1500)
+
+            # Check already-following via case-insensitive aria-label or inner text
             already_following = await page.query_selector(
-                f'button[aria-label="Following @{clean}"], button[aria-label="Unfollow @{clean}"]'
+                f'button[aria-label*="Following @" i], button[aria-label*="Unfollow @" i], button:has-text("Following"), button:has-text("Unfollow")'
             )
             if already_following:
                 logger.info("Already following user: %s", username)
                 return True
 
-            # Follow button — try aria-label first, fallback to testids and text
-            follow_btn = await page.query_selector(f'button[aria-label="Follow @{clean}"]')
+            # Follow button — try flexible case-insensitive aria-label, dynamic testids, and text
+            follow_btn = await page.query_selector(f'button[aria-label*="Follow @{clean}" i]')
             if not follow_btn:
-                follow_btn = await page.query_selector('button[aria-label*="Follow @"]')
+                follow_btn = await page.query_selector('button[aria-label*="Follow @" i]')
             if not follow_btn:
-                follow_btn = await page.query_selector('[data-testid="placementTracking"], button[data-testid*="follow"]')
+                follow_btn = await page.query_selector('button[data-testid*="-follow"], button[data-testid$="-follow"], [data-testid="placementTracking"]')
             if not follow_btn:
                 # Text fallback
                 for btn in await page.query_selector_all("button"):
@@ -552,9 +1195,12 @@ class SearchQuery(BaseAction):
             logger.info("Executing search query: %s", query)
             from urllib.parse import quote_plus
             search_url = f"https://x.com/search?q={quote_plus(query)}&f=live"
-            await page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
-            await page.wait_for_selector(SELECTORS["tweet"], timeout=10000)
-            await sleep_with_jitter(3000)
+            await page.goto(search_url, wait_until="commit", timeout=20000)
+            try:
+                await page.wait_for_selector(SELECTORS["tweet"], timeout=15000)
+            except Exception:
+                pass
+            await sleep_with_jitter(2000)
 
             # Browse search results like a human
             browser = BrowseFeed(str(self.screenshot_dir))
@@ -574,10 +1220,13 @@ class ScrapeProfileMetrics(BaseAction):
         try:
             logger.info("Scraping metrics for %s", username)
             clean = username.lstrip("@")
-            await page.goto(f"https://x.com/{clean}", wait_until="domcontentloaded", timeout=20000)
-            await page.wait_for_selector(
-                SELECTORS.get("profile_avatar", "[data-testid*='UserAvatar']"), timeout=10000
-            )
+            await page.goto(f"https://x.com/{clean}", wait_until="commit", timeout=20000)
+            try:
+                await page.wait_for_selector(
+                    SELECTORS.get("profile_avatar", "[data-testid*='UserAvatar']"), timeout=15000
+                )
+            except Exception:
+                pass
             await sleep_with_jitter(2000)
 
             metrics = {"followers": 0, "following": 0, "posts": 0}
@@ -630,10 +1279,13 @@ class ScrapeTrends(BaseAction):
             await human_scroll(page, random.randint(200, 400), "down")
             await sleep_think_time(1000, 2500)
 
+            from xbot.ai.sniper import BANNED_POLITICS_REGEX
             trends = []
             trend_elements = await page.query_selector_all("[data-testid='trend']")
-            for el in trend_elements[:10]:
+            for el in trend_elements[:15]:
                 text = await el.inner_text()
+                if BANNED_POLITICS_REGEX.search(text):
+                    continue
                 lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
                 if len(lines) >= 2:
                     trends.append({
@@ -991,5 +1643,102 @@ class ScrapeFollowList(BaseAction):
             await self.capture_failure(page, f"scrape_{list_type}_{username}")
             logger.error("Error scraping %s for %s: %s", list_type, username, e)
             return []
+
+
+class HarvestFollowBackThread(BaseAction):
+    """
+    Navigates to an active follow-back / mutuals thread URL,
+    analyzes the post and its comment section, and extracts high-reciprocity Blue Tick candidates.
+    """
+
+    async def execute(self, page: Page, tweet_url: str, max_candidates: int = 8) -> list[dict[str, Any]]:
+        candidates = []
+        try:
+            logger.info("Harvesting active follow-back thread: %s", tweet_url)
+            await page.goto(tweet_url, wait_until="commit", timeout=20000)
+            status_check = await check_target_tweet_status(page, timeout=15000)
+            if not status_check["available"]:
+                logger.warning("Thread harvest target tweet unavailable: %s", status_check["reason"])
+                return []
+            await sleep_think_time(1000, 2500)
+
+            # Scroll down to load thread comments
+            for _ in range(2):
+                await human_scroll(page, random.randint(300, 600), "down")
+                await sleep_think_time(1000, 2000)
+
+            tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
+            seen_handles: set[str] = set()
+
+            # Skip root tweet (index 0), inspect comment replies (index 1+)
+            for el in tweet_elements[1:]:
+                try:
+                    user_el = await el.query_selector('[data-testid="User-Name"]')
+                    if not user_el:
+                        continue
+                    u_text = await user_el.inner_text()
+                    m = re.search(r"@([A-Za-z0-9_]+)", u_text)
+                    if not m:
+                        continue
+                    handle = m.group(1)
+                    if handle in seen_handles:
+                        continue
+                    seen_handles.add(handle)
+
+                    # Check verified / blue tick
+                    verified_el = await user_el.query_selector(
+                        'svg[data-testid="icon-verified"], svg[aria-label="Verified account"], svg[aria-label="Blue tick"]'
+                    )
+                    is_blue_tick = verified_el is not None
+
+                    # Comment text
+                    c_text_el = await el.query_selector(SELECTORS.get("tweet_text", '[data-testid="tweetText"]'))
+                    comment_body = (await c_text_el.inner_text()).strip() if c_text_el else ""
+
+                    # Check for mutuals/f4f intent
+                    f4f_intent = bool(re.search(r"(drop|f4f|follow|mutual|following|connect|back)", comment_body, re.IGNORECASE))
+                    score = 90.0 if (is_blue_tick and f4f_intent) else (75.0 if is_blue_tick else (60.0 if f4f_intent else 45.0))
+
+                    display_name = u_text.split("@")[0].strip() or handle
+
+                    candidates.append({
+                        "handle": handle,
+                        "display_name": display_name,
+                        "is_blue_tick": is_blue_tick,
+                        "comment": comment_body[:100],
+                        "source_tweet_url": tweet_url,
+                        "reciprocity_score": score,
+                    })
+                    if len(candidates) >= max_candidates:
+                        break
+                except Exception:
+                    continue
+
+            logger.info("Harvested %d candidate peers from follow-back thread %s", len(candidates), tweet_url)
+            return candidates
+        except Exception as ex:
+            logger.warning("Error harvesting follow-back thread %s: %s", tweet_url, ex)
+            return []
+
+
+class CheckProfileFollowsYou(BaseAction):
+    """
+    Navigates to a profile and checks if the 'Follows you' badge is present.
+    """
+
+    async def execute(self, page: Page, username: str) -> bool:
+        try:
+            clean = username.lstrip("@")
+            await page.goto(f"https://x.com/{clean}", wait_until="domcontentloaded", timeout=15000)
+            await sleep_think_time(1000, 2500)
+
+            # Check for 'Follows you' badge
+            indicator = await page.query_selector(
+                '[data-testid="userFollowIndicator"], span:has-text("Follows you"), div:has-text("Follows you")'
+            )
+            return indicator is not None
+        except Exception as e:
+            logger.debug("Error checking follows-you badge for @%s: %s", username, e)
+            return False
 
 
