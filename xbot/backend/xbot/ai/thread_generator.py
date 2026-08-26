@@ -190,10 +190,12 @@ async def generate_thread(
         "Instructions:\n"
         "- Base your entire thread on the ACTUAL community sentiment and top viral tweets shown above.\n"
         "- If the public is calling out a brand or celebrity for a tone-deaf campaign, match that critical, witty perspective.\n"
-        "- Include 1-2 authentic research-grounded hashtags from the analysis naturally in the closer tweet.\n"
+        "- Formatting & Thread Structure:\n"
+        f"  • Tweet 1: Hook (< 140 chars) with 1 emoji ending in '🧵 1/{num_tweets}'.\n"
+        f"  • Tweets 2 to {num_tweets-1}: Numbered '2/{num_tweets}', '3/{num_tweets}' etc. Include 1-2 natural emojis (e.g. 🍿, 💀, 🤌, 👀, ☕, 📈) and clean line breaks (\\n\\n).\n"
+        f"  • Tweet {num_tweets} (Closer): Numbered '{num_tweets}/{num_tweets}', concluding punchy takeaway + question + 1-2 authentic research hashtags.\n"
         "- Every single tweet MUST be under 260 characters.\n"
         "- Every sentence MUST start with standard Sentence Case capitalization.\n"
-        "- Use clean double line breaks (\\n\\n) for spacing.\n"
         "- Never use emojis as bullet headers (use '• ' or '- ').\n"
         "- Zero corporate AI clichés ('supercharge', 'unleash', 'delve', 'game-changer', 'let that sink in').\n\n"
         "Return ONLY a JSON object matching this schema:\n"
@@ -231,16 +233,38 @@ async def generate_thread(
 
         data = json.loads(clean_json)
         raw_items = data.get("tweets", [])
+
         if not raw_items or len(raw_items) < 2:
             return _build_fallback_thread(topic, persona, research_report)
 
         items: list[ThreadItemCreate] = []
         tweet_texts: list[str] = []
 
-        # Map top downloaded media if available
+        # Map top downloaded media if available or generate guaranteed visual graphic
         top_media_url = None
-        if research_report and research_report.downloaded_media:
+        dl_media = []
+        if research_report and len(research_report.downloaded_media) > 0:
             top_media_url = research_report.downloaded_media[0].local_path
+            dl_media = [m.model_dump() for m in research_report.downloaded_media]
+        else:
+            # Generate rich 4:5 visual graphic fallback so media is ALWAYS present
+            try:
+                from xbot.ai.visual_engine import generate_visual_post_spec
+                from xbot.ai.meme_renderer import render_visual_spec_to_image
+                v_spec = await generate_visual_post_spec(topic=topic, persona=persona, client=client)
+                if v_spec:
+                    rendered_path = render_visual_spec_to_image(v_spec.model_dump())
+                    if rendered_path and os.path.exists(rendered_path):
+                        abs_p = os.path.abspath(rendered_path)
+                        top_media_url = abs_p
+                        dl_media.append({
+                            "local_path": abs_p,
+                            "source_url": "visual_engine",
+                            "caption": v_spec.visual_description,
+                            "author_handle": persona.x_handle if persona else "xbot",
+                        })
+            except Exception as v_err:
+                logger.warning("Visual fallback media generation error: %s", v_err)
 
         for idx, item in enumerate(raw_items):
             raw_text = item.get("text", "").strip()
