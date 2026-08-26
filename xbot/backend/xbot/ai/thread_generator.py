@@ -11,8 +11,10 @@ Features Deep X Topic Research: parses 20-30 viral tweets, metrics, media images
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import logging
+import os
 import re
 from typing import Any, Literal
 from pydantic import BaseModel, Field
@@ -62,20 +64,20 @@ def _build_fallback_thread(
         f"Here is the exact 3-step breakdown I use to cut through the noise and execute: 🧵"
     )
     t2 = (
-        "• Define the core operational constraint before reacting\n"
-        "• Test public sentiment with direct data, not echo chambers\n"
+        "• Define the core operational constraint before reacting\n\n"
+        "• Test public sentiment with direct data, not echo chambers\n\n"
         "• Eliminate vanity metrics in favor of actual retention"
     )
     t3 = (
-        "• Ship raw minimum viable experiments\n"
-        "• Gather feedback from real users rather than speculation\n"
+        "• Ship raw minimum viable experiments\n\n"
+        "• Gather feedback from real users rather than speculation\n\n"
         "• Iterate based on verifiable behavioral signals"
     )
     t4 = (
-        f"TL;DR on {topic}:\n"
-        "1. Identify core constraints first\n"
-        "2. Prioritize empirical data over noise\n"
-        "3. Optimize for fast iteration\n\n"
+        f"Core takeaway on {topic}:\n\n"
+        "• Identify constraints first\n\n"
+        "• Prioritize empirical data over noise\n\n"
+        "• Optimize for fast iteration\n\n"
         "Bookmark this thread for quick reference. What is your #1 takeaway?"
     )
 
@@ -162,14 +164,17 @@ async def generate_thread(
         except Exception as r_err:
             logger.warning("Deep X research encountered error, proceeding with standard generation: %s", r_err)
 
+    now_date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
     system_prompt = (
         "You are an elite, culturally plugged-in digital creator and writer on X (Twitter).\n"
+        f"Current Date: {now_date_str}\n"
         "Your sole mission is MAXIMUM GROWTH AND VIRAL RESONANCE by riding the real trending wave on X.\n\n"
         "CORE RULES FOR TRENDING TOPICS:\n"
-        "1. RIDE THE ACTUAL WAVE: Base your take directly on the prevailing sentiment, anger, humor, critique, or celebration from the 20-30 viral posts on X.\n"
-        "2. NO PREACHING OR MORALIZING: NEVER lecture the audience, push propaganda, or defend things that the trending community is actively calling out.\n"
-        "3. CHANNEL THE AUDIENCE'S VOICE: Use the sharp observations, witty roasts, relatable cynicism, and real details that people on X are enthusiastically liking and retweeting by the thousands.\n"
-        "4. 3-TIER CREATOR THREAD FORMULA:\n"
+        "1. STRICT 7-DAY RECENCY: All topics, facts, quotes, events, and context must be strictly from within the past 7 days. Reject and never post historical events, ancient controversies, or old milestones from years/months ago.\n"
+        "2. RIDE THE ACTUAL WAVE: Base your take directly on the prevailing sentiment, anger, humor, critique, or celebration from the 20-30 viral posts on X.\n"
+        "3. NO PREACHING OR MORALIZING: NEVER lecture the audience, push propaganda, or defend things that the trending community is actively calling out.\n"
+        "4. CHANNEL THE AUDIENCE'S VOICE: Use the sharp observations, witty roasts, relatable cynicism, and real details that people on X are enthusiastically liking and retweeting by the thousands.\n"
+        "5. 3-TIER CREATOR THREAD FORMULA:\n"
         "   - Tweet 1 (Hook): Hard-hitting, relatable hook capturing the core reason the topic blew up (< 140 chars) with 1 emoji ending in 🧵.\n"
         "   - Tweets 2 to (N-1) (Body): 1 punchy observation or breakdown per tweet with double line breaks (\\n\\n) and clean bullet points (`•` or `-`).\n"
         "   - Tweet N (Closer): Sharp concluding takeaway + open question inviting replies (NEVER use 'TL;DR:' or 'TLDR:') + 1-2 authentic research hashtags.\n\n"
@@ -181,10 +186,11 @@ async def generate_thread(
 
     user_prompt = (
         f"Generate a {num_tweets}-tweet thread for maximum engagement on this trending topic:\n"
-        f"Topic: \"{topic}\"\n\n"
+        f"Topic: \"{topic}\"\n"
+        f"Current Date: {now_date_str} (STRICTLY enforce that all facts and context are from the past 7 days)\n\n"
     )
     if research_context_blob:
-        user_prompt += f"=== LIVE X RESEARCH & COMMUNITY SENTIMENT (From 20-30 Top Viral Posts) ===\n{research_context_blob}\n\n"
+        user_prompt += f"=== LIVE X RESEARCH & COMMUNITY SENTIMENT (Past 7 Days from 20-30 Top Viral Posts) ===\n{research_context_blob}\n\n"
 
     user_prompt += (
         "Instructions:\n"
@@ -260,7 +266,7 @@ async def generate_thread(
                         dl_media.append({
                             "local_path": abs_p,
                             "source_url": "visual_engine",
-                            "caption": v_spec.visual_description,
+                            "caption": v_spec.image_prompt,
                             "author_handle": persona.x_handle if persona else "xbot",
                         })
             except Exception as v_err:

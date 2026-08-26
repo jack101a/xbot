@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import logging
 import re
@@ -45,10 +46,15 @@ def _build_clean_creator_prompt(
     Constructs a clean, high-signal, zero-bloat prompt for the heavy writing model.
     Strips out internal DB metrics, budget counters, and raw diary dumps.
     """
+    now_date_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
     sections = []
 
-    # 1. Primary Premise
-    sections.append(f"## Topic / Event Premise\n\"{topic}\"")
+    # 1. Primary Premise & Recency Constraint
+    sections.append(
+        f"## Topic / Event Premise\n\"{topic}\"\n"
+        f"Current Date: {now_date_str}\n"
+        f"STRICT 7-DAY RECENCY: Focus strictly on recent developments, live reactions, and discussions within the past 7 days. Reject historical anecdotes or ancient claims older than 1 week."
+    )
 
     # 2. Image Vision Context (if present)
     if vision_summary:

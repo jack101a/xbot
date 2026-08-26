@@ -8,6 +8,7 @@ downloads visual assets, and grounds facts via live web search.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone, timedelta
 import hashlib
 import json
 import logging
@@ -44,6 +45,7 @@ class ViralTweet(BaseModel):
     media_alts: list[str] = Field(default_factory=list)
     tweet_url: str = ""
     is_thread: bool = False
+    created_at: str | None = None
 
 
 class DownloadedMedia(BaseModel):
@@ -147,15 +149,20 @@ async def scrape_x_top_tweets(
     queries: list[str],
     max_tweets: int = 25,
     profile_slug: str = "test_profile1",
+    max_age_days: int = 7,
 ) -> list[ViralTweet]:
     """
     Navigates to X Top Search (`f=top`) using Playwright to scrape up to 20-30 viral posts
     with full texts, engagement metrics, and media image URLs.
+    Strictly filters out any posts older than `max_age_days` (default 7 days).
     """
     from xbot.browser.manager import BrowserManager
     
     collected_tweets: list[ViralTweet] = []
     seen_texts: set[str] = set()
+
+    now_utc = datetime.now(timezone.utc)
+    since_date = (now_utc - timedelta(days=max_age_days)).strftime("%Y-%m-%d")
 
     mgr = BrowserManager(base_profile_dir=Path("/home/ubuntu/projects/xbot/data/profiles"))
     try:
@@ -167,8 +174,13 @@ async def scrape_x_top_tweets(
             if len(collected_tweets) >= max_tweets:
                 break
 
-            url = f"https://x.com/search?q={urllib.parse.quote_plus(q)}&f=top"
-            logger.info("Deep X Research navigating to: %s", url)
+            # Append since:YYYY-MM-DD to enforce strict recency if not already present
+            search_query = q
+            if "since:" not in search_query:
+                search_query = f"{q} since:{since_date}"
+
+            url = f"https://x.com/search?q={urllib.parse.quote_plus(search_query)}&f=top"
+            logger.info("Deep X Research navigating to (7-day window since %s): %s", since_date, url)
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=20000)
                 await asyncio.sleep(4)
@@ -192,6 +204,31 @@ async def scrape_x_top_tweets(
                         if norm_key in seen_texts:
                             continue
                         seen_texts.add(norm_key)
+
+                        # Check timestamp to reject ancient posts
+                        time_el = await art.query_selector("time")
+                        parent_link = None
+                        datetime_val = None
+                        created_at_iso = None
+                        if time_el:
+                            parent_link = await time_el.evaluate("el => el.closest('a')?.href")
+                            dt_attr = await time_el.get_attribute("datetime")
+                            if dt_attr:
+                                created_at_iso = dt_attr
+                                try:
+                                    cleaned_dt = dt_attr.replace("Z", "+00:00")
+                                    datetime_val = datetime.fromisoformat(cleaned_dt)
+                                    if datetime_val.tzinfo is None:
+                                        datetime_val = datetime_val.replace(tzinfo=timezone.utc)
+                                except Exception:
+                                    datetime_val = None
+
+                        # Discard post if older than 7 days
+                        if datetime_val:
+                            age_days = (now_utc - datetime_val).total_seconds() / 86400.0
+                            if age_days > max_age_days:
+                                logger.debug("Skipping ancient tweet from %.1f days ago: %s", age_days, text[:40])
+                                continue
 
                         user_el = await art.query_selector("[data-testid='User-Name']")
                         user_raw = await user_el.inner_text() if user_el else ""
@@ -243,12 +280,7 @@ async def scrape_x_top_tweets(
                         if reply_el:
                             replies_raw = await reply_el.get_attribute("aria-label") or await reply_el.inner_text() or ""
 
-                        time_el = await art.query_selector("time")
-                        parent_link = None
-                        if time_el:
-                            parent_link = await time_el.evaluate("el => el.closest('a')?.href")
                         tweet_url = str(parent_link) if parent_link else ""
-
                         is_thread = bool("1/" in text or "🧵" in text or "thread" in text.lower())
 
                         vt = ViralTweet(
@@ -264,6 +296,7 @@ async def scrape_x_top_tweets(
                             media_alts=media_alts[:4],
                             tweet_url=tweet_url,
                             is_thread=is_thread,
+                            created_at=created_at_iso,
                         )
                         collected_tweets.append(vt)
                     except Exception as parse_err:
@@ -410,13 +443,16 @@ async def research_topic_comprehensively(
     tweets_blob = "\n".join(sample_text_lines)
     facts_blob = "\n".join(key_facts[:4])
 
+    now_str = datetime.now(timezone.utc).strftime("%B %d, %Y")
     summary_prompt = (
         f"You are a cultural intelligence director analyzing real-time discourse on X.\n"
+        f"Current Date: {now_str}\n"
         f"Topic: \"{clean_topic}\"\n\n"
-        f"Verified News Facts:\n{facts_blob}\n\n"
-        f"Top Viral Tweets on X:\n{tweets_blob}\n\n"
+        f"STRICT RECENCY REQUIREMENT: All analyzed facts, viral posts, and commentary must be strictly from within the past 7 days. Reject any historical anecdotes or ancient claims older than 1 week.\n\n"
+        f"Verified News Facts (Past 7 Days):\n{facts_blob}\n\n"
+        f"Top Viral Tweets on X (Past 7 Days):\n{tweets_blob}\n\n"
         f"Provide a structured JSON summary with:\n"
-        f"1. \"summary\": 2-3 sentences explaining what happened, why it blew up, and the current state.\n"
+        f"1. \"summary\": 2-3 sentences explaining what happened recently (within 7 days), why it blew up, and the current state.\n"
         f"2. \"consensus_view\": The dominant public reaction or mainstream opinion on X.\n"
         f"3. \"contrarian_view\": The sharp counter-perspective, industry critique, or alternative take.\n"
         f"4. \"key_debates\": Array of 3 distinct bullet points showing the core fault lines of the argument.\n\n"

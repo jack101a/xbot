@@ -8,8 +8,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from xbot.ai.trend_radar import TrendItem, fetch_rss_trends
 
 
+from datetime import datetime, timezone, timedelta
+
+_now = datetime.now(timezone.utc)
+_d1 = (_now - timedelta(days=1)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+_d2 = (_now - timedelta(days=2)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+_d3 = (_now - timedelta(days=3)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+_iso1 = (_now - timedelta(days=1)).isoformat()
+_iso2 = (_now - timedelta(days=2)).isoformat()
+
 # Sample RSS 2.0 XML Feed
-SAMPLE_RSS_XML = """<?xml version="1.0" encoding="UTF-8"?>
+SAMPLE_RSS_XML = f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
   <channel>
     <title>Tech Chronicle</title>
@@ -19,44 +28,44 @@ SAMPLE_RSS_XML = """<?xml version="1.0" encoding="UTF-8"?>
       <title>Breakthrough in Autonomous AI Agents</title>
       <link>https://techchronicle.example.com/posts/ai-breakthrough</link>
       <description>Researchers demonstrate multi-agent coordination reaching new milestones.</description>
-      <pubDate>Tue, 18 Aug 2026 08:30:00 GMT</pubDate>
+      <pubDate>{_d1}</pubDate>
       <guid>https://techchronicle.example.com/posts/ai-breakthrough</guid>
     </item>
     <item>
       <title>PostgreSQL 19 Query Optimization Features</title>
       <link>https://techchronicle.example.com/posts/pg-19-optimization</link>
       <description>Deep dive into modern indexing techniques and distributed storage.</description>
-      <pubDate>Mon, 17 Aug 2026 14:00:00 GMT</pubDate>
+      <pubDate>{_d2}</pubDate>
     </item>
     <item>
       <title>Quantum Computing Advances in Cryptography</title>
       <link>https://techchronicle.example.com/posts/quantum-crypto</link>
       <description>Post-quantum algorithms standardized across major protocols.</description>
-      <pubDate>Sun, 16 Aug 2026 19:15:00 GMT</pubDate>
+      <pubDate>{_d3}</pubDate>
     </item>
   </channel>
 </rss>
 """
 
 # Sample Atom 1.0 XML Feed with namespaces
-SAMPLE_ATOM_XML = """<?xml version="1.0" encoding="utf-8"?>
+SAMPLE_ATOM_XML = f"""<?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <title>DevOps &amp; Infrastructure Wire</title>
   <link href="https://devopswire.example.com" rel="alternate"/>
-  <updated>2026-08-18T10:00:00Z</updated>
+  <updated>{_iso1}</updated>
   <id>urn:uuid:60a76c80-d399-11d9-b93C-0003939e0af6</id>
   <entry>
     <title>Kubernetes v1.35 Released with Native GPU Slicing</title>
     <link href="https://devopswire.example.com/k8s-1-35" rel="alternate" type="text/html"/>
     <id>urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a</id>
-    <published>2026-08-18T09:00:00Z</published>
+    <published>{_iso1}</published>
     <summary>Kubernetes 1.35 introduces out-of-the-box support for fractional GPU allocation in AI clusters.</summary>
   </entry>
   <entry>
     <title>Rust Web Framework Benchmark 2026</title>
     <link href="https://devopswire.example.com/rust-benchmarks-2026"/>
     <id>urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6b</id>
-    <updated>2026-08-17T16:30:00Z</updated>
+    <updated>{_iso2}</updated>
     <content type="html"><![CDATA[<p>Axum and Actix performance compared under heavy concurrent loads.</p>]]></content>
   </entry>
 </feed>
@@ -118,7 +127,7 @@ async def test_fetch_rss_2_0_parsing() -> None:
     assert first.source_url == "https://techchronicle.example.com/posts/ai-breakthrough"
     assert "multi-agent coordination" in first.summary
     assert first.source_name == "Tech Chronicle"
-    assert first.published_at == "Tue, 18 Aug 2026 08:30:00 GMT"
+    assert first.published_at == _d1
     assert len(first.id) > 0
 
 
@@ -143,13 +152,13 @@ async def test_fetch_atom_1_0_parsing() -> None:
     assert first.source_url == "https://devopswire.example.com/k8s-1-35"
     assert "fractional GPU allocation" in first.summary
     assert first.source_name == "DevOps & Infrastructure Wire"
-    assert first.published_at == "2026-08-18T09:00:00Z"
+    assert first.published_at == _iso1
 
     second = items[1]
     assert second.title == "Rust Web Framework Benchmark 2026"
     assert second.source_url == "https://devopswire.example.com/rust-benchmarks-2026"
     assert "Axum and Actix" in second.summary
-    assert second.published_at == "2026-08-17T16:30:00Z"
+    assert second.published_at == _iso2
 
 
 @pytest.mark.asyncio
