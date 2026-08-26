@@ -541,9 +541,17 @@ export function OverviewTab({
                     <span>{d.created_at ? formatISTTime(d.created_at) : "Just now"}</span>
                   </div>
 
-                  {d.content_type === "thread" && (d.thread_items?.length > 0 || d.ai_metadata?.tweets?.length > 0) ? (
+                  {(d.content_type === "thread" || d.ai_metadata?.is_thread) && (d.thread_items?.length > 0 || d.ai_metadata?.thread_items?.length > 0 || d.ai_metadata?.tweets?.length > 0) ? (
                     <div className="space-y-2.5 my-2">
-                      {(d.thread_items && d.thread_items.length > 0 ? d.thread_items : (d.ai_metadata?.tweets || []).map((t: string, i: number) => ({ id: `idx-${i}`, position: i, item_type: i === 0 ? "hook" : i === d.ai_metadata.tweets.length - 1 ? "closer" : "body", text: t }))).map((item: any, idx: number, arr: any[]) => (
+                      {(d.thread_items && d.thread_items.length > 0
+                        ? d.thread_items
+                        : (d.ai_metadata?.thread_items || d.ai_metadata?.tweets || []).map((t: any, i: number, arr: any[]) => ({
+                            id: `idx-${i}`,
+                            position: i,
+                            item_type: i === 0 ? "hook" : i === arr.length - 1 ? "closer" : "body",
+                            text: typeof t === 'string' ? t : (t?.text || '')
+                          }))
+                      ).map((item: any, idx: number, arr: any[]) => (
                         <div key={item.id || idx} className="relative pl-6">
                           {idx < arr.length - 1 && (
                             <div className="absolute left-[9px] top-4 bottom-[-10px] w-0.5 bg-purple-200 dark:bg-purple-800/60" />
@@ -553,7 +561,7 @@ export function OverviewTab({
                           </div>
                           <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-800 text-xs text-slate-800 dark:text-slate-200">
                             <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1 font-mono">
-                              <span className="capitalize">{item.item_type || "part"}</span>
+                              <span className="capitalize">{item.item_type || `tweet ${idx + 1}`}</span>
                               <span>{item.text?.length || 0}/280</span>
                             </div>
                             <p className="whitespace-pre-wrap font-medium">{item.text}</p>
@@ -568,21 +576,30 @@ export function OverviewTab({
                   )}
 
                   {d.ai_metadata?.visual_spec && (
-                    <div className="p-2.5 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800/70 my-2 space-y-1">
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-indigo-50/80 to-purple-50/60 dark:from-indigo-950/50 dark:to-purple-950/40 border border-indigo-200 dark:border-indigo-800/80 my-2 space-y-1.5 shadow-sm">
                       <div className="flex items-center justify-between text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
-                        <span>📸 Visual Scene Punchline ({d.ai_metadata.visual_spec.aspect_ratio || "4:5"} Mobile Takeover)</span>
-                        <span className="capitalize">{d.ai_metadata.visual_spec.format_type?.replace(/_/g, " ")}</span>
+                        <span className="flex items-center gap-1">
+                          <span>📸 4:5 Visual Punchline ({d.ai_metadata.visual_spec.aspect_ratio || "4:5"} Mobile Takeover)</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-indigo-200/60 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 capitalize font-mono text-[9px]">
+                          {d.ai_metadata.visual_spec.format_type?.replace(/_/g, " ")}
+                        </span>
                       </div>
-                      <p className="text-[11px] text-slate-700 dark:text-slate-300 font-medium">
-                        {d.ai_metadata.visual_spec.visual_description}
+                      <p className="text-[11px] text-slate-700 dark:text-slate-200 font-medium leading-relaxed">
+                        {d.ai_metadata.visual_spec.image_prompt || d.ai_metadata.visual_spec.visual_description}
                       </p>
+                      {d.ai_metadata.visual_spec.one_two_punch_strategy && (
+                        <p className="text-[10px] text-indigo-600 dark:text-indigo-400 italic pt-0.5">
+                          🎯 Strategy: {d.ai_metadata.visual_spec.one_two_punch_strategy}
+                        </p>
+                      )}
                     </div>
                   )}
 
                   {d.ai_metadata?.media_paths && d.ai_metadata.media_paths.length > 0 && (
                     <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 my-2">
                       <ImageIcon className="w-3.5 h-3.5" />
-                      <span>Attached Photo ({d.ai_metadata.media_paths[0].split('/').pop()})</span>
+                      <span>Attached Photo: {d.ai_metadata.media_paths[0].split('/').pop()}</span>
                     </div>
                   )}
 

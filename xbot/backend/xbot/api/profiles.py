@@ -1496,31 +1496,58 @@ async def get_pending_drafts(
     stmt = (
         select(Content)
         .where(Content.profile_id == profile_id)
-        .where(Content.status == ContentStatus.DRAFT)
+        .where(Content.status.in_([ContentStatus.DRAFT, ContentStatus.APPROVED]))
         .order_by(Content.created_at.desc())
     )
     res = await db.execute(stmt)
     drafts = res.scalars().all()
-    return [
-        {
-            "id": str(d.id),
-            "content_type": d.content_type.value if hasattr(d.content_type, "value") else str(d.content_type),
-            "body": d.body,
-            "status": d.status.value if hasattr(d.status, "value") else str(d.status),
-            "ai_metadata": d.ai_metadata,
-            "thread_items": [
+    
+    result_list = []
+    for d in drafts:
+        t_items = []
+        if getattr(d, "thread_items", None) and len(d.thread_items) > 0:
+            t_items = [
                 {
                     "id": str(item.id),
                     "position": item.position,
                     "item_type": item.item_type,
                     "text": item.text,
                 }
-                for item in getattr(d, "thread_items", [])
-            ],
+                for item in d.thread_items
+            ]
+        elif d.ai_metadata and "thread_items" in d.ai_metadata and isinstance(d.ai_metadata["thread_items"], list):
+            raw_items = d.ai_metadata["thread_items"]
+            t_items = [
+                {
+                    "id": f"ti-{idx}",
+                    "position": idx,
+                    "item_type": "hook" if idx == 0 else ("closer" if idx == len(raw_items) - 1 else "body"),
+                    "text": item if isinstance(item, str) else item.get("text", ""),
+                }
+                for idx, item in enumerate(raw_items)
+            ]
+        elif d.ai_metadata and "tweets" in d.ai_metadata and isinstance(d.ai_metadata["tweets"], list):
+            raw_tweets = d.ai_metadata["tweets"]
+            t_items = [
+                {
+                    "id": f"ti-{idx}",
+                    "position": idx,
+                    "item_type": "hook" if idx == 0 else ("closer" if idx == len(raw_tweets) - 1 else "body"),
+                    "text": item,
+                }
+                for idx, item in enumerate(raw_tweets)
+            ]
+
+        result_list.append({
+            "id": str(d.id),
+            "content_type": d.content_type.value if hasattr(d.content_type, "value") else str(d.content_type),
+            "body": d.body,
+            "status": d.status.value if hasattr(d.status, "value") else str(d.status),
+            "ai_metadata": d.ai_metadata,
+            "thread_items": t_items,
             "created_at": d.created_at.isoformat() if d.created_at else None,
-        }
-        for d in drafts
-    ]
+        })
+    return result_list
 
 
 @router.post("/{profile_id}/drafts/{content_id}/approve", response_model=dict[str, Any])
@@ -1529,7 +1556,7 @@ async def approve_and_publish_draft(
     content_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Approves a staged draft post/poll/thread and publishes it to live X via Playwright."""
+    """Approves a staged draft post/poll/thread and publishes it to live X."""
     result = await db.execute(select(Profile).where(Profile.id == profile_id))
     db_profile = result.scalar_one_or_none()
     if not db_profile:
@@ -1537,17 +1564,40 @@ async def approve_and_publish_draft(
 
     from xbot.models.content import Content, ContentStatus, ContentType
     from xbot.browser.manager import BrowserManager
-    from xbot.browser.actions.x_actions import ComposePost, ComposeThread
+    from xbot.browser.actions.x_actions import ComposePost, ComposeThread, ReplyToTweet
     from xbot.browser.actions.poll_action import CreatePoll
+    from xbot.safety.guard import SafetyGuard
 
     c_res = await db.execute(select(Content).where(Content.id == content_id).where(Content.profile_id == profile_id))
     draft = c_res.scalar_one_or_none()
     if not draft:
         raise HTTPException(status_code=404, detail="Draft content not found")
 
+    # Mark approved in DB immediately
+    draft.status = ContentStatus.APPROVED
+    await db.commit()
+
     manager = BrowserManager(base_profile_dir=BASE_PROFILE_DIR)
-    if not manager.acquire_lock(db_profile.profile_slug, timeout_seconds=30):
-        raise HTTPException(status_code=423, detail="Profile browser lock is busy. Please retry.")
+    guard = SafetyGuard()
+    
+    # Try acquiring lock with retry
+    lock_acquired = False
+    for _ in range(3):
+        if manager.acquire_lock(db_profile.profile_slug, timeout_seconds=60):
+            lock_acquired = True
+            break
+        import asyncio as _aio
+        await _aio.sleep(1.5)
+
+    if not lock_acquired:
+        # Trigger background Celery auto-publish task
+        from xbot.tasks import auto_publish_pending_drafts
+        auto_publish_pending_drafts.delay()
+        return {
+            "status": "queued",
+            "message": "Draft approved! Queued in background worker for immediate publishing once browser is ready.",
+            "content_id": str(draft.id),
+        }
 
     context = None
     success = False
@@ -1565,11 +1615,14 @@ async def approve_and_publish_draft(
             screenshot_dir = str(Path(BASE_PROFILE_DIR) / db_profile.profile_slug / "screenshots")
             action = CreatePoll(screenshot_dir=screenshot_dir)
             success = await action.execute(page, question=question, options=options, duration_days=duration_days)
-        elif draft.content_type == ContentType.THREAD or draft.content_type == "thread":
+        elif draft.content_type in (ContentType.THREAD, "thread"):
             tweets = []
-            if getattr(draft, "thread_items", None):
+            if getattr(draft, "thread_items", None) and len(draft.thread_items) > 0:
                 tweets = [item.text for item in draft.thread_items]
-            elif draft.ai_metadata and "tweets" in draft.ai_metadata:
+            elif draft.ai_metadata and "thread_items" in draft.ai_metadata and isinstance(draft.ai_metadata["thread_items"], list):
+                raw_items = draft.ai_metadata["thread_items"]
+                tweets = [item if isinstance(item, str) else item.get("text", "") for item in raw_items]
+            elif draft.ai_metadata and "tweets" in draft.ai_metadata and isinstance(draft.ai_metadata["tweets"], list):
                 tweets = draft.ai_metadata["tweets"]
             else:
                 tweets = [p.strip() for p in draft.body.split("\n\n") if p.strip()]
@@ -1588,16 +1641,47 @@ async def approve_and_publish_draft(
             draft.status = ContentStatus.POSTED
             draft.posted_at = datetime.datetime.utcnow()
             await db.commit()
+            await guard.record_action_success(db_profile.profile_slug, "post")
+
+            # 1st-reply link injection if extracted_link exists
+            extracted_link = draft.ai_metadata.get("extracted_link") if draft.ai_metadata else None
+            if extracted_link:
+                try:
+                    from xbot.browser.actions.x_actions import sleep_with_jitter
+                    await sleep_with_jitter(2500)
+                    first_reply_msg = f"Link / source breakdown: {extracted_link}"
+                    reply_ok = await ReplyToTweet().execute(page, first_reply_msg)
+                    if reply_ok:
+                        reply_rec = Content(
+                            profile_id=db_profile.id,
+                            content_type=ContentType.REPLY,
+                            body=first_reply_msg,
+                            status=ContentStatus.POSTED,
+                            posted_at=datetime.datetime.utcnow(),
+                            ai_metadata={"is_1st_reply_injection": True, "direct_publish": True}
+                        )
+                        db.add(reply_rec)
+                        await db.commit()
+                except Exception as link_e:
+                    logger.warning("Failed to post 1st-reply link injection: %s", link_e)
 
         return {
             "status": "success" if success else "failed",
-            "message": "Draft approved and published to X!" if success else "Browser returned failure.",
+            "message": "Draft approved and published to live X!" if success else "Browser returned failure.",
             "content_id": str(draft.id),
         }
     except Exception as e:
         logger.error(f"Error publishing draft: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # Fallback to Celery background task
+        from xbot.tasks import auto_publish_pending_drafts
+        auto_publish_pending_drafts.delay()
+        return {
+            "status": "queued",
+            "message": "Draft approved! Queued in background worker for execution.",
+            "content_id": str(draft.id),
+        }
     finally:
+        manager.release_lock(db_profile.profile_slug)
         if context:
             try:
                 await context.close()
