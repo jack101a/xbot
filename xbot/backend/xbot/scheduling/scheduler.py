@@ -158,6 +158,9 @@ async def check_and_trigger_schedules(
         except Exception:
             tz = ZoneInfo("America/New_York")
 
+        min_gap_minutes = getattr(config.schedule, "interval_minutes", 20) or 20
+        sessions_per_day = getattr(config.schedule, "min_sessions_per_day", 12) or 12
+
         # Get current date in profile local timezone
         now_aware_utc = now_utc.replace(tzinfo=datetime.timezone.utc)
         local_now = now_aware_utc.astimezone(tz)
@@ -215,9 +218,6 @@ async def check_and_trigger_schedules(
                 except ValueError:
                     pass
 
-            min_gap_minutes = 60
-            sessions_per_day = config.schedule.min_sessions_per_day or 3
-
             times = generate_daily_schedule(
                 timezone_str=timezone_str,
                 wake_hour=wake_hour,
@@ -253,10 +253,14 @@ async def check_and_trigger_schedules(
         res_last = await db.execute(stmt_last)
         last_session = res_last.scalar_one_or_none()
 
-        min_gap_minutes = 60 # defaults
         if last_session:
+            # If a session is currently running, skip
             if last_session.status == SessionStatus.RUNNING:
-                logger.warning("Session already running for profile %s. Skipping duplicate launch.", profile.profile_slug)
+                logger.info(
+                    "Skipping due session for profile %s: previous session %s is still running.",
+                    profile.profile_slug,
+                    last_session.id,
+                )
                 continue
 
             end_time = last_session.ended_at or last_session.started_at
@@ -272,7 +276,7 @@ async def check_and_trigger_schedules(
 
         # 5. Natural Activity Gaps: 10% chance to skip
         if random.random() < 0.1:
-            logger.info("Natural activity gap skip (10% check) triggered for profile %s", profile.profile_slug)
+            logger.info("Natural activity gap skip (10%% check) triggered for profile %s", profile.profile_slug)
             # Log skipped session in database
             skipped_session = Session(
                 profile_id=profile.id,

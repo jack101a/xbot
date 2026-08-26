@@ -243,6 +243,13 @@ class SafetyGuard:
         if cooldown_seconds > 0:
             self.limiter.set_cooldown(profile_slug, action_type, cooldown_seconds, now_utc)
 
+        # Reset consecutive failure counter on success
+        try:
+            failure_key = f"failures:{profile_slug}"
+            self.r.delete(failure_key)
+        except Exception:
+            pass
+
     def _send_webhook_alert(self, title: str, message: str, level: str = "warning") -> None:
         """Sends a synchronous JSON POST webhook payload to external alerts handler (Discord/Telegram)."""
         url = settings.WEBHOOK_URL
@@ -303,20 +310,25 @@ class SafetyGuard:
 
         err_lower = error_message.lower()
 
-        # A. Health Signal Detection: Locked account
-        if any(w in err_lower for w in ("locked", "suspended", "unusual activity")):
-            logger.critical("Health Signal Alert: Account %s detected as LOCKED.", profile_slug)
+        # Ignore internal lock / concurrency errors from triggering health signal account locks
+        if any(ignore in err_lower for ignore in ("redis", "browser lock", "database is locked", "mutex", "lock:browser", "lock collision", "lock error", "lock failed")):
+            logger.info("Internal lock/concurrency collision for %s; bypassing health signal lock.", profile_slug)
+            return
+
+        # A. Health Signal Detection: Locked account on X
+        if any(w in err_lower for w in ("your account has been locked", "account has been locked", "account suspended", "your account is suspended", "unusual activity detected on your account", "account is temporarily locked")):
+            logger.critical("Health Signal Alert: Account %s detected as LOCKED on X.", profile_slug)
             profile.status = ProfileStatus.LOCKED
             await db.commit()
             self._send_webhook_alert(
                 title=f"CRITICAL: Account Locked - {profile_slug}",
-                message=f"XBot detected that account @{profile.x_handle} ({profile_slug}) has been locked or suspended. Action details: {error_message}",
+                message=f"XBot detected that account @{profile.x_handle} ({profile_slug}) has been locked or suspended on X. Action details: {error_message}",
                 level="critical"
             )
             return
 
         # B. Health Signal Detection: CAPTCHA / verify pages
-        if any(w in err_lower for w in ("captcha", "verify", "challenge", "robot")):
+        if any(w in err_lower for w in ("arkoselabs", "funcaptcha", "recaptcha", "solve this puzzle", "prove you are human")):
             logger.critical("Health Signal Alert: CAPTCHA challenge encountered for profile %s. Pausing.", profile_slug)
             profile.status = ProfileStatus.PAUSED
             await db.commit()
@@ -334,18 +346,19 @@ class SafetyGuard:
             self.r.set(backoff_key, "1", ex=86400)  # 24h limit reduction
             return
 
-        # D. Circuit Breaker: 3 consecutive generic failures
-        failure_key = f"failures:{profile_slug}"
-        failures = self.r.incr(failure_key)
-        self.r.expire(failure_key, 3600)  # Expire counter in 1h if no new error
+        # D. Circuit Breaker: consecutive fatal system-level auth crashes (ignore transient single DOM misses)
+        if any(w in err_lower for w in ("session invalidated", "cookie expired", "unauthorized", "login required", "generic connection error")):
+            failure_key = f"failures:{profile_slug}"
+            failures = self.r.incr(failure_key)
+            self.r.expire(failure_key, 3600)
 
-        if failures >= 3:
-            logger.critical("Circuit Breaker Triggered: %d consecutive failures for profile %s. Pausing 6 hours.", failures, profile_slug)
-            profile.status = ProfileStatus.PAUSED
-            await db.commit()
-            self.r.delete(failure_key)
-            self._send_webhook_alert(
-                title=f"CRITICAL: Circuit Breaker Triggered - {profile_slug}",
-                message=f"XBot triggered the circuit breaker for @{profile.x_handle} ({profile_slug}) after 3 consecutive failures. The profile scheduler has been PAUSED.",
-                level="critical"
-            )
+            if failures >= 3:
+                logger.critical("Circuit Breaker Triggered: %d consecutive auth crashes for profile %s. Pausing.", failures, profile_slug)
+                profile.status = ProfileStatus.PAUSED
+                await db.commit()
+                self.r.delete(failure_key)
+                self._send_webhook_alert(
+                    title=f"CRITICAL: Circuit Breaker Triggered - {profile_slug}",
+                    message=f"XBot triggered the circuit breaker for @{profile.x_handle} ({profile_slug}) after {failures} consecutive auth crashes. Profile PAUSED.",
+                    level="critical"
+                )
