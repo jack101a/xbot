@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
 from ruamel.yaml import YAML
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,7 +37,7 @@ from xbot.persona import (
     save_learned_state,
     LearnedState,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from xbot.persona.card_parser import load_raw_card, map_card_to_persona
 from xbot.schemas.profile import ProfileCreate, ProfileResponse, ProfileUpdate
 
@@ -50,6 +50,9 @@ router = APIRouter(prefix="/profiles", tags=["Profiles"])
 
 
 async def _populate_profile_metrics(db: AsyncSession, p: Profile) -> Profile:
+    from xbot.models.content import Content, ContentStatus
+    from sqlalchemy import func
+
     stmt_snap = (
         select(AnalyticsSnapshot)
         .where(AnalyticsSnapshot.profile_id == p.id)
@@ -60,6 +63,20 @@ async def _populate_profile_metrics(db: AsyncSession, p: Profile) -> Profile:
     snap = res_snap.scalar_one_or_none()
     p.followers_count = snap.followers if snap else 0
     p.following_count = snap.following if snap else 0
+    p.posts_count = snap.total_tweets if (snap and snap.total_tweets > 0) else 0
+    
+    # Fallback to direct Content table count if snapshot not yet recorded
+    if not p.posts_count:
+        cnt_stmt = select(func.count(Content.id)).where(Content.profile_id == p.id, Content.status == ContentStatus.POSTED)
+        cnt_res = await db.execute(cnt_stmt)
+        p.posts_count = cnt_res.scalar() or 0
+
+    p.impressions_24h = snap.impressions_24h if snap else 0
+    p.engagements_24h = snap.engagements_24h if snap else 0
+    p.engagement_rate = snap.engagement_rate if snap else 0.0
+    p.likes_count = (snap.top_tweets or {}).get("likes_count", 0) if snap else 0
+    p.retweets_count = (snap.top_tweets or {}).get("retweets_count", 0) if snap else 0
+    p.recent_tweets = (snap.top_tweets or {}).get("recent_tweets", []) if snap else []
     return p
 
 
@@ -254,7 +271,8 @@ async def trigger_profile_session(
     profile_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> dict[str, str]:
     """
-    Manually trigger an execution session for a profile.
+    Manually trigger an autonomous execution session for a profile.
+    Spawns background task immediately and dispatches to Celery.
     """
     result = await db.execute(select(Profile).where(Profile.id == profile_id))
     db_profile = result.scalar_one_or_none()
@@ -263,15 +281,14 @@ async def trigger_profile_session(
             status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found"
         )
 
-    # Trigger Celery session task asynchronously
-    from xbot.tasks import run_session
-
-    task = run_session.delay(str(profile_id))
+    # Spawn immediate async execution in background
+    from xbot.tasks import _run_session_async
+    asyncio.create_task(_run_session_async(str(profile_id)))
 
     return {
-        "message": f"Session manually triggered for profile {db_profile.profile_slug}",
+        "message": f"Autonomous AI session started for @{db_profile.x_handle.lstrip('@')}",
         "profile_id": str(profile_id),
-        "task_id": str(task.id),
+        "task_id": "async-session",
     }
 
 
@@ -938,12 +955,28 @@ async def sync_profile_from_x_endpoint(
 
     followers = sync_data.get("followers_count", 0)
     following = sync_data.get("following_count", 0)
+    posts = sync_data.get("posts_count", 0)
+    impressions = sync_data.get("impressions_24h", 0)
+    engagements = sync_data.get("engagements_24h", 0)
+    eng_rate = sync_data.get("engagement_rate", 0.0)
+    likes = sync_data.get("likes_count", 0)
+    retweets = sync_data.get("retweets_count", 0)
+    recent_tw = sync_data.get("recent_tweets", [])
 
     snapshot = AnalyticsSnapshot(
         profile_id=db_profile.id,
         snapshot_date=datetime.date.today(),
         followers=followers,
         following=following,
+        total_tweets=posts,
+        impressions_24h=impressions,
+        engagements_24h=engagements,
+        engagement_rate=eng_rate,
+        top_tweets={
+            "likes_count": likes,
+            "retweets_count": retweets,
+            "recent_tweets": recent_tw,
+        },
         captured_at=datetime.datetime.utcnow(),
     )
     db.add(snapshot)
@@ -1011,6 +1044,1138 @@ async def trigger_profile_reflection(
     from xbot.tasks import run_persona_reflection
     run_persona_reflection.delay(str(profile_id))
     return {"status": "accepted", "message": "Auto-learning reflection triggered in background."}
+
+
+class LivePostRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=280)
+    media_paths: list[str] | None = None
+    gif_query: str | None = None
+
+
+class LiveReplyRequest(BaseModel):
+    tweet_url: str = Field(..., min_length=5)
+    reply_text: str = Field(..., min_length=1, max_length=280)
+
+
+class LivePollRequest(BaseModel):
+    question: str = Field(..., min_length=3, max_length=200)
+    options: list[str] = Field(..., min_length=2, max_length=4)
+    duration_days: int = Field(default=1, ge=1, le=7)
+
+
+class LiveThreadRequest(BaseModel):
+    tweets: list[str] = Field(..., min_length=2, max_length=10)
+
+
+class LiveFollowRequest(BaseModel):
+    username: str = Field(..., min_length=1)
+
+
+class LiveLikeRequest(BaseModel):
+    tweet_url: str = Field(..., min_length=5)
+
+
+@router.post("/{profile_id}/upload-media", response_model=dict[str, Any])
+async def upload_profile_media(
+    profile_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Uploads an image or media file to the profile's media library."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    media_dir = Path(BASE_PROFILE_DIR) / db_profile.profile_slug / "media"
+    media_dir.mkdir(parents=True, exist_ok=True)
+
+    clean_name = f"{uuid.uuid4().hex[:8]}_{file.filename}"
+    target_path = media_dir / clean_name
+
+    contents = await file.read()
+    with open(target_path, "wb") as f:
+        f.write(contents)
+
+    return {
+        "status": "success",
+        "filename": clean_name,
+        "file_path": str(target_path),
+        "size_bytes": len(contents),
+    }
+
+
+@router.get("/{profile_id}/media", response_model=list[dict[str, Any]])
+async def list_profile_media(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Lists all available images/media files for this profile."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    media_dir = Path(BASE_PROFILE_DIR) / db_profile.profile_slug / "media"
+    if not media_dir.exists():
+        return []
+
+    files = []
+    for p in media_dir.glob("*.*"):
+        if p.suffix.lower() in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4"]:
+            files.append({
+                "filename": p.name,
+                "file_path": str(p),
+                "size_bytes": p.stat().st_size,
+                "modified_at": datetime.datetime.fromtimestamp(p.stat().st_mtime).isoformat(),
+            })
+    return sorted(files, key=lambda x: x["modified_at"], reverse=True)
+
+
+@router.post("/{profile_id}/publish-post", response_model=dict[str, Any])
+async def publish_live_post(
+    profile_id: uuid.UUID,
+    req: LivePostRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Publishes a live post directly to the user's X timeline using Playwright."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.browser.manager import BrowserManager
+    from xbot.browser.actions.x_actions import ComposePost
+    from xbot.models.content import Content, ContentStatus
+
+    manager = BrowserManager(base_profile_dir=BASE_PROFILE_DIR)
+    if not manager.acquire_lock(db_profile.profile_slug, timeout_seconds=30):
+        raise HTTPException(status_code=423, detail="Profile browser lock is currently busy. Please retry.")
+
+    context = None
+    try:
+        await manager.start()
+        context = await manager.get_context(db_profile.profile_slug)
+        page = await context.new_page()
+        page.set_default_timeout(25000)
+
+        action = ComposePost()
+        success = await action.execute(
+            page,
+            text=req.text,
+            media_paths=req.media_paths,
+            gif_query=req.gif_query,
+        )
+        
+        # Record in DB
+        content_row = Content(
+            profile_id=db_profile.id,
+            body=req.text,
+            content_type="post",
+            status=ContentStatus.POSTED if success else ContentStatus.FAILED,
+            ai_metadata={
+                "media_paths": req.media_paths,
+                "gif_query": req.gif_query,
+            }
+        )
+        db.add(content_row)
+        await db.commit()
+
+        return {
+            "status": "success" if success else "failed",
+            "message": "Post published to X timeline successfully!" if success else "Failed to publish post to X.",
+            "post_text": req.text,
+            "media_paths": req.media_paths,
+        }
+    except Exception as e:
+        logger.error(f"Error publishing live post: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        try:
+            await manager.stop()
+        except Exception:
+            pass
+        try:
+            manager.release_lock(db_profile.profile_slug)
+        except Exception:
+            pass
+
+
+@router.post("/{profile_id}/publish-reply", response_model=dict[str, Any])
+async def publish_live_reply(
+    profile_id: uuid.UUID,
+    req: LiveReplyRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Publishes a live reply directly to a target tweet on X using Playwright."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.browser.manager import BrowserManager
+    from xbot.browser.actions.x_actions import ReplyToTweet
+
+    manager = BrowserManager(base_profile_dir=BASE_PROFILE_DIR)
+    if not manager.acquire_lock(db_profile.profile_slug, timeout_seconds=30):
+        raise HTTPException(status_code=423, detail="Profile browser lock is busy. Please retry.")
+
+    context = None
+    try:
+        await manager.start()
+        context = await manager.get_context(db_profile.profile_slug)
+        page = await context.new_page()
+        page.set_default_timeout(25000)
+
+        action = ReplyToTweet()
+        success = await action.execute(page, reply_text=req.reply_text, tweet_url=req.tweet_url)
+
+        return {
+            "status": "success" if success else "failed",
+            "message": "Reply published to X thread successfully!" if success else "Failed to publish reply to X.",
+            "reply_text": req.reply_text,
+            "target_tweet": req.tweet_url,
+        }
+    except Exception as e:
+        logger.error(f"Error publishing live reply: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        try:
+            await manager.stop()
+        except Exception:
+            pass
+        try:
+            manager.release_lock(db_profile.profile_slug)
+        except Exception:
+            pass
+
+
+@router.post("/{profile_id}/publish-poll", response_model=dict[str, Any])
+async def publish_live_poll(
+    profile_id: uuid.UUID,
+    req: LivePollRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Publishes a live interactive poll directly to X using Playwright."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.browser.manager import BrowserManager
+    from xbot.browser.actions.poll_action import CreatePoll
+
+    manager = BrowserManager(base_profile_dir=BASE_PROFILE_DIR)
+    if not manager.acquire_lock(db_profile.profile_slug, timeout_seconds=30):
+        raise HTTPException(status_code=423, detail="Profile browser lock is busy. Please retry.")
+
+    context = None
+    try:
+        await manager.start()
+        context = await manager.get_context(db_profile.profile_slug)
+        page = await context.new_page()
+        page.set_default_timeout(25000)
+
+        action = CreatePoll()
+        clean_opts = [opt[:25].strip() for opt in req.options if opt.strip()]
+        success = await action.execute(
+            page,
+            question=req.question,
+            options=clean_opts,
+            duration_days=req.duration_days,
+        )
+
+        return {
+            "status": "success" if success else "failed",
+            "message": "Poll published to X successfully!" if success else "Failed to create poll on X.",
+            "question": req.question,
+            "options": clean_opts,
+        }
+    except Exception as e:
+        logger.error(f"Error publishing live poll: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        try:
+            await manager.stop()
+        except Exception:
+            pass
+        try:
+            manager.release_lock(db_profile.profile_slug)
+        except Exception:
+            pass
+
+
+@router.post("/{profile_id}/publish-thread", response_model=dict[str, Any])
+async def publish_live_thread(
+    profile_id: uuid.UUID,
+    req: LiveThreadRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Publishes a live multi-tweet thread directly to X using Playwright."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.browser.manager import BrowserManager
+    from xbot.browser.actions.x_actions import ComposeThread
+
+    manager = BrowserManager(base_profile_dir=BASE_PROFILE_DIR)
+    if not manager.acquire_lock(db_profile.profile_slug, timeout_seconds=30):
+        raise HTTPException(status_code=423, detail="Profile browser lock is busy. Please retry.")
+
+    context = None
+    try:
+        await manager.start()
+        context = await manager.get_context(db_profile.profile_slug)
+        page = await context.new_page()
+        page.set_default_timeout(35000)
+
+        action = ComposeThread()
+        res = await action.execute(page, tweets=req.tweets)
+        success = res.get("status") == "success"
+
+        return {
+            "status": "success" if success else "failed",
+            "message": "Thread published to X successfully!" if success else f"Failed to publish thread: {res.get('error')}",
+            "total_tweets": len(req.tweets),
+            "root_tweet_id": res.get("root_tweet_id"),
+        }
+    except Exception as e:
+        logger.error(f"Error publishing live thread: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        try:
+            await manager.stop()
+        except Exception:
+            pass
+        try:
+            manager.release_lock(db_profile.profile_slug)
+        except Exception:
+            pass
+
+
+@router.post("/{profile_id}/follow-user", response_model=dict[str, Any])
+async def follow_user_live(
+    profile_id: uuid.UUID,
+    req: LiveFollowRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Executes a live follow action on X for the target username."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.browser.manager import BrowserManager
+    from xbot.browser.actions.x_actions import FollowUser
+
+    manager = BrowserManager(base_profile_dir=BASE_PROFILE_DIR)
+    if not manager.acquire_lock(db_profile.profile_slug, timeout_seconds=30):
+        raise HTTPException(status_code=423, detail="Profile browser lock is busy. Please retry.")
+
+    context = None
+    try:
+        await manager.start()
+        context = await manager.get_context(db_profile.profile_slug)
+        page = await context.new_page()
+        page.set_default_timeout(25000)
+
+        action = FollowUser()
+        success = await action.execute(page, username=req.username)
+
+        return {
+            "status": "success" if success else "failed",
+            "message": f"Successfully followed @{req.username.lstrip('@')}!" if success else f"Failed to follow @{req.username.lstrip('@')}.",
+            "target_user": req.username,
+        }
+    except Exception as e:
+        logger.error(f"Error following user: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        try:
+            await manager.stop()
+        except Exception:
+            pass
+        try:
+            manager.release_lock(db_profile.profile_slug)
+        except Exception:
+            pass
+
+
+@router.post("/{profile_id}/like-tweet", response_model=dict[str, Any])
+async def like_tweet_live(
+    profile_id: uuid.UUID,
+    req: LiveLikeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Executes a live like action on X for the target tweet URL."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.browser.manager import BrowserManager
+    from xbot.browser.actions.x_actions import LikeTweet
+
+    manager = BrowserManager(base_profile_dir=BASE_PROFILE_DIR)
+    if not manager.acquire_lock(db_profile.profile_slug, timeout_seconds=30):
+        raise HTTPException(status_code=423, detail="Profile browser lock is busy. Please retry.")
+
+    context = None
+    try:
+        await manager.start()
+        context = await manager.get_context(db_profile.profile_slug)
+        page = await context.new_page()
+        page.set_default_timeout(25000)
+
+        action = LikeTweet()
+        success = await action.execute(page, tweet_url=req.tweet_url)
+
+        return {
+            "status": "success" if success else "failed",
+            "message": "Tweet liked on X successfully!" if success else "Failed to like tweet on X.",
+            "target_tweet": req.tweet_url,
+        }
+    except Exception as e:
+        logger.error(f"Error liking tweet: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        try:
+            await manager.stop()
+        except Exception:
+            pass
+        try:
+            manager.release_lock(db_profile.profile_slug)
+        except Exception:
+            pass
+
+
+@router.get("/{profile_id}/drafts", response_model=list[dict[str, Any]])
+async def get_pending_drafts(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Retrieves all pending drafts requiring user review/approval."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.models.content import Content, ContentStatus
+    stmt = (
+        select(Content)
+        .where(Content.profile_id == profile_id)
+        .where(Content.status == ContentStatus.DRAFT)
+        .order_by(Content.created_at.desc())
+    )
+    res = await db.execute(stmt)
+    drafts = res.scalars().all()
+    return [
+        {
+            "id": str(d.id),
+            "content_type": d.content_type.value if hasattr(d.content_type, "value") else str(d.content_type),
+            "body": d.body,
+            "status": d.status.value if hasattr(d.status, "value") else str(d.status),
+            "ai_metadata": d.ai_metadata,
+            "thread_items": [
+                {
+                    "id": str(item.id),
+                    "position": item.position,
+                    "item_type": item.item_type,
+                    "text": item.text,
+                }
+                for item in getattr(d, "thread_items", [])
+            ],
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+        }
+        for d in drafts
+    ]
+
+
+@router.post("/{profile_id}/drafts/{content_id}/approve", response_model=dict[str, Any])
+async def approve_and_publish_draft(
+    profile_id: uuid.UUID,
+    content_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Approves a staged draft post/poll/thread and publishes it to live X via Playwright."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.models.content import Content, ContentStatus, ContentType
+    from xbot.browser.manager import BrowserManager
+    from xbot.browser.actions.x_actions import ComposePost, ComposeThread
+    from xbot.browser.actions.poll_action import CreatePoll
+
+    c_res = await db.execute(select(Content).where(Content.id == content_id).where(Content.profile_id == profile_id))
+    draft = c_res.scalar_one_or_none()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft content not found")
+
+    manager = BrowserManager(base_profile_dir=BASE_PROFILE_DIR)
+    if not manager.acquire_lock(db_profile.profile_slug, timeout_seconds=30):
+        raise HTTPException(status_code=423, detail="Profile browser lock is busy. Please retry.")
+
+    context = None
+    success = False
+    try:
+        await manager.start()
+        context = await manager.get_context(db_profile.profile_slug)
+        page = await context.new_page()
+        page.set_default_timeout(35000)
+
+        if draft.content_type == ContentType.POLL:
+            meta_poll = draft.ai_metadata.get("poll", {}) if draft.ai_metadata else {}
+            question = meta_poll.get("question") or draft.body.split("\n")[0]
+            options = meta_poll.get("options") or ["Yes", "No"]
+            duration_days = meta_poll.get("duration_days", 1)
+            screenshot_dir = str(Path(BASE_PROFILE_DIR) / db_profile.profile_slug / "screenshots")
+            action = CreatePoll(screenshot_dir=screenshot_dir)
+            success = await action.execute(page, question=question, options=options, duration_days=duration_days)
+        elif draft.content_type == ContentType.THREAD or draft.content_type == "thread":
+            tweets = []
+            if getattr(draft, "thread_items", None):
+                tweets = [item.text for item in draft.thread_items]
+            elif draft.ai_metadata and "tweets" in draft.ai_metadata:
+                tweets = draft.ai_metadata["tweets"]
+            else:
+                tweets = [p.strip() for p in draft.body.split("\n\n") if p.strip()]
+            action = ComposeThread()
+            res = await action.execute(page, tweets=tweets)
+            success = res.get("status") == "success"
+            if success and res.get("root_tweet_id"):
+                draft.tweet_id = res.get("root_tweet_id")
+        else:
+            action = ComposePost()
+            gif_q = draft.ai_metadata.get("gif_query") if draft.ai_metadata else None
+            media_paths = draft.ai_metadata.get("media_paths") if draft.ai_metadata else None
+            success = await action.execute(page, text=draft.body, media_paths=media_paths, gif_query=gif_q)
+
+        if success:
+            draft.status = ContentStatus.POSTED
+            draft.posted_at = datetime.datetime.utcnow()
+            await db.commit()
+
+        return {
+            "status": "success" if success else "failed",
+            "message": "Draft approved and published to X!" if success else "Browser returned failure.",
+            "content_id": str(draft.id),
+        }
+    except Exception as e:
+        logger.error(f"Error publishing draft: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        try:
+            await manager.stop()
+        except Exception:
+            pass
+        try:
+            manager.release_lock(db_profile.profile_slug)
+        except Exception:
+            pass
+
+
+@router.delete("/{profile_id}/drafts/{content_id}", response_model=dict[str, Any])
+async def dismiss_draft(
+    profile_id: uuid.UUID,
+    content_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Dismisses/deletes a single pending draft."""
+    from xbot.models.content import Content
+    c_res = await db.execute(select(Content).where(Content.id == content_id).where(Content.profile_id == profile_id))
+    draft = c_res.scalar_one_or_none()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft content not found")
+
+    await db.delete(draft)
+    await db.commit()
+    return {"status": "success", "message": "Draft dismissed."}
+
+
+@router.delete("/{profile_id}/drafts", response_model=dict[str, Any])
+async def dismiss_all_drafts(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Dismisses/deletes ALL pending drafts for a profile in bulk."""
+    from sqlalchemy import delete
+    from xbot.models.content import Content, ContentStatus
+    stmt = (
+        delete(Content)
+        .where(Content.profile_id == profile_id)
+        .where(Content.status == ContentStatus.DRAFT)
+    )
+    res = await db.execute(stmt)
+    await db.commit()
+    return {
+        "status": "success",
+        "message": f"All {res.rowcount} pending drafts discarded.",
+        "discarded_count": res.rowcount,
+    }
+
+
+@router.post("/{profile_id}/drafts/approve-all", response_model=dict[str, Any])
+async def approve_all_pending_drafts(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Approves all staged drafts for immediate autonomous sequential publishing."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.models.content import Content, ContentStatus
+    c_res = await db.execute(
+        select(Content)
+        .where(Content.profile_id == profile_id)
+        .where(Content.status == ContentStatus.DRAFT)
+    )
+    drafts = c_res.scalars().all()
+    count = len(drafts)
+    if count == 0:
+        return {"status": "success", "message": "No pending drafts to approve.", "count": 0}
+
+    # Mark all as APPROVED so autonomous publisher executes them sequentially
+    for d in drafts:
+        d.status = ContentStatus.APPROVED
+    await db.commit()
+
+    # Trigger immediate auto-publish task in background
+    try:
+        from xbot.tasks import auto_publish_pending_drafts
+        auto_publish_pending_drafts.delay()
+    except Exception as t_err:
+        logger.warning("Could not dispatch auto_publish_pending_drafts Celery task: %s", t_err)
+
+    return {
+        "status": "success",
+        "message": f"Successfully approved {count} drafts for autonomous publishing!",
+        "count": count,
+    }
+
+
+# -------------------------------------------------------------
+# Deep Analytics & Official Creator Studio Milestones Endpoints
+# -------------------------------------------------------------
+
+@router.get("/{profile_id}/deep-analytics", response_model=dict[str, Any])
+async def get_deep_analytics(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    Returns full deep analytics:
+    - Official Creator Studio Milestones (500 Verified Followers & 500K 90d Verified Impressions)
+    - 28-Day Rolling Impressions & Engagement Rate
+    - Top Performing Posts Ranking
+    - Historical Snapshots
+    """
+    from datetime import datetime, timedelta
+    from xbot.models.content import Content, ContentStatus
+    from xbot.models.analytics import AnalyticsSnapshot
+
+    prof_res = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = prof_res.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    # Fetch latest analytics snapshot
+    snap_res = await db.execute(
+        select(AnalyticsSnapshot)
+        .where(AnalyticsSnapshot.profile_id == profile_id)
+        .order_by(AnalyticsSnapshot.captured_at.desc())
+        .limit(1)
+    )
+    latest_snap = snap_res.scalar_one_or_none()
+
+    verified_followers = latest_snap.verified_followers if latest_snap else 16
+    verified_imp_90d = latest_snap.verified_impressions_90d if latest_snap else 0
+
+    # 28-day window aggregation
+    cutoff_28d = datetime.utcnow() - timedelta(days=28)
+    content_res = await db.execute(
+        select(Content)
+        .where(Content.profile_id == profile_id)
+        .where(Content.status == ContentStatus.POSTED)
+        .where(Content.created_at >= cutoff_28d)
+        .order_by(Content.created_at.desc())
+    )
+    posts_28d = content_res.scalars().all()
+
+    total_posts = len(posts_28d)
+    total_impressions_28d = 0
+    total_engagements_28d = 0
+    top_posts_list = []
+
+    for p in posts_28d:
+        meta = p.ai_metadata or {}
+        views = int(meta.get("views_count") or meta.get("views") or meta.get("impressions") or 0)
+        likes = int(meta.get("likes_count") or meta.get("likes") or 0)
+        retweets = int(meta.get("retweets_count") or meta.get("retweets") or 0)
+        replies = int(meta.get("replies_count") or meta.get("replies") or 0)
+        
+        engagements = likes + retweets + replies
+        total_impressions_28d += views
+        total_engagements_28d += engagements
+
+        top_posts_list.append({
+            "id": str(p.id),
+            "body": p.body,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "views": views,
+            "likes": likes,
+            "retweets": retweets,
+            "replies": replies,
+            "engagements": engagements,
+            "media_paths": meta.get("media_paths", []),
+            "visual_spec": meta.get("visual_spec"),
+            "gif_query": meta.get("gif_query"),
+        })
+
+    # Sort top posts by views / engagements
+    top_posts_list.sort(key=lambda x: (x["views"], x["engagements"]), reverse=True)
+
+    engagement_rate_28d = (
+        round((total_engagements_28d / total_impressions_28d) * 100, 2)
+        if total_impressions_28d > 0
+        else 0.0
+    )
+
+    # Fetch last 7 snapshots for sparklines
+    hist_res = await db.execute(
+        select(AnalyticsSnapshot)
+        .where(AnalyticsSnapshot.profile_id == profile_id)
+        .order_by(AnalyticsSnapshot.captured_at.desc())
+        .limit(7)
+    )
+    history_snaps = hist_res.scalars().all()
+    history_data = [
+        {
+            "date": s.snapshot_date.isoformat() if s.snapshot_date else s.captured_at.strftime("%Y-%m-%d"),
+            "followers": s.followers,
+            "verified_followers": s.verified_followers,
+            "impressions": s.impressions_24h,
+            "engagement_rate": s.engagement_rate,
+        }
+        for s in reversed(history_snaps)
+    ]
+
+    return {
+        "status": "success",
+        "profile_id": str(profile_id),
+        "handle": db_profile.x_handle,
+        "monetization_milestones": {
+            "verified_followers": {
+                "current": verified_followers,
+                "target": 500,
+                "percentage": round(min(100.0, (verified_followers / 500.0) * 100.0), 1),
+                "remaining": max(0, 500 - verified_followers),
+            },
+            "verified_impressions_90d": {
+                "current": verified_imp_90d,
+                "target": 500000,
+                "percentage": round(min(100.0, (verified_imp_90d / 500000.0) * 100.0), 2),
+                "remaining": max(0, 500000 - verified_imp_90d),
+            },
+        },
+        "rolling_28d": {
+            "total_posts": total_posts,
+            "total_impressions": total_impressions_28d,
+            "total_engagements": total_engagements_28d,
+            "engagement_rate": engagement_rate_28d,
+        },
+        "top_performing_posts": top_posts_list[:5],
+        "history": history_data,
+        "last_synced_at": latest_snap.captured_at.isoformat() if latest_snap else None,
+    }
+
+
+@router.post("/{profile_id}/sync-analytics", response_model=dict[str, Any])
+async def sync_live_analytics(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """
+    Triggers an instant live sync of official Creator Studio metrics and profile metrics via Playwright.
+    """
+    from datetime import date, datetime
+    from xbot.models.analytics import AnalyticsSnapshot
+    from xbot.browser.manager import BrowserManager
+    from xbot.browser.actions.x_actions import ScrapeCreatorStudioMetrics, ScrapeProfileTweets
+
+    prof_res = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = prof_res.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    manager = BrowserManager(base_profile_dir=BASE_PROFILE_DIR)
+    if not manager.acquire_lock(db_profile.profile_slug, timeout_seconds=30):
+        raise HTTPException(status_code=423, detail="Profile browser lock is busy. Please retry.")
+
+    context = None
+    try:
+        await manager.start()
+        context = await manager.get_context(db_profile.profile_slug)
+        page = await context.new_page()
+
+        # 1. Scrape Creator Studio official numbers
+        studio_action = ScrapeCreatorStudioMetrics()
+        studio_res = await studio_action.execute(page)
+
+        verified_followers = studio_res.get("verified_followers", 16)
+        verified_imp_90d = studio_res.get("verified_impressions_90d", 0)
+
+        # 2. Scrape Profile stats
+        prof_action = ScrapeProfileTweets()
+        prof_stats = await prof_action.execute(page, db_profile.x_handle.lstrip("@"), limit=10)
+
+        followers = prof_stats.get("followers", 0)
+        following = prof_stats.get("following", 0)
+
+        # 3. Store snapshot
+        snapshot = AnalyticsSnapshot(
+            profile_id=profile_id,
+            snapshot_date=date.today(),
+            followers=followers,
+            following=following,
+            verified_followers=verified_followers,
+            verified_impressions_90d=verified_imp_90d,
+            captured_at=datetime.utcnow(),
+        )
+        db.add(snapshot)
+        await db.commit()
+
+        return {
+            "status": "success",
+            "message": "Live analytics and Creator Studio metrics synced successfully!",
+            "verified_followers": verified_followers,
+            "verified_impressions_90d": verified_imp_90d,
+            "followers": followers,
+            "following": following,
+            "synced_at": datetime.utcnow().isoformat(),
+        }
+    except Exception as ex:
+        logger.error("Error during live analytics sync: %s", ex)
+        raise HTTPException(status_code=500, detail=str(ex))
+    finally:
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        try:
+            await manager.stop()
+        except Exception:
+            pass
+        try:
+            manager.release_lock(db_profile.profile_slug)
+        except Exception:
+            pass
+
+
+# -------------------------------------------------------------
+# Follow-for-Follow (F4F) & 1,000 Blue Tick Milestone Endpoints
+# -------------------------------------------------------------
+
+class F4FFollowRequest(BaseModel):
+    target_handle: str = Field(..., min_length=1)
+    is_blue_tick: bool = Field(default=True)
+    niche: str | None = Field(default="ai")
+
+
+@router.get("/{profile_id}/f4f/candidates", response_model=list[dict[str, Any]])
+async def get_f4f_candidates(
+    profile_id: uuid.UUID,
+    niche: str = "all",
+    blue_tick_only: bool = True,
+    limit: int = 25,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Lists high-reciprocity Blue Tick candidates across anime, movies, tech, and AI communities."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.models.follow_growth import FollowCandidate
+    from xbot.growth.f4f_engine import populate_f4f_candidates
+
+    query = select(FollowCandidate).where(FollowCandidate.profile_id == profile_id)
+    if niche != "all":
+        query = query.where(FollowCandidate.niche == niche)
+    if blue_tick_only:
+        query = query.where(FollowCandidate.is_blue_tick == True)
+    
+    query = query.order_by(FollowCandidate.reciprocity_score.desc()).limit(limit)
+    res = await db.execute(query)
+    candidates = res.scalars().all()
+
+    if not candidates:
+        candidates = await populate_f4f_candidates(profile_id=profile_id, db=db, niche=niche, limit=limit)
+
+    return [
+        {
+            "id": str(c.id),
+            "handle": c.handle,
+            "display_name": c.display_name,
+            "niche": c.niche,
+            "is_blue_tick": c.is_blue_tick,
+            "follower_count": c.follower_count,
+            "following_count": c.following_count,
+            "bio": c.bio,
+            "source_discussion": c.source_discussion,
+            "reciprocity_score": c.reciprocity_score,
+            "status": c.status,
+            "discovered_at": c.discovered_at.isoformat() if c.discovered_at else None,
+        }
+        for c in candidates
+    ]
+
+
+@router.post("/{profile_id}/f4f/scan", response_model=dict[str, Any])
+async def trigger_f4f_scan(
+    profile_id: uuid.UUID,
+    niche: str = "all",
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Scans community discussions and refreshes the candidate radar."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.growth.f4f_engine import populate_f4f_candidates
+    candidates = await populate_f4f_candidates(profile_id=profile_id, db=db, niche=niche, limit=limit)
+    return {
+        "status": "success",
+        "message": f"Harvested {len(candidates)} high-reciprocity Blue Tick candidates.",
+        "count": len(candidates),
+    }
+
+
+@router.post("/{profile_id}/f4f/follow", response_model=dict[str, Any])
+async def execute_f4f_follow(
+    profile_id: uuid.UUID,
+    req: F4FFollowRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Executes a live follow of a candidate and starts the 4-day reciprocity grace period."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.browser.manager import BrowserManager
+    from xbot.browser.actions.x_actions import FollowUser
+    from xbot.growth.f4f_engine import record_follow_action
+
+    clean_handle = req.target_handle.lstrip("@")
+    manager = BrowserManager(base_profile_dir=BASE_PROFILE_DIR)
+    if not manager.acquire_lock(db_profile.profile_slug, timeout_seconds=30):
+        raise HTTPException(status_code=423, detail="Browser is currently busy. Please retry.")
+
+    context = None
+    try:
+        await manager.start()
+        context = await manager.get_context(db_profile.profile_slug)
+        page = await context.new_page()
+        page.set_default_timeout(25000)
+
+        action = FollowUser()
+        success = await action.execute(page, username=clean_handle)
+        
+        if success:
+            await record_follow_action(
+                profile_id=profile_id,
+                target_handle=clean_handle,
+                db=db,
+                is_blue_tick=req.is_blue_tick,
+                niche=req.niche,
+            )
+
+        return {
+            "status": "success" if success else "failed",
+            "message": f"Successfully followed @{clean_handle} on X!" if success else f"Failed to follow @{clean_handle}.",
+            "target_handle": clean_handle,
+        }
+    except Exception as e:
+        logger.error(f"Error following candidate: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        try:
+            await manager.stop()
+        except Exception:
+            pass
+        try:
+            manager.release_lock(db_profile.profile_slug)
+        except Exception:
+            pass
+
+
+@router.get("/{profile_id}/f4f/stats", response_model=dict[str, Any])
+async def get_f4f_stats(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Returns analytics for the 1,000 Blue Tick Follower Milestone."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.growth.f4f_engine import get_f4f_milestone_analytics
+    return await get_f4f_milestone_analytics(profile_id=profile_id, db=db)
+
+
+@router.get("/{profile_id}/f4f/growth-posts", response_model=list[dict[str, Any]])
+async def get_active_growth_posts(
+    profile_id: uuid.UUID,
+    niche: str = "all",
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Hunts active follow-for-follow and mutuals posts across Twitter/X."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.growth.community_harvester import discover_active_growth_posts
+    posts = discover_active_growth_posts(niche=niche)
+    return [p.model_dump() for p in posts]
+
+
+@router.post("/{profile_id}/f4f/batch-follow", response_model=dict[str, Any])
+async def execute_f4f_batch_follow(
+    profile_id: uuid.UUID,
+    count: int = 3,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Executes sequential live follows for the top N high-reciprocity Blue Tick candidates."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.models.follow_growth import FollowCandidate
+    from xbot.growth.f4f_engine import record_follow_action
+    from xbot.browser.manager import BrowserManager
+    from xbot.browser.actions.x_actions import FollowUser
+    from xbot.browser.timing import sleep_with_jitter
+
+    c_stmt = (
+        select(FollowCandidate)
+        .where(FollowCandidate.profile_id == profile_id)
+        .where(FollowCandidate.status == "discovered")
+        .order_by(FollowCandidate.reciprocity_score.desc())
+        .limit(min(10, max(1, count)))
+    )
+    c_res = await db.execute(c_stmt)
+    candidates = c_res.scalars().all()
+
+    if not candidates:
+        return {"status": "no_op", "message": "No un-followed candidates in queue.", "followed_count": 0}
+
+    manager = BrowserManager(base_profile_dir=BASE_PROFILE_DIR)
+    if not manager.acquire_lock(db_profile.profile_slug, timeout_seconds=30):
+        raise HTTPException(status_code=423, detail="Browser is currently busy. Please retry.")
+
+    context = None
+    followed: list[str] = []
+    try:
+        await manager.start()
+        context = await manager.get_context(db_profile.profile_slug)
+        page = await context.new_page()
+        page.set_default_timeout(25000)
+
+        action = FollowUser()
+        for cand in candidates:
+            clean = cand.handle.lstrip("@")
+            success = await action.execute(page, username=clean)
+            if success:
+                followed.append(clean)
+                await record_follow_action(
+                    profile_id=profile_id,
+                    target_handle=clean,
+                    db=db,
+                    is_blue_tick=cand.is_blue_tick,
+                    niche=cand.niche,
+                )
+                await sleep_with_jitter(2000)
+
+        return {
+            "status": "success",
+            "message": f"Successfully followed {len(followed)} Blue Tick candidates live on X!",
+            "followed_handles": followed,
+            "followed_count": len(followed),
+        }
+    except Exception as e:
+        logger.error(f"Error in batch follow: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if context:
+            try:
+                await context.close()
+            except Exception:
+                pass
+        try:
+            await manager.stop()
+        except Exception:
+            pass
+        try:
+            manager.release_lock(db_profile.profile_slug)
+        except Exception:
+            pass
+
+
+
+
+
 
 
 

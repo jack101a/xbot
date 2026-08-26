@@ -346,6 +346,7 @@ export const api = {
   updateContentStatus: (profileId: string, contentId: string, status: string) => request<any>(`/api/content/${contentId}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
   getDrafts: (profileId: string) => request<any[]>(`/api/profiles/${profileId}/drafts`),
   approveDraft: (profileId: string, contentId: string) => request<{ status: string; message: string }>(`/api/profiles/${profileId}/drafts/${contentId}/approve`, { method: 'POST' }),
+  approveAllDrafts: (profileId: string) => request<{ status: string; message: string; count: number }>(`/api/profiles/${profileId}/drafts/approve-all`, { method: 'POST' }),
   dismissDraft: (profileId: string, contentId: string) => request<{ status: string; message: string }>(`/api/profiles/${profileId}/drafts/${contentId}`, { method: 'DELETE' }),
   dismissAllDrafts: (profileId: string) => request<{ status: string; message: string; discarded_count: number }>(`/api/profiles/${profileId}/drafts`, { method: 'DELETE' }),
 

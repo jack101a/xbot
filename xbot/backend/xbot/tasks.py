@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 import redis
 
+from xbot.ai.client import get_ai_client
 from xbot.ai.growth_scorer import score_tweet_opportunity
 from xbot.ai.hook_optimizer import extract_links
 from xbot.ai.planner import plan_session
@@ -22,6 +23,7 @@ from xbot.ai.post_session import PostSessionProcessor
 from xbot.ai.sniper import generate_sniper_reply
 from xbot.ai.trend_generator import generate_trend_take
 from xbot.ai.trend_radar import fetch_rss_trends
+from xbot.ai.visual_engine import generate_visual_post_spec
 from xbot.browser.actions.poll_action import CreatePoll
 from xbot.browser.actions.x_actions import (
     BrowseFeed,
@@ -53,6 +55,9 @@ from xbot.models.session import Action, ActionStatus, ActionType, Session, Sessi
 from xbot.persona import load_config
 from xbot.persona.loader import load_persona
 from xbot.safety.guard import SafetyGuard
+
+from xbot.ai.trend_radar import fetch_rss_trends, fetch_multi_source_trends
+from xbot.ai.trend_generator import generate_trend_take
 
 logger = logging.getLogger(__name__)
 
@@ -531,6 +536,29 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                             require_approval = getattr(config, "require_post_approval", True)
                             if require_approval:
                                 logger.info("Staging new standalone post for user approval on dashboard: '%s'", post_text[:50])
+                                
+                                # Synthesize 4:5 visual meme spec or fallback GIF query to maximize algorithmic impressions
+                                visual_spec_dict = None
+                                gif_query = getattr(p_action, "gif_query", None)
+                                media_paths = []
+                                try:
+                                    v_spec = await generate_visual_post_spec(
+                                        topic=post_text,
+                                        persona=persona,
+                                    )
+                                    if v_spec:
+                                        visual_spec_dict = v_spec.model_dump()
+                                        if not gif_query and v_spec.gif_search_query:
+                                            gif_query = v_spec.gif_search_query
+                                        
+                                        # Render physical 4:5 vertical meme/infographic image to disk
+                                        from xbot.ai.meme_renderer import render_visual_spec_to_image
+                                        rendered_img = render_visual_spec_to_image(visual_spec_dict)
+                                        if rendered_img and os.path.exists(rendered_img):
+                                            media_paths.append(os.path.abspath(rendered_img))
+                                except Exception as v_err:
+                                    logger.debug("Visual spec synthesis skipped: %s", v_err)
+
                                 draft_c = Content(
                                     profile_id=profile_id,
                                     content_type=ContentType.ORIGINAL,
@@ -540,7 +568,9 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                         "require_approval": True,
                                         "staged_at": datetime.datetime.utcnow().isoformat(),
                                         "reasoning": getattr(p_action, "reasoning", None),
-                                        "gif_query": getattr(p_action, "gif_query", None),
+                                        "gif_query": gif_query,
+                                        "visual_spec": visual_spec_dict,
+                                        "media_paths": media_paths if media_paths else None,
                                         "extracted_link": extracted_link,
                                         "first_reply_text": f"Link / source breakdown: {extracted_link}" if extracted_link else None,
                                     }
@@ -2285,17 +2315,24 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
                     if not keywords and persona.interests and persona.interests.primary:
                         keywords = list(persona.interests.primary)
 
-                    # 3. Fetch trends from RSS/Atom feeds
+                    # 3. Fetch trends from RSS/Atom feeds or multi-source real-time radar
                     try:
                         trends = await fetch_rss_trends(feed_urls, keywords=keywords)
+                        if not trends and feed_urls == ["https://hnrss.org/frontpage"]:
+                            trends = await fetch_multi_source_trends(
+                                feed_urls=feed_urls if feed_urls else None,
+                                keywords=keywords,
+                                max_total=12,
+                            )
                     except Exception as ex:
-                        logger.warning("Failed to fetch RSS trends for profile %s: %s", profile_slug, ex)
-                        errors.append(f"{profile_slug} RSS fetch: {ex}")
+                        logger.warning("Failed to fetch trends for profile %s: %s", profile_slug, ex)
+                        errors.append(f"{profile_slug} trend fetch: {ex}")
                         continue
 
                     items_scanned += len(trends)
 
                     # 4. Process each trend item
+                    breaking_trend_summaries = []
                     for item in trends:
                         item_id = item.id
                         seen_key = f"xbot:seen_trends:{profile_id}:{item_id}"
@@ -2319,9 +2356,40 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
                         except Exception as r_err:
                             logger.warning("Redis cache error: %s", r_err)
 
-                        # If relevant and post produced, stage Content record in DB
-                        if eval_result.is_relevant and eval_result.optimized_post:
+                        # If relevant, record for session planner
+                        if eval_result.is_relevant and eval_result.relevance_score >= 0.65:
+                            breaking_trend_summaries.append({
+                                "topic": item.title,
+                                "summary": item.summary,
+                                "hot_take": eval_result.hot_take,
+                                "quote_hook": eval_result.quote_hook,
+                            })
+
+                        # If highly relevant and post produced, synthesize visual spec and stage Content record in DB (max 3 per run)
+                        if eval_result.is_relevant and eval_result.relevance_score >= 0.70 and eval_result.optimized_post and items_staged < 3:
                             post_text = eval_result.optimized_post
+                            
+                            # Synthesize rich 4:5 visual meme / infographic spec
+                            visual_spec_dict = None
+                            gif_query = None
+                            media_paths = []
+                            try:
+                                v_spec = await generate_visual_post_spec(
+                                    topic=post_text,
+                                    persona=persona,
+                                )
+                                if v_spec:
+                                    visual_spec_dict = v_spec.model_dump()
+                                    gif_query = v_spec.gif_search_query
+                                    
+                                    # Render physical 4:5 vertical meme/infographic image to disk
+                                    from xbot.ai.meme_renderer import render_visual_spec_to_image
+                                    rendered_img = render_visual_spec_to_image(visual_spec_dict)
+                                    if rendered_img and os.path.exists(rendered_img):
+                                        media_paths.append(os.path.abspath(rendered_img))
+                            except Exception as v_err:
+                                logger.debug("Trend visual spec synthesis skipped: %s", v_err)
+
                             metadata = {
                                 "trend_id": item.id,
                                 "trend_title": item.title,
@@ -2334,25 +2402,61 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
                                 "hot_take": eval_result.hot_take,
                                 "draft_post": eval_result.draft_post,
                                 "optimized_post": eval_result.optimized_post,
+                                "visual_spec": visual_spec_dict,
+                                "gif_query": gif_query,
+                                "media_paths": media_paths if media_paths else None,
                             }
 
                             content_record = Content(
                                 profile_id=profile_id,
                                 content_type=ContentType.ORIGINAL,
                                 body=post_text,
-                                status=ContentStatus.APPROVED,
+                                status=ContentStatus.DRAFT,
                                 ai_metadata=metadata,
                                 created_at=datetime.datetime.utcnow(),
                             )
                             db.add(content_record)
+
+                            # If a high-value thread was generated, stage the thread as well
+                            if eval_result.thread_items and len(eval_result.thread_items) >= 3:
+                                thread_root = eval_result.thread_items[0]
+                                thread_meta = {
+                                    **metadata,
+                                    "thread_items": eval_result.thread_items,
+                                    "is_thread": True,
+                                }
+                                thread_record = Content(
+                                    profile_id=profile_id,
+                                    content_type=ContentType.THREAD,
+                                    body=thread_root,
+                                    status=ContentStatus.DRAFT,
+                                    ai_metadata=thread_meta,
+                                    created_at=datetime.datetime.utcnow(),
+                                )
+                                db.add(thread_record)
+                                logger.info(
+                                    "Staged trend thread (%d parts) for profile %s: '%s'",
+                                    len(eval_result.thread_items),
+                                    profile_slug,
+                                    item.title,
+                                )
+
                             await db.commit()
                             items_staged += 1
                             logger.info(
-                                "Staged breaking trend content %s for profile %s: '%s'",
+                                "Staged high-relevance trend visual content %s for profile %s: '%s' (relevance=%.2f)",
                                 content_record.id,
                                 profile_slug,
                                 item.title,
+                                eval_result.relevance_score,
                             )
+
+                    # Store breaking trends in Redis for live session planner
+                    if breaking_trend_summaries:
+                        try:
+                            r.set(f"xbot:breaking_trends:{profile_id}", json.dumps(breaking_trend_summaries), ex=14400)
+                        except Exception as r_err:
+                            logger.debug("Failed to store breaking trends in Redis: %s", r_err)
 
                 except Exception as p_ex:
                     logger.error("Error in trend radar loop for profile %s: %s", profile_slug, p_ex)
@@ -2382,4 +2486,458 @@ def check_trend_radar() -> dict[str, Any]:
 
 
 
+
+
+
+async def _fast_response_sentinel_async(base_profile_dir: Path | str | None = None) -> dict[str, Any]:
+    """
+    Periodically scans active conversation threads and mentions for all active profiles,
+    prioritizes verified authors and accounts nearing the 15-minute response deadline,
+    generates in-character debate catalyst replies, and posts them via browser.
+    Captures the open-source X algorithm's +150x reply_engaged_by_author multiplier.
+    """
+    r = redis.from_url(settings.REDIS_URL)
+    base_dir = Path(base_profile_dir) if base_profile_dir else Path("/home/ubuntu/projects/xbot/data/profiles")
+    manager = BrowserManager()
+    await manager.start()
+
+    total_threads_checked = 0
+    replies_posted = 0
+    errors: list[str] = []
+
+    try:
+        from xbot.models.realgraph import ConversationThread, RealGraphEdge
+        async with AsyncSessionLocal() as db:
+            stmt = select(Profile).where(Profile.status == ProfileStatus.ACTIVE)
+            res = await db.execute(stmt)
+            active_profiles = res.scalars().all()
+
+            if not active_profiles:
+                return {
+                    "status": "success",
+                    "profiles_processed": 0,
+                    "threads_checked": 0,
+                    "replies_posted": 0,
+                }
+
+            now = datetime.datetime.utcnow()
+
+            for profile in active_profiles:
+                profile_slug = profile.profile_slug
+                profile_id = profile.id
+                profile_dir = base_dir / profile_slug
+
+                try:
+                    persona = load_persona(profile_dir)
+                    config = load_config(profile_dir)
+                    is_mock = getattr(config, "mock_mode", False)
+                except Exception as ex:
+                    logger.warning("Failed loading persona/config for %s: %s", profile_slug, ex)
+                    continue
+
+                guard = SafetyGuard(redis_url=settings.REDIS_URL, base_profile_dir=str(manager.base_profile_dir))
+
+                # 1. Fetch active conversation threads nearing deadline (<15m window)
+                th_stmt = (
+                    select(ConversationThread)
+                    .where(
+                        ConversationThread.profile_id == profile_id,
+                        ConversationThread.status.in_(["active", "awaiting_reply"]),
+                        ConversationThread.deadline_15m >= now - datetime.timedelta(minutes=30),
+                        ConversationThread.turn_count < ConversationThread.max_turns,
+                    )
+                    .order_by(
+                        ConversationThread.target_is_verified.desc(),
+                        ConversationThread.deadline_15m.asc(),
+                    )
+                    .limit(3)
+                )
+                th_res = await db.execute(th_stmt)
+                active_threads = list(th_res.scalars().all())
+                total_threads_checked += len(active_threads)
+
+                if not active_threads:
+                    continue
+
+                for thread in active_threads:
+                    # Check safety rate limits
+                    if not await guard.is_action_safe(db, profile_slug, "reply"):
+                        logger.info("Rate limit active for %s; halting fast response loop.", profile_slug)
+                        break
+
+                    # Check distributed lock
+                    lock_key = f"xbot:lock:fast_reply:{thread.id}"
+                    if not r.set(lock_key, "1", nx=True, ex=300):
+                        continue
+
+                    if not manager.acquire_lock(profile_slug, timeout_seconds=300):
+                        continue
+
+                    context = None
+                    try:
+                        if not is_mock:
+                            timezone_str = config.schedule.timezone or "America/New_York"
+                            context = await manager.get_context(
+                                profile_slug=profile_slug,
+                                timezone=timezone_str,
+                                proxy_url=config.proxy_url,
+                            )
+                            page = await context.new_page()
+                        else:
+                            page = None
+
+                        # Synthesize fast conversational counter-take (Value Hook -> Trade-off -> Debate Catalyst '?')
+                        target_tweet_url = f"https://x.com/{thread.target_handle}/status/{thread.parent_tweet_id}"
+                        
+                        system_prompt = (
+                            f"You are {persona.display_name} (@{persona.x_handle}). You are executing a fast-response "
+                            f"conversational counter-reply on X to an active discussion turn.\n"
+                            f"Tone: {persona.writing_style.tone}\n"
+                            f"Traits: {', '.join(persona.personality.traits)}\n"
+                            f"Rules:\n"
+                            f"- Character length: 120-240 characters.\n"
+                            f"- MUST end with a compelling debate-sparking question ('?') to trigger an author reply.\n"
+                            f"- Zero AI fluff (no 'delve', 'supercharge', 'tapestry', 'testament'). Clean sentence case.\n"
+                        )
+                        user_prompt = (
+                            f"Conversation so far with @{thread.target_handle}:\n"
+                            f"{json.dumps(thread.conversation_history, indent=2)}\n\n"
+                            f"Write an insightful in-character counter-reply that advances the discussion and ends with a question."
+                        )
+
+                        client = get_ai_client()
+                        completion = await client.chat.completions.create(
+                            model=settings.MODEL_REPLY_ANALYSIS,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt},
+                            ],
+                        )
+                        reply_text = (completion.choices[0].message.content or "").strip()
+                        if not reply_text.endswith("?"):
+                            reply_text += " What's your take on this?"
+
+                        # Execute reply via browser
+                        success = False
+                        if is_mock:
+                            await asyncio.sleep(0.3)
+                            success = True
+                        else:
+                            success = await ReplyToTweet().execute(
+                                page,
+                                reply_text,
+                                tweet_url=target_tweet_url,
+                            )
+
+                        if success:
+                            t_now = datetime.datetime.utcnow()
+                            await guard.record_action_success(profile_slug, "reply", t_now)
+
+                            # Advance thread state
+                            thread.turn_count += 1
+                            thread.last_action_at = t_now
+                            history = list(thread.conversation_history or [])
+                            history.append({"turn": thread.turn_count, "sender": "bot", "text": reply_text})
+                            thread.conversation_history = history
+                            if thread.turn_count >= thread.max_turns:
+                                thread.status = "closed"
+                            else:
+                                thread.status = "awaiting_reply"
+                                thread.deadline_15m = t_now + datetime.timedelta(minutes=15)
+
+                            # Update or create RealGraphEdge
+                            rg_stmt = select(RealGraphEdge).where(
+                                RealGraphEdge.profile_id == profile_id,
+                                RealGraphEdge.target_handle == thread.target_handle,
+                            )
+                            rg_res = await db.execute(rg_stmt)
+                            edge = rg_res.scalar_one_or_none()
+                            if not edge:
+                                edge = RealGraphEdge(
+                                    profile_id=profile_id,
+                                    target_handle=thread.target_handle,
+                                    is_verified=thread.target_is_verified,
+                                    outbound_replies_count=1,
+                                    inbound_author_replies_count=1,
+                                    reciprocal_score=25.0 if thread.target_is_verified else 10.0,
+                                    author_reply_rate=1.0,
+                                    first_interacted_at=t_now,
+                                    last_outbound_at=t_now,
+                                    last_inbound_at=t_now,
+                                )
+                                db.add(edge)
+                            else:
+                                edge.outbound_replies_count += 1
+                                edge.reciprocal_score = min(150.0, edge.reciprocal_score + 15.0)
+                                edge.last_outbound_at = t_now
+
+                            # Record action
+                            act = Action(
+                                profile_id=profile_id,
+                                action_type=ActionType.REPLY,
+                                target_url=target_tweet_url,
+                                content=reply_text,
+                                status=ActionStatus.COMPLETED,
+                                result={
+                                    "mode": "fast_response_sentinel",
+                                    "target_handle": thread.target_handle,
+                                    "turn": thread.turn_count,
+                                    "thread_id": str(thread.id),
+                                    "realgraph_score": edge.reciprocal_score if edge else 1.0,
+                                },
+                                executed_at=t_now,
+                            )
+                            db.add(act)
+                            await db.commit()
+
+                            replies_posted += 1
+                            logger.info(
+                                "Fast-Response reply posted for profile %s -> @%s (turn %d/%d)",
+                                profile_slug,
+                                thread.target_handle,
+                                thread.turn_count,
+                                thread.max_turns,
+                            )
+                    except Exception as th_ex:
+                        logger.error("Error processing thread %s: %s", thread.id, th_ex)
+                        errors.append(f"Thread {thread.id}: {th_ex}")
+                    finally:
+                        if context:
+                            await context.close()
+                        manager.release_lock(profile_slug)
+
+        return {
+            "status": "success" if not errors else "partial_success",
+            "threads_checked": total_threads_checked,
+            "replies_posted": replies_posted,
+            "errors": errors if errors else None,
+        }
+
+    except Exception as overall_ex:
+        logger.error("Fast response sentinel encountered critical error: %s", overall_ex)
+        return {"status": "failed", "error": str(overall_ex)}
+    finally:
+        await manager.stop()
+
+
+@celery_app.task(name="xbot.tasks.fast_response_sentinel")
+def fast_response_sentinel() -> dict[str, Any]:
+    """Celery periodic task executing sub-15 minute conversational fast responses to capture +150x reply multipliers."""
+    logger.info("Starting Celery fast-response sentinel task.")
+    return asyncio.run(_fast_response_sentinel_async())
+
+
+async def _sync_all_profiles_creator_studio_async() -> dict[str, Any]:
+    """
+    Periodic task (every 12 hours):
+    Visits https://x.com/i/jf/creators/studio in 1 gentle single browser visit per profile,
+    extracts official verified followers and 90-day verified home timeline impressions,
+    and saves an AnalyticsSnapshot.
+    """
+    from datetime import date, datetime
+    from xbot.models.analytics import AnalyticsSnapshot
+    from xbot.browser.actions.x_actions import ScrapeCreatorStudioMetrics
+
+    logger.info("Starting 12-hour Creator Studio official metric sync...")
+    results = []
+    manager = BrowserManager()
+
+    try:
+        await manager.start()
+        async with AsyncSessionLocal() as db:
+            p_res = await db.execute(select(Profile))
+            profiles = p_res.scalars().all()
+
+            for prof in profiles:
+                if not manager.acquire_lock(prof.profile_slug, timeout_seconds=15):
+                    logger.info("Skipping sync for %s; browser lock busy.", prof.profile_slug)
+                    continue
+
+                context = None
+                try:
+                    context = await manager.get_context(prof.profile_slug)
+                    page = await context.new_page()
+
+                    studio_action = ScrapeCreatorStudioMetrics()
+                    data = await studio_action.execute(page)
+
+                    if data.get("status") == "success":
+                        vf = data.get("verified_followers", 0)
+                        imp = data.get("verified_impressions_90d", 0)
+
+                        snapshot = AnalyticsSnapshot(
+                            profile_id=prof.id,
+                            snapshot_date=date.today(),
+                            verified_followers=vf,
+                            verified_impressions_90d=imp,
+                            captured_at=datetime.utcnow(),
+                        )
+                        db.add(snapshot)
+                        await db.commit()
+                        logger.info("Successfully updated Creator Studio metrics for %s: %d verified followers, %d 90d impressions", prof.x_handle, vf, imp)
+                        results.append({"handle": prof.x_handle, "verified_followers": vf, "verified_impressions_90d": imp})
+                except Exception as ex:
+                    logger.warning("Error syncing Creator Studio for %s: %s", prof.x_handle, ex)
+                finally:
+                    if context:
+                        await context.close()
+                    manager.release_lock(prof.profile_slug)
+
+        return {"status": "success", "synced_profiles": results}
+    except Exception as e:
+        logger.error("Failed 12-hour Creator Studio sync: %s", e)
+        return {"status": "failed", "error": str(e)}
+    finally:
+        await manager.stop()
+
+
+@celery_app.task(name="xbot.tasks.sync_all_profiles_creator_studio")
+def sync_all_profiles_creator_studio() -> dict[str, Any]:
+    """Celery periodic task syncing official Creator Studio metrics every 12 hours."""
+    return asyncio.run(_sync_all_profiles_creator_studio_async())
+
+
+async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
+    """
+    Automated continuous draft publisher:
+    Periodically checks for profiles where `require_post_approval == False` or where drafts are APPROVED.
+    Picks the next pending draft, acquires the browser lock, executes via Playwright,
+    and marks Content.status = ContentStatus.POSTED!
+    """
+    from xbot.browser.manager import BrowserManager
+    from xbot.browser.actions.x_actions import ComposePost, ComposeThread, ReplyToTweet
+    from xbot.browser.actions.poll_action import CreatePoll
+    from xbot.models.content import Content, ContentStatus, ContentType
+    from xbot.models.profile import Profile, ProfileStatus
+    from xbot.safety.guard import SafetyGuard
+
+    manager = BrowserManager()
+    guard = SafetyGuard()
+    published_count = 0
+    errors = []
+
+    try:
+        await manager.start()
+        async with AsyncSessionLocal() as db:
+            p_res = await db.execute(select(Profile).where(Profile.status == ProfileStatus.ACTIVE))
+            profiles = p_res.scalars().all()
+
+            for prof in profiles:
+                cfg_path = manager.base_profile_dir / prof.profile_slug
+                config = load_config(cfg_path) if cfg_path.exists() else None
+                require_approval = getattr(config, "require_post_approval", True) if config else True
+
+                # Allow auto-publishing if require_post_approval is False or if draft status is explicitly APPROVED
+                allowed_statuses = [ContentStatus.APPROVED]
+                if not require_approval:
+                    allowed_statuses.append(ContentStatus.DRAFT)
+
+                stmt_draft = (
+                    select(Content)
+                    .where(
+                        Content.profile_id == prof.id,
+                        Content.status.in_(allowed_statuses),
+                    )
+                    .order_by(Content.created_at.asc())
+                    .limit(1)
+                )
+                d_res = await db.execute(stmt_draft)
+                draft = d_res.scalar_one_or_none()
+                if not draft:
+                    continue
+
+                # Check safety guard limits
+                can_post = await guard.check_action_allowed(db, prof.profile_slug, "post")
+                if not can_post:
+                    logger.info("Auto-publish postponed for %s: rate limits/cooldown active.", prof.profile_slug)
+                    continue
+
+                if not manager.acquire_lock(prof.profile_slug, timeout_seconds=15):
+                    logger.info("Auto-publish postponed for %s: browser lock busy.", prof.profile_slug)
+                    continue
+
+                context = None
+                success = False
+                try:
+                    logger.info("Auto-publishing staged %s draft %s for profile %s: '%s'", draft.content_type, draft.id, prof.profile_slug, draft.body[:50])
+                    context = await manager.get_context(prof.profile_slug)
+                    page = await context.new_page()
+
+                    if draft.content_type == ContentType.POLL:
+                        meta_poll = draft.ai_metadata.get("poll", {}) if draft.ai_metadata else {}
+                        question = meta_poll.get("question") or draft.body.split("\n")[0]
+                        options = meta_poll.get("options") or ["Yes", "No"]
+                        duration_days = meta_poll.get("duration_days", 1)
+                        screenshot_dir = str(Path(manager.base_profile_dir) / prof.profile_slug / "screenshots")
+                        action = CreatePoll(screenshot_dir=screenshot_dir)
+                        success = await action.execute(page, question=question, options=options, duration_days=duration_days)
+                    elif draft.content_type in (ContentType.THREAD, "thread"):
+                        tweets = []
+                        if getattr(draft, "thread_items", None):
+                            tweets = [item.text for item in draft.thread_items]
+                        elif draft.ai_metadata and "thread_items" in draft.ai_metadata:
+                            tweets = draft.ai_metadata["thread_items"]
+                        elif draft.ai_metadata and "tweets" in draft.ai_metadata:
+                            tweets = draft.ai_metadata["tweets"]
+                        else:
+                            tweets = [p.strip() for p in draft.body.split("\n\n") if p.strip()]
+                        action = ComposeThread()
+                        res = await action.execute(page, tweets=tweets)
+                        success = res.get("status") == "success"
+                        if success and res.get("root_tweet_id"):
+                            draft.tweet_id = res.get("root_tweet_id")
+                    else:
+                        action = ComposePost()
+                        gif_q = draft.ai_metadata.get("gif_query") if draft.ai_metadata else None
+                        media_paths = draft.ai_metadata.get("media_paths") if draft.ai_metadata else None
+                        success = await action.execute(page, text=draft.body, media_paths=media_paths, gif_query=gif_q)
+
+                    if success:
+                        draft.status = ContentStatus.POSTED
+                        draft.posted_at = datetime.datetime.utcnow()
+                        await db.commit()
+                        await guard.record_action_success(prof.profile_slug, "post")
+                        published_count += 1
+                        logger.info("Successfully auto-published draft %s to live X for profile %s!", draft.id, prof.profile_slug)
+
+                        extracted_link = draft.ai_metadata.get("extracted_link") if draft.ai_metadata else None
+                        if extracted_link:
+                            try:
+                                await sleep_with_jitter(2500)
+                                first_reply_msg = f"Link / source breakdown: {extracted_link}"
+                                reply_ok = await ReplyToTweet().execute(page, first_reply_msg)
+                                if reply_ok:
+                                    reply_rec = Content(
+                                        profile_id=prof.id,
+                                        content_type=ContentType.REPLY,
+                                        body=first_reply_msg,
+                                        status=ContentStatus.POSTED,
+                                        posted_at=datetime.datetime.utcnow(),
+                                        ai_metadata={"is_1st_reply_injection": True, "direct_publish": True}
+                                    )
+                                    db.add(reply_rec)
+                                    await db.commit()
+                            except Exception as link_e:
+                                logger.warning("Failed to post 1st-reply link injection: %s", link_e)
+                except Exception as ex:
+                    logger.error("Error auto-publishing draft for %s: %s", prof.profile_slug, ex)
+                    errors.append(f"{prof.profile_slug}: {ex}")
+                finally:
+                    if context:
+                        await context.close()
+                    manager.release_lock(prof.profile_slug)
+
+        return {"status": "success", "published_count": published_count, "errors": errors if errors else None}
+    except Exception as e:
+        logger.error("Failed auto-publish cycle: %s", e)
+        return {"status": "failed", "error": str(e)}
+    finally:
+        await manager.stop()
+
+
+@celery_app.task(name="xbot.tasks.auto_publish_pending_drafts")
+def auto_publish_pending_drafts() -> dict[str, Any]:
+    """Celery periodic task to automatically publish pending/approved drafts when require_post_approval is disabled."""
+    logger.info("Starting auto-publish pending drafts Celery task...")
+    return asyncio.run(_auto_publish_pending_drafts_async())
 

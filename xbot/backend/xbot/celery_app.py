@@ -30,9 +30,21 @@ celery_app.conf.beat_schedule = {
         "task": "xbot.tasks.sniper_check_targets",
         "schedule": 120.0,
     },
+    "fast-response-sentinel-every-90-seconds": {
+        "task": "xbot.tasks.fast_response_sentinel",
+        "schedule": 90.0,
+    },
     "check-trend-radar-every-1800-seconds": {
         "task": "xbot.tasks.check_trend_radar",
         "schedule": 1800.0,
+    },
+    "auto-publish-pending-drafts-every-300-seconds": {
+        "task": "xbot.tasks.auto_publish_pending_drafts",
+        "schedule": 300.0,  # 5 minutes
+    },
+    "sync-creator-studio-every-12-hours": {
+        "task": "xbot.tasks.sync_all_profiles_creator_studio",
+        "schedule": 43200.0,  # 12 hours
     },
 }
 
