@@ -2999,14 +2999,23 @@ async def _run_growth_and_autofollowback_async() -> dict[str, Any]:
                     followers_set = {f.lstrip("@").lower() for f in current_followers}
                     following_set = {f.lstrip("@").lower() for f in current_following}
 
-                    # Update profile metrics
-                    if len(current_followers) > (prof.followers_count or 0):
-                        prof.followers_count = len(current_followers)
-                    if len(current_following) > (prof.following_count or 0):
-                        prof.following_count = len(current_following)
+                    # Record updated snapshot in AnalyticsSnapshot
+                    if current_followers or current_following:
+                        from xbot.models.analytics import AnalyticsSnapshot
+                        import datetime as _dt
+                        snap = AnalyticsSnapshot(
+                            profile_id=prof.id,
+                            snapshot_date=_dt.date.today(),
+                            followers=len(current_followers),
+                            following=len(current_following),
+                            captured_at=_dt.datetime.utcnow(),
+                        )
+                        db.add(snap)
+                        await db.commit()
 
                     # 2. AUTO FOLLOW-BACK: Identify anyone who follows us but we haven't followed back!
-                    unfollowed_followers = [f for f in current_followers if f.lstrip("@").lower() not in following_set]
+                    unfollowed_followers = [f for f in current_followers if f.lstrip("@").lower() not in following_set and f.lstrip("@").lower() != clean_handle.lower()]
+                    logger.info("Total incoming followers needing reciprocal follow-back: %d", len(unfollowed_followers))
                     for target_follower in unfollowed_followers:
                         can_follow = await guard.check_action_allowed(db, prof.profile_slug, "follow")
                         if not can_follow:
