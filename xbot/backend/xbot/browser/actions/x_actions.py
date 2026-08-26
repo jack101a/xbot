@@ -384,40 +384,35 @@ class ComposePost(BaseAction):
                 except Exception:
                     is_visible = False
 
-            # 2. If not visible, try clicking SideNav_NewTweet_Button to open compose modal
+            # 2. If not visible, ensure we are on https://x.com or click SideNav_NewTweet_Button
             if not is_visible:
                 side_nav_btn = await page.query_selector('[data-testid="SideNav_NewTweet_Button"]')
                 if side_nav_btn:
                     await human_click(page, side_nav_btn, 300, 700)
                     await sleep_think_time(800, 1500)
+                else:
+                    logger.info("Navigating to https://x.com to open composer...")
+                    await page.goto("https://x.com", wait_until="load", timeout=25000)
+                    await sleep_think_time(1500, 3000)
 
-            # 3. If still not visible, navigate to /compose/post directly
-            try:
-                textarea_el = await page.wait_for_selector(textarea_sel, state="visible", timeout=6000)
-            except Exception:
-                await page.goto("https://x.com/compose/post", wait_until="domcontentloaded", timeout=25000)
-                await sleep_think_time(1200, 2500)
-                try_again = await page.query_selector("button:has-text('Try again'), [role='button']:has-text('Try again')")
-                if try_again:
-                    await human_click(page, try_again, 300, 600)
-                    await sleep_think_time(1000, 2000)
-                textarea_el = await page.wait_for_selector(textarea_sel, timeout=15000)
-
+            # 3. Wait for composer textarea
+            textarea_el = await page.wait_for_selector(textarea_sel, timeout=15000)
             if not textarea_el:
                 raise RuntimeError("Could not locate tweet composer textarea")
 
             # Click textarea to focus
             await human_click(page, textarea_el, 200, 500)
-            await sleep_think_time(600, 1500)
+            await sleep_think_time(600, 1200)
 
-            # Type text like a human
-            await human_type(page, textarea_sel, text)
+            # Type text via keyboard
+            for ch in text:
+                await page.keyboard.type(ch, delay=15)
             await sleep_think_time(1000, 2000)
 
             # Attach media files (images/videos) if provided
             if media_paths:
                 await _attach_media_files(page, media_paths)
-                await sleep_think_time(1000, 2000)
+                await sleep_think_time(1500, 3000)
 
             # Attach GIF if requested
             if gif_query and not media_paths:
@@ -426,8 +421,8 @@ class ComposePost(BaseAction):
 
             # Submit post
             submit_sel = (
-                'button[data-testid="tweetButton"], '
                 'button[data-testid="tweetButtonInline"], '
+                'button[data-testid="tweetButton"], '
                 '[data-testid="tweetButtonContainer"] button, '
                 'button[data-testid*="tweetButton"], '
                 'button:not([data-testid*="SideNav"]):not(#nav-post-btn):has-text("Post")'
@@ -539,7 +534,8 @@ class ComposeThread(BaseAction):
             # Focus and type Tweet 1
             await human_click(page, first_textarea, 200, 400)
             await sleep_micro(200, 500)
-            await human_type(page, textarea_sel, clean_tweets[0])
+            for ch in clean_tweets[0]:
+                await page.keyboard.type(ch, delay=random.uniform(12, 30))
             await sleep_think_time(1000, 2000)
 
             # Attach media to Tweet 1 if provided
@@ -558,19 +554,14 @@ class ComposeThread(BaseAction):
                     await human_click(page, add_btn, 250, 550)
                     await sleep_with_jitter(1500)
 
-                target_sel = f'div[data-testid="tweetTextarea_{idx}"], textarea[data-testid="tweetTextarea_{idx}"]'
-                target_el = await page.query_selector(target_sel)
-                if not target_el:
-                    all_textareas = await page.query_selector_all('div[role="dialog"] div[role="textbox"], div[data-testid^="tweetTextarea_"]')
-                    if idx < len(all_textareas):
-                        target_el = all_textareas[idx]
-                    elif all_textareas:
-                        target_el = all_textareas[-1]
+                all_textareas = await page.query_selector_all('div[role="dialog"] div[role="textbox"], div[data-testid^="tweetTextarea_"]')
+                target_el = all_textareas[idx] if idx < len(all_textareas) else (all_textareas[-1] if all_textareas else None)
 
                 if target_el:
                     await human_click(page, target_el, 200, 400)
                     await sleep_micro(200, 500)
-                    await human_type(page, target_sel if await page.query_selector(target_sel) else 'div[role="dialog"] div[role="textbox"]:last-of-type', tweet_text)
+                    for ch in tweet_text:
+                        await page.keyboard.type(ch, delay=random.uniform(12, 30))
                     await sleep_think_time(1000, 2500)
 
             # 3. Submit post all
