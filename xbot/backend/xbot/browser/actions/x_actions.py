@@ -1629,12 +1629,19 @@ class ScrapeFollowList(BaseAction):
     Scrapes the list of followers or following handles for a given user.
     """
 
-    async def execute(self, page: Page, username: str, list_type: str = "followers", limit: int = 100) -> list[str]:
+    async def execute(
+        self,
+        page: Page,
+        username: str,
+        list_type: str = "followers",
+        limit: int = 100,
+        return_details: bool = False,
+    ) -> list[str] | list[dict[str, Any]]:
         try:
             clean = username.lstrip("@")
             # Navigate to the appropriate tab
             url = f"https://x.com/{clean}/{list_type}"
-            logger.info("Scraping %s list for @%s (limit: %d)", list_type, clean, limit)
+            logger.info("Scraping %s list for @%s (limit: %d, return_details=%s)", list_type, clean, limit, return_details)
             await page.goto(url, wait_until="domcontentloaded", timeout=20000)
             
             try:
@@ -1646,6 +1653,7 @@ class ScrapeFollowList(BaseAction):
             await sleep_with_jitter(2000)
 
             handles = []
+            detailed_users = []
             seen_handles = set()
             scroll_count = 0
             max_scrolls = 20  # Safeguard to prevent infinite loops
@@ -1661,13 +1669,24 @@ class ScrapeFollowList(BaseAction):
                         href = await link.get_attribute("href")
                         if href:
                             h = href.strip("/")
-                            if h and "/" not in h and h not in ["home", "explore", "notifications", "messages", "bookmarks", "lists", "profile", "settings"]:
+                            if h and "/" not in h and h not in ["home", "explore", "notifications", "messages", "bookmarks", "lists", "profile", "settings", "i"]:
                                 handle = h
                                 break
                     
                     if handle and handle not in seen_handles:
                         seen_handles.add(handle)
+                        
+                        # Check if user has verified badge
+                        verified_el = await cell.query_selector(
+                            'svg[data-testid="icon-verified"], svg[aria-label*="Verified"], svg[aria-label*="Blue tick"], [data-testid*="verificationBadge"]'
+                        )
+                        is_verified = verified_el is not None
+                        
                         handles.append(handle)
+                        detailed_users.append({
+                            "handle": handle,
+                            "is_verified": is_verified,
+                        })
                         new_found = True
                         if len(handles) >= limit:
                             break
@@ -1680,7 +1699,9 @@ class ScrapeFollowList(BaseAction):
                 await human_scroll(page, random.randint(400, 700), "down")
                 await sleep_with_jitter(1500)
                 
-            logger.info("Scraped %d handles from the %s list of @%s", len(handles), list_type, clean)
+            logger.info("Scraped %d handles from the %s list of @%s (%d verified)", len(handles), list_type, clean, sum(1 for u in detailed_users if u["is_verified"]))
+            if return_details:
+                return detailed_users
             return handles
         except Exception as e:
             await self.capture_failure(page, f"scrape_{list_type}_{username}")
@@ -1783,5 +1804,71 @@ class CheckProfileFollowsYou(BaseAction):
         except Exception as e:
             logger.debug("Error checking follows-you badge for @%s: %s", username, e)
             return False
+
+
+class ScrapeCreatorStudioMetrics(BaseAction):
+    """
+    Navigates to https://x.com/i/jf/creators/studio, clicks into Original Content Rewards eligibility,
+    and extracts official live account-wide metrics:
+    - Verified Followers (out of 500)
+    - 90-Day Verified Home Timeline Impressions (out of 500,000)
+    """
+
+    async def execute(self, page: Page) -> dict[str, Any]:
+        try:
+            logger.info("Opening X Creator Studio to scrape official monetization & impression metrics...")
+            await page.goto("https://x.com/i/jf/creators/studio", wait_until="domcontentloaded", timeout=25000)
+            await sleep_think_time(1500, 3000)
+
+            btn1 = await page.query_selector("text=Original Content Rewards")
+            if btn1:
+                await human_click(page, btn1, 200, 500)
+                await sleep_think_time(1000, 2000)
+
+            btn2 = await page.query_selector("text=Check Original Content Rewards eligibility")
+            if btn2:
+                await human_click(page, btn2, 200, 500)
+                await sleep_think_time(1500, 3000)
+
+            body_text = await page.inner_text("body")
+
+            # Extract verified followers (e.g. "16")
+            vf_match = re.search(r"Have at least 500 Verified followers\s+([0-9,]+)", body_text)
+            verified_followers = int(vf_match.group(1).replace(",", "")) if vf_match else 0
+
+            # Extract 90-day impressions (e.g. "0" or "45K" or "1.2M")
+            imp_match = re.search(r"Have at least 500K Verified Home Timeline impressions.*?\n+([0-9,KMkm.]+)", body_text)
+            imp_str = imp_match.group(1).strip() if imp_match else "0"
+            
+            verified_impressions_90d = 0
+            if imp_str:
+                clean_imp = imp_str.upper().replace(",", "")
+                if "M" in clean_imp:
+                    verified_impressions_90d = int(float(clean_imp.replace("M", "")) * 1000000)
+                elif "K" in clean_imp:
+                    verified_impressions_90d = int(float(clean_imp.replace("K", "")) * 1000)
+                else:
+                    try:
+                        verified_impressions_90d = int(float(clean_imp))
+                    except Exception:
+                        verified_impressions_90d = 0
+
+            from datetime import datetime as dt
+            logger.info("Successfully scraped Creator Studio: %d verified followers, %d 90-day verified impressions", verified_followers, verified_impressions_90d)
+            return {
+                "status": "success",
+                "verified_followers": verified_followers,
+                "verified_impressions_90d": verified_impressions_90d,
+                "scraped_at": dt.utcnow().isoformat(),
+            }
+        except Exception as e:
+            logger.warning("Failed to scrape Creator Studio metrics: %s", e)
+            return {
+                "status": "failed",
+                "error": str(e),
+                "verified_followers": 0,
+                "verified_impressions_90d": 0,
+            }
+
 
 

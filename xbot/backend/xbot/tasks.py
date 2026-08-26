@@ -2859,12 +2859,12 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                     continue
 
                 lock_acquired = False
-                for _ in range(4):
-                    if manager.acquire_lock(prof.profile_slug, timeout_seconds=90):
+                for _ in range(12):
+                    if manager.acquire_lock(prof.profile_slug, timeout_seconds=120):
                         lock_acquired = True
                         break
                     import asyncio as _aio
-                    await _aio.sleep(2.0)
+                    await _aio.sleep(2.5)
 
                 if not lock_acquired:
                     logger.info("Auto-publish postponed for %s: browser lock busy.", prof.profile_slug)
@@ -3007,9 +3007,10 @@ async def _run_growth_and_autofollowback_async() -> dict[str, Any]:
 
                     # 1. Scrape current followers & following lists from live profile
                     logger.info("Scanning live followers & following for @%s...", clean_handle)
-                    current_followers = await ScrapeFollowList().execute(page, username=clean_handle, list_type="followers", limit=50)
+                    current_follower_details = await ScrapeFollowList().execute(page, username=clean_handle, list_type="followers", limit=50, return_details=True)
                     current_following = await ScrapeFollowList().execute(page, username=clean_handle, list_type="following", limit=50)
 
+                    current_followers = [u["handle"] for u in current_follower_details]
                     followers_set = {f.lstrip("@").lower() for f in current_followers}
                     following_set = {f.lstrip("@").lower() for f in current_following}
 
@@ -3027,34 +3028,48 @@ async def _run_growth_and_autofollowback_async() -> dict[str, Any]:
                         db.add(snap)
                         await db.commit()
 
-                    # 2. AUTO FOLLOW-BACK: Identify anyone who follows us but we haven't followed back!
-                    unfollowed_followers = [f for f in current_followers if f.lstrip("@").lower() not in following_set and f.lstrip("@").lower() != clean_handle.lower()]
-                    logger.info("Total incoming followers needing reciprocal follow-back: %d", len(unfollowed_followers))
-                    for target_follower in unfollowed_followers:
+                    # 2. AUTO FOLLOW-BACK (VERIFIED SUBSCRIBERS ONLY):
+                    # Strictly filter for verified subscribers who follow us but we haven't followed back!
+                    unfollowed_verified_followers = [
+                        u["handle"] for u in current_follower_details
+                        if u.get("is_verified")
+                        and u["handle"].lstrip("@").lower() not in following_set
+                        and u["handle"].lstrip("@").lower() != clean_handle.lower()
+                    ]
+                    logger.info(
+                        "Total incoming followers: %d (%d verified subscribers needing reciprocal follow-back)",
+                        len(current_followers),
+                        len(unfollowed_verified_followers),
+                    )
+                    for target_follower in unfollowed_verified_followers:
                         can_follow = await guard.is_action_safe(db, prof.profile_slug, "follow")
                         if not can_follow:
                             logger.info("Daily follow safety limit reached for %s. Pausing follow-back.", prof.profile_slug)
                             break
 
-                        logger.info("🤝 Auto Follow-Back triggered for new follower @%s!", target_follower)
+                        logger.info("🤝 Auto Follow-Back triggered for VERIFIED subscriber @%s!", target_follower)
                         f_ok = await FollowUser().execute(page, username=target_follower)
                         if f_ok:
                             followed_back_count += 1
                             following_set.add(target_follower.lstrip("@").lower())
-                            await record_follow_action(prof.id, target_follower, db, is_blue_tick=True, niche="incoming_follower")
+                            await record_follow_action(prof.id, target_follower, db, is_blue_tick=True, niche="verified_incoming_follower")
                             await guard.record_action_success(prof.profile_slug, "follow")
-                            db.add(FollowerChangeLog(profile_id=prof.id, change_type="new_follower", handle=target_follower))
+                            db.add(FollowerChangeLog(profile_id=prof.id, change_type="new_verified_follower", handle=target_follower))
                             await db.commit()
                             await sleep_with_jitter(3000)
 
                     # 3. PROACTIVE 500+ VERIFIED FOLLOWER GROWTH MISSION:
-                    # If daily follow limit allows, harvest & follow 1-2 top blue-tick candidates
+                    # Target top verified blue-tick candidates exclusively
                     can_follow_more = await guard.is_action_safe(db, prof.profile_slug, "follow")
                     if can_follow_more and (followed_back_count < 2):
-                        # Ensure candidate pool is populated
+                        # Ensure candidate pool is populated with verified creators
                         c_stmt = (
                             select(FollowCandidate)
-                            .where(FollowCandidate.profile_id == prof.id, FollowCandidate.status == "discovered")
+                            .where(
+                                FollowCandidate.profile_id == prof.id,
+                                FollowCandidate.status == "discovered",
+                                FollowCandidate.is_blue_tick == True,
+                            )
                             .order_by(FollowCandidate.reciprocity_score.desc())
                             .limit(5)
                         )

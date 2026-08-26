@@ -87,11 +87,11 @@ class SafetyGuard:
                 if limits_cfg:
                     warmup_enabled = getattr(limits_cfg, "warmup_enabled", False)
                     if action_type == "post":
-                        base_daily = getattr(limits_cfg, "max_posts_per_day", 5)
-                        base_hourly = max(2, (base_daily + 5) // 6)
+                        base_daily = getattr(limits_cfg, "max_posts_per_day", 15)
+                        base_hourly = max(6, (base_daily + 2) // 3)
                     elif action_type == "reply":
-                        base_daily = getattr(limits_cfg, "max_replies_per_day", 15)
-                        base_hourly = max(5, (base_daily + 5) // 6)
+                        base_daily = getattr(limits_cfg, "max_replies_per_day", 40)
+                        base_hourly = max(10, (base_daily + 2) // 3)
                     elif action_type == "like":
                         base_daily = getattr(limits_cfg, "max_likes_per_day", 50)
                         base_hourly = max(10, (base_daily + 5) // 6)
