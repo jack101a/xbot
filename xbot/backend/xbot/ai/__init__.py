@@ -25,7 +25,13 @@ from xbot.ai.growth_scorer import (
 )
 from xbot.ai.trend_generator import TrendEvaluation, generate_trend_take
 from xbot.ai.trend_radar import TrendItem, fetch_rss_trends
-from xbot.ai.visual_engine import VisualPostSpec, generate_visual_post_spec
+from xbot.ai.thread_generator import GeneratedThreadResponse, generate_thread
+from xbot.ai.x_researcher import (
+    DownloadedMedia,
+    TopicResearchReport,
+    ViralTweet,
+    research_topic_comprehensively,
+)
 
 __all__ = [
     "AssembledContext",
@@ -62,5 +68,11 @@ __all__ = [
     "generate_trend_take",
     "VisualPostSpec",
     "generate_visual_post_spec",
+    "GeneratedThreadResponse",
+    "generate_thread",
+    "TopicResearchReport",
+    "ViralTweet",
+    "DownloadedMedia",
+    "research_topic_comprehensively",
 ]
 
