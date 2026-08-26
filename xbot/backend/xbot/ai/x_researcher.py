@@ -59,6 +59,7 @@ class TopicResearchReport(BaseModel):
     viral_tweets: list[ViralTweet] = Field(default_factory=list)
     key_facts: list[str] = Field(default_factory=list)
     community_sentiment: dict[str, Any] = Field(default_factory=dict)
+    top_hashtags: list[str] = Field(default_factory=list)
     top_media_urls: list[str] = Field(default_factory=list)
     downloaded_media: list[DownloadedMedia] = Field(default_factory=list)
     summary: str = ""
@@ -449,16 +450,27 @@ async def research_topic_comprehensively(
         logger.debug("Sentiment summary parsing fallback for '%s': %s", clean_topic, e)
         summary_text = f"Live discussion and viral discourse on X surrounding {clean_topic} across {len(viral_tweets)} popular posts."
 
+    # Extract authentic hashtags from the scraped viral tweets
+    hashtag_counts: dict[str, int] = {}
+    for tw in viral_tweets:
+        found_tags = re.findall(r"#\w+", tw.text)
+        for tag in found_tags:
+            tag_clean = tag.strip()
+            if len(tag_clean) > 2:
+                hashtag_counts[tag_clean] = hashtag_counts.get(tag_clean, 0) + 1
+    top_hashtags = sorted(hashtag_counts.keys(), key=lambda t: hashtag_counts[t], reverse=True)[:3]
+
     report = TopicResearchReport(
         topic=clean_topic,
         search_queries=queries,
         viral_tweets=viral_tweets,
         key_facts=key_facts,
         community_sentiment=sentiment_dict,
+        top_hashtags=top_hashtags,
         top_media_urls=all_media_urls[:10],
         downloaded_media=downloaded_media,
         summary=summary_text,
     )
-    logger.info("Synthesized comprehensive TopicResearchReport for '%s' with %d viral tweets and %d downloaded media assets.",
-                clean_topic, len(viral_tweets), len(downloaded_media))
+    logger.info("Synthesized comprehensive TopicResearchReport for '%s' with %d viral tweets, %d hashtags, and %d downloaded media assets.",
+                clean_topic, len(viral_tweets), len(top_hashtags), len(downloaded_media))
     return report

@@ -145,6 +145,9 @@ async def generate_thread(
                 if cs.get("primary_debates"):
                     lines.append(f"- Core Debate Angles: {'; '.join(cs.get('primary_debates', []))}")
             
+            if getattr(research_report, "top_hashtags", None) and len(research_report.top_hashtags) > 0:
+                lines.append(f"\nAuthentic Researched Community Hashtags on X: {', '.join(research_report.top_hashtags[:2])}")
+
             if research_report.viral_tweets:
                 lines.append("\nTop Viral Tweets Analyzed on X:")
                 for idx, tw in enumerate(research_report.viral_tweets[:8], 1):
@@ -182,6 +185,7 @@ async def generate_thread(
     user_prompt += (
         "Formatting Constraints:\n"
         "- Ground your thread in the real events, actual community debates, and specific nuances provided in the research.\n"
+        "- Include 1-2 authentic research-grounded hashtags from the analysis naturally in the hook or closer tweet.\n"
         "- Every single tweet MUST be under 260 characters.\n"
         "- Every sentence MUST start with standard Sentence Case capitalization.\n"
         "- Use double line breaks (\\n\\n) for spacing.\n"

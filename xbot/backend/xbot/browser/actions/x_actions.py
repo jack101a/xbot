@@ -1626,7 +1626,8 @@ class FollowEngagers(BaseAction):
 
 class ScrapeFollowList(BaseAction):
     """
-    Scrapes the list of followers or following handles for a given user.
+    Scrapes the list of followers or following handles for a given user,
+    with built-in detection and filtering for Verified Blue-Tick / Gold-Tick accounts.
     """
 
     async def execute(
@@ -1635,13 +1636,12 @@ class ScrapeFollowList(BaseAction):
         username: str,
         list_type: str = "followers",
         limit: int = 100,
-        return_details: bool = False,
-    ) -> list[str] | list[dict[str, Any]]:
+        verified_only: bool = False,
+    ) -> list[str]:
         try:
             clean = username.lstrip("@")
-            # Navigate to the appropriate tab
             url = f"https://x.com/{clean}/{list_type}"
-            logger.info("Scraping %s list for @%s (limit: %d, return_details=%s)", list_type, clean, limit, return_details)
+            logger.info("Scraping %s list for @%s (limit: %d, verified_only: %s)", list_type, clean, limit, verified_only)
             await page.goto(url, wait_until="domcontentloaded", timeout=20000)
             
             try:
@@ -1653,55 +1653,47 @@ class ScrapeFollowList(BaseAction):
             await sleep_with_jitter(2000)
 
             handles = []
-            detailed_users = []
             seen_handles = set()
             scroll_count = 0
-            max_scrolls = 20  # Safeguard to prevent infinite loops
+            max_scrolls = 20
 
             while len(handles) < limit and scroll_count < max_scrolls:
                 cells = await page.query_selector_all("[data-testid='UserCell']")
-                new_found = False
-                
                 for cell in cells:
+                    # Check verified badge
+                    is_verified = bool(
+                        await cell.query_selector(
+                            "svg[data-testid='icon-verified'], [aria-label*='Verified'], svg[aria-label*='Verified']"
+                        )
+                    )
+
+                    if verified_only and not is_verified:
+                        continue
+
                     links = await cell.query_selector_all("a")
                     handle = None
                     for link in links:
                         href = await link.get_attribute("href")
                         if href:
                             h = href.strip("/")
-                            if h and "/" not in h and h not in ["home", "explore", "notifications", "messages", "bookmarks", "lists", "profile", "settings", "i"]:
+                            if h and "/" not in h and h not in ["home", "explore", "notifications", "messages", "bookmarks", "lists", "profile", "settings"]:
                                 handle = h
                                 break
                     
                     if handle and handle not in seen_handles:
                         seen_handles.add(handle)
-                        
-                        # Check if user has verified badge
-                        verified_el = await cell.query_selector(
-                            'svg[data-testid="icon-verified"], svg[aria-label*="Verified"], svg[aria-label*="Blue tick"], [data-testid*="verificationBadge"]'
-                        )
-                        is_verified = verified_el is not None
-                        
                         handles.append(handle)
-                        detailed_users.append({
-                            "handle": handle,
-                            "is_verified": is_verified,
-                        })
-                        new_found = True
                         if len(handles) >= limit:
                             break
                 
                 if len(handles) >= limit:
                     break
 
-                # Scroll down to load more
                 scroll_count += 1
                 await human_scroll(page, random.randint(400, 700), "down")
                 await sleep_with_jitter(1500)
                 
-            logger.info("Scraped %d handles from the %s list of @%s (%d verified)", len(handles), list_type, clean, sum(1 for u in detailed_users if u["is_verified"]))
-            if return_details:
-                return detailed_users
+            logger.info("Scraped %d %s handles from @%s (verified_only=%s)", len(handles), list_type, clean, verified_only)
             return handles
         except Exception as e:
             await self.capture_failure(page, f"scrape_{list_type}_{username}")
