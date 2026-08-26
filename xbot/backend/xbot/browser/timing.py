@@ -139,15 +139,21 @@ async def human_click(
     3. Hover/pause (as if reading the button label).
     4. Click with a small offset from center.
     """
-    # Scroll element into view
-    await element.scroll_into_view_if_needed()
+    # Scroll element into view with safe timeout
+    try:
+        await element.scroll_into_view_if_needed(timeout=2500)
+    except Exception:
+        pass
     await sleep_micro(80, 200)
 
     # Get element bounding box
     box = await element.bounding_box()
     if box is None:
         # Fallback to simple click if we can't get position
-        await element.click()
+        try:
+            await element.click(timeout=4000)
+        except Exception:
+            pass
         return
 
     # Target a slightly randomized point inside the element (not always dead-center)
@@ -160,10 +166,13 @@ async def human_click(
     # Hover pause — simulates reading/noticing the element
     await sleep_think_time(hover_pause_ms_min, hover_pause_ms_max)
 
-    # Click with a slight position jitter
-    click_x = target_x + random.uniform(-3, 3)
-    click_y = target_y + random.uniform(-3, 3)
-    await page.mouse.click(click_x, click_y)
+    # Dispatch click to element
+    try:
+        await element.click()
+    except Exception:
+        click_x = target_x + random.uniform(-3, 3)
+        click_y = target_y + random.uniform(-3, 3)
+        await page.mouse.click(click_x, click_y)
 
     await sleep_micro(50, 150)
 
@@ -236,7 +245,10 @@ async def human_scroll(
 
 async def human_scroll_to_element(page: Page, element: ElementHandle) -> None:
     """Scrolls an element into view then adds a natural read pause."""
-    await element.scroll_into_view_if_needed()
+    try:
+        await element.scroll_into_view_if_needed(timeout=2500)
+    except Exception:
+        pass
     await sleep_think_time(400, 1200)
 
 
@@ -253,6 +265,10 @@ async def human_type(
     """
     element = await page.wait_for_selector(selector, timeout=8000)
     if element:
+        try:
+            await element.focus()
+        except Exception:
+            pass
         await human_click(page, element, 200, 500)
     else:
         await page.focus(selector)
