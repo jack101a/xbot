@@ -42,6 +42,10 @@ celery_app.conf.beat_schedule = {
         "task": "xbot.tasks.auto_publish_pending_drafts",
         "schedule": 300.0,  # 5 minutes
     },
+    "f4f-growth-and-autofollowback-every-600-seconds": {
+        "task": "xbot.tasks.run_growth_and_autofollowback",
+        "schedule": 600.0,  # 10 minutes
+    },
     "sync-creator-studio-every-12-hours": {
         "task": "xbot.tasks.sync_all_profiles_creator_studio",
         "schedule": 43200.0,  # 12 hours

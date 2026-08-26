@@ -2058,6 +2058,26 @@ async def execute_f4f_follow(
             pass
 
 
+@router.post("/{profile_id}/f4f/trigger-cycle", response_model=dict[str, Any])
+async def trigger_growth_and_autofollowback_endpoint(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Triggers an immediate Auto Follow-Back & 500+ Verified Follower Growth Cycle."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if not db_profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    from xbot.tasks import run_growth_and_autofollowback
+    task = run_growth_and_autofollowback.delay()
+    return {
+        "status": "success",
+        "message": "Auto Follow-Back & Growth Engine cycle triggered in background!",
+        "task_id": task.id,
+    }
+
+
 @router.get("/{profile_id}/f4f/stats", response_model=dict[str, Any])
 async def get_f4f_stats(
     profile_id: uuid.UUID,

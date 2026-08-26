@@ -370,6 +370,8 @@ export const api = {
     request<any[]>(`/api/profiles/${profileId}/f4f/growth-posts?niche=${niche}`),
   batchFollowF4F: (profileId: string, count = 3) =>
     request<{ status: string; message: string; followed_handles?: string[]; followed_count?: number }>(`/api/profiles/${profileId}/f4f/batch-follow?count=${count}`, { method: 'POST' }),
+  triggerGrowthCycle: (profileId: string) =>
+    request<{ status: string; message: string; task_id: string }>(`/api/profiles/${profileId}/f4f/trigger-cycle`, { method: 'POST' }),
 
 
   // Growth Engine Tools (AI Intelligence)
