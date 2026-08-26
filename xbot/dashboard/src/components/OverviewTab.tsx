@@ -27,7 +27,7 @@ import {
   BarChart3,
   Award
 } from "lucide-react";
-import { Profile, Session, RateLimit, api } from "@/lib/api";
+import { Profile, Session, RateLimit, api, API_BASE_URL } from "@/lib/api";
 import { formatISTDateTime, formatISTTime } from "@/lib/time";
 
 interface OverviewTabProps {
@@ -603,17 +603,27 @@ export function OverviewTab({
                           <ImageIcon className="w-3.5 h-3.5 text-indigo-500" />
                           <span>Attached Visual ({d.ai_metadata.media_paths[0].split('/').pop()})</span>
                         </span>
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-200/60 dark:bg-indigo-900/60 font-mono">Media</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-200/60 dark:bg-indigo-900/60 font-mono">
+                          {d.ai_metadata.media_paths.length} Asset{d.ai_metadata.media_paths.length > 1 ? "s" : ""}
+                        </span>
                       </div>
-                      <div className="p-2 flex justify-center bg-slate-950/40">
-                        <img
-                          src={`http://127.0.0.1:8200/data/${d.ai_metadata.media_paths[0].replace(/^.*\/data\//, '')}`}
-                          alt="Post Visual Media"
-                          className="max-h-52 w-auto rounded-lg object-contain border border-slate-700/50 shadow-md"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
-                          }}
-                        />
+                      <div className="p-2 flex flex-wrap gap-2 justify-center bg-slate-950/40">
+                        {d.ai_metadata.media_paths.map((mPath, mIdx) => {
+                          const cleanRel = mPath.replace(/^.*\/data\//, "");
+                          const base = (API_BASE_URL || "").replace(/\/$/, "");
+                          const fullUrl = mPath.startsWith("http://") || mPath.startsWith("https://") 
+                            ? mPath 
+                            : `${base}/data/${cleanRel}`;
+                          return (
+                            <img
+                              key={mIdx}
+                              src={fullUrl}
+                              alt={`Post Visual Media ${mIdx + 1}`}
+                              className="max-h-56 max-w-full rounded-lg object-contain border border-slate-700/50 shadow-md hover:scale-[1.02] transition cursor-pointer"
+                              onClick={() => window.open(fullUrl, '_blank')}
+                            />
+                          );
+                        })}
                       </div>
                     </div>
                   )}

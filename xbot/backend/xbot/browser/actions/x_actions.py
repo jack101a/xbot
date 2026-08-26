@@ -470,6 +470,7 @@ class ComposeThread(BaseAction):
         self,
         page: Page,
         tweets: list[str],
+        media_paths: list[str] | None = None,
     ) -> dict[str, Any]:
         if not tweets or len(tweets) < 2:
             return {"status": "failed", "error": "Threads must contain at least 2 tweets."}
@@ -499,61 +500,77 @@ class ComposeThread(BaseAction):
         page.on("response", handle_response)
 
         try:
-            logger.info("Composing %d-tweet thread on X...", len(clean_tweets))
+            logger.info("Composing %d-tweet thread on X (media_paths=%s)...", len(clean_tweets), media_paths)
 
-            # 1. Open compose modal if not already open
+            # 1. Start from /home feed to ensure hydrated React DOM
+            await _navigate_home_if_needed(page)
+            await sleep_think_time(1000, 2000)
+
+            # 2. Click SideNav New Post button to open compose modal
+            side_nav_btn = await page.query_selector(self.SELECTORS["nav_post_btn"])
+            if not side_nav_btn:
+                side_nav_btn = await page.query_selector('a[href="/compose/post"], a[href="/compose/tweet"], [data-testid="SideNav_NewTweet_Button"]')
+
+            if side_nav_btn:
+                await human_click(page, side_nav_btn, 300, 700)
+                await sleep_think_time(1000, 2000)
+
             textarea_sel = (
+                'div[role="dialog"] div[data-testid^="tweetTextarea_"], '
+                'div[role="dialog"] div[role="textbox"], '
                 'div[data-testid="tweetTextarea_0"], '
-                'textarea[data-testid="tweetTextarea_0"], '
-                'div[role="textbox"][data-testid*="tweetTextarea"]'
+                'div[role="textbox"][data-testid*="tweetTextarea"], '
+                'div[contenteditable="true"][role="textbox"]'
             )
-            textarea_el = await page.query_selector(textarea_sel)
-            is_visible = False
-            if textarea_el:
-                try:
-                    is_visible = await textarea_el.is_visible()
-                except Exception:
-                    is_visible = False
-
-            if not is_visible:
-                side_nav_btn = await page.query_selector(self.SELECTORS["nav_post_btn"])
-                if side_nav_btn:
-                    await human_click(page, side_nav_btn, 300, 700)
-                    await sleep_think_time(800, 1500)
 
             try:
-                await page.wait_for_selector(textarea_sel, state="visible", timeout=6000)
+                first_textarea = await page.wait_for_selector(textarea_sel, state="visible", timeout=12000)
             except Exception:
-                await page.goto("https://x.com/compose/post", wait_until="domcontentloaded", timeout=25000)
-                await sleep_think_time(1200, 2500)
-                await page.wait_for_selector(textarea_sel, timeout=15000)
+                # Fallback to inline home composer
+                first_textarea = await page.wait_for_selector(
+                    'div[role="textbox"][data-testid*="tweetTextarea"], div[contenteditable="true"][role="textbox"]',
+                    timeout=10000
+                )
 
-            # 2. Sequentially populate each tweet in the composer
-            for idx, tweet_text in enumerate(clean_tweets):
+            if not first_textarea:
+                raise RuntimeError("Could not locate tweet composer textarea for thread.")
+
+            # Focus and type Tweet 1
+            await human_click(page, first_textarea, 200, 400)
+            await sleep_micro(200, 500)
+            await human_type(page, textarea_sel, clean_tweets[0])
+            await sleep_think_time(1000, 2000)
+
+            # Attach media to Tweet 1 if provided
+            if media_paths:
+                await _attach_media_files(page, media_paths)
+                await sleep_think_time(1000, 2000)
+
+            # Sequentially add subsequent tweets via Add Tweet (+) button
+            for idx in range(1, len(clean_tweets)):
+                tweet_text = clean_tweets[idx]
+                add_btn = await page.query_selector(self.SELECTORS["add_tweet_btn"])
+                if not add_btn:
+                    add_btn = await page.query_selector('button[aria-label*="Add" i], button[data-testid="addButton"], [data-testid="tweetButtonInline"] ~ button')
+
+                if add_btn:
+                    await human_click(page, add_btn, 250, 550)
+                    await sleep_with_jitter(1500)
+
                 target_sel = f'div[data-testid="tweetTextarea_{idx}"], textarea[data-testid="tweetTextarea_{idx}"]'
-                # Fallback to any visible textarea if specific index not found
                 target_el = await page.query_selector(target_sel)
                 if not target_el:
-                    all_textareas = await page.query_selector_all('div[data-testid^="tweetTextarea_"], textarea[data-testid^="tweetTextarea_"]')
+                    all_textareas = await page.query_selector_all('div[role="dialog"] div[role="textbox"], div[data-testid^="tweetTextarea_"]')
                     if idx < len(all_textareas):
                         target_el = all_textareas[idx]
                     elif all_textareas:
                         target_el = all_textareas[-1]
 
-                if not target_el:
-                    target_el = await page.wait_for_selector(textarea_sel, state="visible", timeout=8000)
-
-                await human_click(page, target_el, 200, 400)
-                await sleep_micro(200, 500)
-                await human_type(page, target_sel if await page.query_selector(target_sel) else textarea_sel, tweet_text)
-                await sleep_think_time(1000, 2500)
-
-                # Click "+" (Add Tweet) button if not on last tweet
-                if idx < len(clean_tweets) - 1:
-                    add_btn = await page.query_selector(self.SELECTORS["add_tweet_btn"])
-                    if add_btn:
-                        await human_click(page, add_btn, 250, 550)
-                        await sleep_with_jitter(1200)
+                if target_el:
+                    await human_click(page, target_el, 200, 400)
+                    await sleep_micro(200, 500)
+                    await human_type(page, target_sel if await page.query_selector(target_sel) else 'div[role="dialog"] div[role="textbox"]:last-of-type', tweet_text)
+                    await sleep_think_time(1000, 2500)
 
             # 3. Submit post all
             logger.info("Submitting entire thread via 'Post all'...")

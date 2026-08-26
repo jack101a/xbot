@@ -134,6 +134,7 @@ class SafetyGuard:
         profile_slug: str,
         action_type: str,
         now_utc: datetime.datetime | None = None,
+        bypass_cooldown: bool = False,
     ) -> bool:
         """Runs safety check pipeline: DB status, active cooldowns, and sliding window rate limit checks."""
         if now_utc is None:
@@ -167,13 +168,14 @@ class SafetyGuard:
             logger.warning("Rejecting action: profile %s is currently %s.", profile_slug, profile.status)
             return False
 
-        # B. Check Action Cooldown
-        limits_cfg = getattr(config, "limits", None) if config else None
-        cooldown_cfg = getattr(limits_cfg, "cooldown_seconds", None) if limits_cfg else None
-        if cooldown_cfg != 0:
-            if self.limiter.is_cooldown_active(profile_slug, action_type, now_utc):
-                logger.info("Rejecting action: Cooldown active for action '%s' on profile %s.", action_type, profile_slug)
-                return False
+        # B. Check Action Cooldown (Skipped if user manually approves or bypass_cooldown=True)
+        if not bypass_cooldown:
+            limits_cfg = getattr(config, "limits", None) if config else None
+            cooldown_cfg = getattr(limits_cfg, "cooldown_seconds", None) if limits_cfg else None
+            if cooldown_cfg != 0:
+                if self.limiter.is_cooldown_active(profile_slug, action_type, now_utc):
+                    logger.info("Rejecting action: Cooldown active for action '%s' on profile %s.", action_type, profile_slug)
+                    return False
 
         # C. Retrieve Adjusted limits (Warm-up + Backoff + User Config)
         limit_hourly, limit_daily = self.get_adjusted_limits(

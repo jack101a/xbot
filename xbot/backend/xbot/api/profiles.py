@@ -1627,7 +1627,8 @@ async def approve_and_publish_draft(
             else:
                 tweets = [p.strip() for p in draft.body.split("\n\n") if p.strip()]
             action = ComposeThread()
-            res = await action.execute(page, tweets=tweets)
+            media_paths = draft.ai_metadata.get("media_paths") if draft.ai_metadata else None
+            res = await action.execute(page, tweets=tweets, media_paths=media_paths)
             success = res.get("status") == "success"
             if success and res.get("root_tweet_id"):
                 draft.tweet_id = res.get("root_tweet_id")
