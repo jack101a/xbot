@@ -2407,11 +2407,16 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
                                 "media_paths": media_paths if media_paths else None,
                             }
 
+                            cfg_path = manager.base_profile_dir / profile_slug
+                            prof_config = load_config(cfg_path) if cfg_path.exists() else None
+                            req_appr = getattr(prof_config, "require_post_approval", True) if prof_config else True
+                            staged_status = ContentStatus.DRAFT if req_appr else ContentStatus.APPROVED
+
                             content_record = Content(
                                 profile_id=profile_id,
                                 content_type=ContentType.ORIGINAL,
                                 body=post_text,
-                                status=ContentStatus.DRAFT,
+                                status=staged_status,
                                 ai_metadata=metadata,
                                 created_at=datetime.datetime.utcnow(),
                             )
@@ -2429,14 +2434,15 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
                                     profile_id=profile_id,
                                     content_type=ContentType.THREAD,
                                     body=thread_root,
-                                    status=ContentStatus.DRAFT,
+                                    status=staged_status,
                                     ai_metadata=thread_meta,
                                     created_at=datetime.datetime.utcnow(),
                                 )
                                 db.add(thread_record)
                                 logger.info(
-                                    "Staged trend thread (%d parts) for profile %s: '%s'",
+                                    "Staged trend thread (%d parts, status=%s) for profile %s: '%s'",
                                     len(eval_result.thread_items),
+                                    staged_status.value,
                                     profile_slug,
                                     item.title,
                                 )
@@ -2847,12 +2853,20 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                     continue
 
                 # Check safety guard limits
-                can_post = await guard.check_action_allowed(db, prof.profile_slug, "post")
+                can_post = await guard.is_action_safe(db, prof.profile_slug, "post")
                 if not can_post:
                     logger.info("Auto-publish postponed for %s: rate limits/cooldown active.", prof.profile_slug)
                     continue
 
-                if not manager.acquire_lock(prof.profile_slug, timeout_seconds=15):
+                lock_acquired = False
+                for _ in range(4):
+                    if manager.acquire_lock(prof.profile_slug, timeout_seconds=90):
+                        lock_acquired = True
+                        break
+                    import asyncio as _aio
+                    await _aio.sleep(2.0)
+
+                if not lock_acquired:
                     logger.info("Auto-publish postponed for %s: browser lock busy.", prof.profile_slug)
                     continue
 
@@ -3017,7 +3031,7 @@ async def _run_growth_and_autofollowback_async() -> dict[str, Any]:
                     unfollowed_followers = [f for f in current_followers if f.lstrip("@").lower() not in following_set and f.lstrip("@").lower() != clean_handle.lower()]
                     logger.info("Total incoming followers needing reciprocal follow-back: %d", len(unfollowed_followers))
                     for target_follower in unfollowed_followers:
-                        can_follow = await guard.check_action_allowed(db, prof.profile_slug, "follow")
+                        can_follow = await guard.is_action_safe(db, prof.profile_slug, "follow")
                         if not can_follow:
                             logger.info("Daily follow safety limit reached for %s. Pausing follow-back.", prof.profile_slug)
                             break
@@ -3035,7 +3049,7 @@ async def _run_growth_and_autofollowback_async() -> dict[str, Any]:
 
                     # 3. PROACTIVE 500+ VERIFIED FOLLOWER GROWTH MISSION:
                     # If daily follow limit allows, harvest & follow 1-2 top blue-tick candidates
-                    can_follow_more = await guard.check_action_allowed(db, prof.profile_slug, "follow")
+                    can_follow_more = await guard.is_action_safe(db, prof.profile_slug, "follow")
                     if can_follow_more and (followed_back_count < 2):
                         # Ensure candidate pool is populated
                         c_stmt = (
@@ -3058,7 +3072,7 @@ async def _run_growth_and_autofollowback_async() -> dict[str, Any]:
                                 cand.status = "followed"
                                 continue
 
-                            if not await guard.check_action_allowed(db, prof.profile_slug, "follow"):
+                            if not await guard.is_action_safe(db, prof.profile_slug, "follow"):
                                 break
 
                             logger.info("🎯 Proactive Verified Follow targeting @%s (Reciprocity Score: %.1f, Niche: %s)...", cand.handle, cand.reciprocity_score, cand.niche)
@@ -3096,7 +3110,7 @@ async def _run_growth_and_autofollowback_async() -> dict[str, Any]:
                             continue
 
                         # Otherwise safely unfollow to maintain ratio
-                        can_unfollow = await guard.check_action_allowed(db, prof.profile_slug, "unfollow")
+                        can_unfollow = await guard.is_action_safe(db, prof.profile_slug, "unfollow")
                         if not can_unfollow:
                             break
 
