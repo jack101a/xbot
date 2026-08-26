@@ -83,9 +83,10 @@ def _build_clean_creator_prompt(
     if post_type == "thread":
         sections.append(
             "## 🧵 Multi-Tweet Thread Instructions (3-4 Tweets):\n"
-            "- Tweet 1 (Hook): Scroll-stopping curiosity cliffhanger strictly < 100 characters before the mobile fold ending in 🧵\n"
+            "- Tweet 1 (Hook): Scroll-stopping curiosity cliffhanger strictly < 100 characters before the mobile fold with 1 emoji ending in 🧵\n"
             "- Tweets 2-3 (Body): 1 punchy takeaway per tweet formatted as high-utility bookmark-bait (numbered action steps or minimal bullets `•` / `-`)\n"
-            "- Tweet 4 (Closer): TL;DR summary + open engagement question\n"
+            "- Tweet 4 (Closer): Concluding natural takeaway or debate question (NEVER write 'TL;DR:' or 'TLDR:') + 1 authentic research hashtag\n"
+            "- Spacing: Use clean double line breaks (\\n\\n) between thoughts for mobile readability\n"
             "- Zero external URLs in tweets (links belong in 1st reply)"
         )
     elif post_type == "poll":
@@ -97,12 +98,14 @@ def _build_clean_creator_prompt(
     else:
         sections.append(
             "## ✍️ Standalone Post Instructions:\n"
-            "- Opening Hook: Start with an irresistible open-loop curiosity hook strictly < 100 characters before the mobile fold ('Show more').\n"
-            "- Value & Bookmark-Bait: Frame through 1st-person creator experience, relatable irony, or high-utility numbered cheat sheets/frameworks (+50x bookmark reach).\n"
-            "- Dynamic Length: Allow natural variety from a punchy 1-line observation to a multi-line breakdown (< 260 chars).\n"
-            "- Single Topic Focus: Keep the post strictly centered on ONE clear premise. NEVER mash two unrelated topics together in one sentence.\n"
-            "- Emoji Context: Use emojis strictly for genuine human emotion, sarcasm, shock, or reaction (😭, 🫠, 🤦‍♂️, 😮‍💨, 🤝, 🔥, 👀). NEVER use topic-labeling emojis (no 🍿 for cinema, no 🏴‍☠️ for anime, no ⌚ for watches, no 🤖 for tech). Use 0 emojis for deadpan or technical takes.\n"
-            "- Native Text Only: DO NOT include external URLs in the post body (100% native text/media to avoid -70% link reach penalty)."
+            "- Creative Freedom & Variety: Match human creator cadence. Choose naturally among:\n"
+            "  • Ultra-short punchy take (1-10 words: 'real', 'pure cinema', 'W', 'who approved this')\n"
+            "  • Dry observation or relatable irony with natural wit\n"
+            "  • Open-loop curiosity hook (< 100 characters before the mobile fold)\n"
+            "  • High-utility numbered framework, cheat sheet, or bookmark-bait (+50x reach)\n"
+            "- Emojis & Formatting: Include 1-2 authentic emojis (e.g. 🍿, ☕, 💀, 💅, 🧵, 👀, 🤌) and 1-2 research-grounded hashtags (e.g. #Bollywood, #AppleEvent). Use clean double line breaks (\\n\\n) for spacing.\n"
+            "- Single Topic Focus: Centered on ONE clear premise. Grounded in actual research from X and search engines.\n"
+            "- Native Text Only: DO NOT include external URLs in the post body (100% native text)."
         )
 
     return "\n\n".join(sections)

@@ -167,7 +167,7 @@ async def generate_thread(
         "You construct viral, authentic multi-tweet threads using the 3-Tier Creator Formula:\n"
         "- Tweet 1 (Hook): Scroll-stopping contrast, personal dilemma, or high-stakes insight (< 140 chars before fold) + value promise ending with 🧵.\n"
         "- Tweets 2 to (N-1) (Body): 1 standalone concept per tweet with personal context, relatable observations, and clean standard bullet points (`•` or `-`).\n"
-        "- Tweet N (Closer): TL;DR summary recap + open engagement question inviting followers to share their experience.\n\n"
+        "- Tweet N (Closer): Concluding takeaway thought + open debate question (NEVER use 'TL;DR:' or 'TLDR:') + 1-2 authentic research hashtags.\n\n"
         f"{ANTI_AI_TYPOGRAPHY_DIRECTIVE}\n"
     )
 

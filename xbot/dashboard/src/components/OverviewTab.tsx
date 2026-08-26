@@ -597,9 +597,24 @@ export function OverviewTab({
                   )}
 
                   {d.ai_metadata?.media_paths && d.ai_metadata.media_paths.length > 0 && (
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 my-2">
-                      <ImageIcon className="w-3.5 h-3.5" />
-                      <span>Attached Photo: {d.ai_metadata.media_paths[0].split('/').pop()}</span>
+                    <div className="my-2.5 rounded-xl overflow-hidden border border-indigo-200/80 dark:border-indigo-800/60 bg-slate-900/40">
+                      <div className="flex items-center justify-between px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 text-[10px] font-bold text-indigo-700 dark:text-indigo-300 border-b border-indigo-200/60 dark:border-indigo-800/50">
+                        <span className="flex items-center gap-1.5">
+                          <ImageIcon className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>Attached Visual ({d.ai_metadata.media_paths[0].split('/').pop()})</span>
+                        </span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-200/60 dark:bg-indigo-900/60 font-mono">Media</span>
+                      </div>
+                      <div className="p-2 flex justify-center bg-slate-950/40">
+                        <img
+                          src={`http://127.0.0.1:8200/data/${d.ai_metadata.media_paths[0].replace(/^.*\/data\//, '')}`}
+                          alt="Post Visual Media"
+                          className="max-h-52 w-auto rounded-lg object-contain border border-slate-700/50 shadow-md"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      </div>
                     </div>
                   )}
 
