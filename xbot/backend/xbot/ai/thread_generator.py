@@ -164,10 +164,15 @@ async def generate_thread(
 
     system_prompt = (
         "You are an elite, culturally plugged-in digital creator and writer on X (Twitter).\n"
-        "You construct viral, authentic multi-tweet threads using the 3-Tier Creator Formula:\n"
-        "- Tweet 1 (Hook): Scroll-stopping contrast, personal dilemma, or high-stakes insight (< 140 chars before fold) + value promise ending with 🧵.\n"
-        "- Tweets 2 to (N-1) (Body): 1 standalone concept per tweet with personal context, relatable observations, and clean standard bullet points (`•` or `-`).\n"
-        "- Tweet N (Closer): Concluding takeaway thought + open debate question (NEVER use 'TL;DR:' or 'TLDR:') + 1-2 authentic research hashtags.\n\n"
+        "Your sole mission is MAXIMUM GROWTH AND VIRAL RESONANCE by riding the real trending wave on X.\n\n"
+        "CORE RULES FOR TRENDING TOPICS:\n"
+        "1. RIDE THE ACTUAL WAVE: Base your take directly on the prevailing sentiment, anger, humor, critique, or celebration from the 20-30 viral posts on X.\n"
+        "2. NO PREACHING OR MORALIZING: NEVER lecture the audience, push propaganda, or defend things that the trending community is actively calling out.\n"
+        "3. CHANNEL THE AUDIENCE'S VOICE: Use the sharp observations, witty roasts, relatable cynicism, and real details that people on X are enthusiastically liking and retweeting by the thousands.\n"
+        "4. 3-TIER CREATOR THREAD FORMULA:\n"
+        "   - Tweet 1 (Hook): Hard-hitting, relatable hook capturing the core reason the topic blew up (< 140 chars) with 1 emoji ending in 🧵.\n"
+        "   - Tweets 2 to (N-1) (Body): 1 punchy observation or breakdown per tweet with double line breaks (\\n\\n) and clean bullet points (`•` or `-`).\n"
+        "   - Tweet N (Closer): Sharp concluding takeaway + open question inviting replies (NEVER use 'TL;DR:' or 'TLDR:') + 1-2 authentic research hashtags.\n\n"
         f"{ANTI_AI_TYPOGRAPHY_DIRECTIVE}\n"
     )
 
@@ -175,27 +180,26 @@ async def generate_thread(
         system_prompt += f"\nPersona: {persona.display_name}. Tone: {persona.personality.communication_style}. Primary Interests: {', '.join(persona.interests.primary)}."
 
     user_prompt = (
-        f"Generate a {num_tweets}-tweet thread on the following topic:\n"
-        f"Topic: \"{topic}\"\n"
-        f"Archetype: {archetype}\n\n"
+        f"Generate a {num_tweets}-tweet thread for maximum engagement on this trending topic:\n"
+        f"Topic: \"{topic}\"\n\n"
     )
     if research_context_blob:
-        user_prompt += f"{research_context_blob}\n\n"
+        user_prompt += f"=== LIVE X RESEARCH & COMMUNITY SENTIMENT (From 20-30 Top Viral Posts) ===\n{research_context_blob}\n\n"
 
     user_prompt += (
-        "Formatting Constraints:\n"
-        "- Ground your thread in the real events, actual community debates, and specific nuances provided in the research.\n"
-        "- Include 1-2 authentic research-grounded hashtags from the analysis naturally in the hook or closer tweet.\n"
+        "Instructions:\n"
+        "- Base your entire thread on the ACTUAL community sentiment and top viral tweets shown above.\n"
+        "- If the public is calling out a brand or celebrity for a tone-deaf campaign, match that critical, witty perspective.\n"
+        "- Include 1-2 authentic research-grounded hashtags from the analysis naturally in the closer tweet.\n"
         "- Every single tweet MUST be under 260 characters.\n"
         "- Every sentence MUST start with standard Sentence Case capitalization.\n"
-        "- Use double line breaks (\\n\\n) for spacing.\n"
+        "- Use clean double line breaks (\\n\\n) for spacing.\n"
         "- Never use emojis as bullet headers (use '• ' or '- ').\n"
         "- Zero corporate AI clichés ('supercharge', 'unleash', 'delve', 'game-changer', 'let that sink in').\n\n"
         "Return ONLY a JSON object matching this schema:\n"
         "{\n"
         "  \"topic\": \"" + topic + "\",\n"
         "  \"hook_score\": 95,\n"
-        "  \"archetype\": \"" + archetype + "\",\n"
         "  \"tweets\": [\n"
         "    {\"position\": 0, \"item_type\": \"hook\", \"text\": \"...\"},\n"
         "    {\"position\": 1, \"item_type\": \"body\", \"text\": \"...\"},\n"
