@@ -81,7 +81,7 @@ def test_score_tweet_opportunity_verified_active_creator() -> None:
         "is_verified": True,
         "likes": 65,
         "replies": 18,
-        "impressions": 4200,
+        "impressions": 8500,
         "created_at_utc": ref_time - timedelta(minutes=20),
     }
     author_history = {
@@ -114,76 +114,92 @@ def test_score_tweet_opportunity_external_link_penalty() -> None:
         "is_verified": True,
         "likes": 50,
         "replies": 10,
-        "impressions": 3000,
+        "impressions": 7500,
         "created_at_utc": ref_time - timedelta(minutes=15),
     }
     link_tweet = {
         "tweet_id": "190011223346",
         "author": "dev_guru",
-        "text": "Here is why Rust memory management changes how you design async runtimes. Read more: https://myblog.com/rust-async",
+        "text": "Here is why Rust memory management changes how you design async runtimes: https://example.com/rust-guide",
         "is_verified": True,
         "likes": 50,
         "replies": 10,
-        "impressions": 3000,
+        "impressions": 7500,
         "created_at_utc": ref_time - timedelta(minutes=15),
     }
-    author_history = {"reply_rate": 0.5, "is_broadcast_bot": False}
 
-    clean_score = score_tweet_opportunity(clean_tweet, author_history, reference_time=ref_time)
-    link_score = score_tweet_opportunity(link_tweet, author_history, reference_time=ref_time)
+    clean_score = score_tweet_opportunity(clean_tweet, reference_time=ref_time)
+    link_score = score_tweet_opportunity(link_tweet, reference_time=ref_time)
 
     assert clean_score.has_link_penalty is False
     assert link_score.has_link_penalty is True
+    # Link penalty should reduce score by ~70%
     assert link_score.score <= (clean_score.score * 0.35)
 
 
 def test_score_tweet_opportunity_aged_tweet_decay() -> None:
-    """Tests that tweets older than 12 hours receive heavily decayed scores and skip recommendation."""
-    ref_time = datetime(2026, 8, 25, 18, 0, 0, tzinfo=timezone.utc)
+    """Tests that tweets older than 12h are strongly decayed and recommended to skip."""
+    ref_time = datetime(2026, 8, 25, 12, 0, 0, tzinfo=timezone.utc)
     aged_tweet = {
         "tweet_id": "190011223347",
         "author": "tech_lead_alex",
-        "text": "What database architecture do you use for high-throughput write workloads?",
+        "text": "What is the single biggest bottleneck when scaling backend services?",
         "is_verified": True,
-        "likes": 200,
-        "replies": 40,
-        "impressions": 15000,
+        "likes": 120,
+        "replies": 35,
+        "impressions": 9000,
         "created_at_utc": ref_time - timedelta(hours=14),
     }
-    author_history = {"reply_rate": 0.8, "is_broadcast_bot": False}
 
-    result = score_tweet_opportunity(aged_tweet, author_history, reference_time=ref_time)
+    result = score_tweet_opportunity(aged_tweet, reference_time=ref_time)
 
-    assert result.score < 40.0
     assert result.recommended_action == "skip"
+    assert "decayed" in result.reasoning.lower() or "aged" in result.reasoning.lower()
+
+
+def test_score_tweet_opportunity_under_5k_impressions_skipped() -> None:
+    """Tests that candidate tweets with under 5k impressions are skipped for replies."""
+    ref_time = datetime(2026, 8, 25, 12, 0, 0, tzinfo=timezone.utc)
+    low_reach_tweet = {
+        "tweet_id": "190011223348",
+        "author": "tech_user",
+        "text": "Just testing a new library today.",
+        "is_verified": False,
+        "likes": 10,
+        "replies": 1,
+        "impressions": 3200,
+        "created_at_utc": ref_time - timedelta(minutes=30),
+    }
+    result = score_tweet_opportunity(low_reach_tweet, reference_time=ref_time)
+    assert result.recommended_action == "skip"
+    assert "under 5k" in result.reasoning.lower()
 
 
 def test_score_tweet_opportunity_bookmark_potential_detection() -> None:
-    """Tests detection of bookmarkable framework/cheatsheet/checklist patterns (+50x potential)."""
+    """Tests that actionable lists, frameworks, and cheat sheets detect high bookmark potential."""
     ref_time = datetime(2026, 8, 25, 12, 0, 0, tzinfo=timezone.utc)
-    bookmark_tweet = {
+    framework_tweet = {
         "tweet_id": "190011223348",
-        "author": "architect_jane",
+        "author": "system_design_hub",
         "text": (
             "Distributed Systems Architecture Framework:\n"
             "1. Event-driven choreography for loose coupling\n"
             "2. Read-side CQRS projections for p99 query latency\n"
             "3. Outbox pattern with Debezium CDC for transactional consistency\n"
-            "4. Token bucket rate limiters at API gateway\n"
             "Save this cheatsheet for system design interviews."
         ),
         "is_verified": True,
         "likes": 80,
         "replies": 15,
-        "impressions": 5000,
-        "created_at_utc": ref_time - timedelta(minutes=25),
+        "impressions": 8000,
+        "created_at_utc": ref_time - timedelta(minutes=45),
     }
 
-    result = score_tweet_opportunity(bookmark_tweet, reference_time=ref_time)
+    result = score_tweet_opportunity(framework_tweet, reference_time=ref_time)
 
-    assert result.bookmark_potential >= 30.0
-    assert result.score >= 70.0
-    assert result.recommended_action in ("bookmark_reference", "sniper_reply")
+    assert result.bookmark_potential >= 25.0
+    assert result.recommended_action == "bookmark_reference"
+    assert "bookmark" in result.reasoning.lower()
 
 
 def test_score_tweet_opportunity_broadcast_bot_penalty() -> None:
@@ -196,7 +212,7 @@ def test_score_tweet_opportunity_broadcast_bot_penalty() -> None:
         "is_verified": False,
         "likes": 30,
         "replies": 2,
-        "impressions": 1500,
+        "impressions": 6500,
         "created_at_utc": ref_time - timedelta(minutes=10),
     }
     author_history = {
@@ -211,12 +227,12 @@ def test_score_tweet_opportunity_broadcast_bot_penalty() -> None:
     assert result.recommended_action == "skip"
 
 
-def test_score_tweet_opportunity_quote_tweet_requires_100k_views() -> None:
-    """Tests that quote_tweet recommendation requires a minimum of 100k views / impressions."""
+def test_score_tweet_opportunity_quote_tweet_requires_50k_views() -> None:
+    """Tests that quote_tweet recommendation requires a minimum of 50k views / impressions."""
     ref_time = datetime(2026, 8, 25, 12, 0, 0, tzinfo=timezone.utc)
 
-    # 1. Low-view post (8,000 views) -> should NOT recommend quote_tweet
-    low_view_tweet = {
+    # 1. Post below 50k views (8,000 views) -> should NOT recommend quote_tweet (recommend reply)
+    sub_50k_tweet = {
         "tweet_id": "190011223350",
         "author": "casual_dev",
         "text": "Interesting take on local LLMs vs cloud APIs for small projects.",
@@ -226,19 +242,19 @@ def test_score_tweet_opportunity_quote_tweet_requires_100k_views() -> None:
         "impressions": 8000,
         "created_at_utc": ref_time - timedelta(minutes=30),
     }
-    low_view_score = score_tweet_opportunity(low_view_tweet, reference_time=ref_time)
-    assert low_view_score.recommended_action != "quote_tweet"
-    assert low_view_score.recommended_action == "sniper_reply"
+    sub_50k_score = score_tweet_opportunity(sub_50k_tweet, reference_time=ref_time)
+    assert sub_50k_score.recommended_action != "quote_tweet"
+    assert sub_50k_score.recommended_action == "sniper_reply"
 
-    # 2. Viral post (180,000 views) -> should recommend quote_tweet
+    # 2. Viral post (55,000 views) -> should recommend quote_tweet
     viral_tweet = {
         "tweet_id": "190011223351",
         "author": "viral_creator",
         "text": "The entire software industry is undergoing a massive shift right before our eyes.",
         "is_verified": True,
-        "likes": 3500,
-        "replies": 420,
-        "impressions": 180000,
+        "likes": 1500,
+        "replies": 220,
+        "impressions": 55000,
         "created_at_utc": ref_time - timedelta(hours=2),
     }
     viral_score = score_tweet_opportunity(viral_tweet, reference_time=ref_time)

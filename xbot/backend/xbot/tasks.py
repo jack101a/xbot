@@ -537,27 +537,26 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                             if require_approval:
                                 logger.info("Staging new standalone post for user approval on dashboard: '%s'", post_text[:50])
                                 
-                                # Synthesize 4:5 visual meme spec or fallback GIF query to maximize algorithmic impressions
-                                visual_spec_dict = None
+                                # Conduct deep X research to collect top 20-30 viral posts and download their real attached media
                                 gif_query = getattr(p_action, "gif_query", None)
                                 media_paths = []
+                                research_report_dict = None
                                 try:
-                                    v_spec = await generate_visual_post_spec(
+                                    from xbot.ai.x_researcher import research_topic_comprehensively
+                                    r_report = await research_topic_comprehensively(
                                         topic=post_text,
                                         persona=persona,
+                                        max_tweets=25,
+                                        profile_slug=prof.profile_slug,
                                     )
-                                    if v_spec:
-                                        visual_spec_dict = v_spec.model_dump()
-                                        if not gif_query and v_spec.gif_search_query:
-                                            gif_query = v_spec.gif_search_query
-                                        
-                                        # Render physical 4:5 vertical meme/infographic image to disk
-                                        from xbot.ai.meme_renderer import render_visual_spec_to_image
-                                        rendered_img = render_visual_spec_to_image(visual_spec_dict)
-                                        if rendered_img and os.path.exists(rendered_img):
-                                            media_paths.append(os.path.abspath(rendered_img))
-                                except Exception as v_err:
-                                    logger.debug("Visual spec synthesis skipped: %s", v_err)
+                                    if r_report:
+                                        research_report_dict = r_report.model_dump()
+                                        if r_report.downloaded_media:
+                                            for dm in r_report.downloaded_media:
+                                                if os.path.exists(dm.local_path):
+                                                    media_paths.append(os.path.abspath(dm.local_path))
+                                except Exception as r_err:
+                                    logger.debug("Topic media research on X skipped or failed: %s", r_err)
 
                                 draft_c = Content(
                                     profile_id=profile_id,
@@ -569,7 +568,7 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                         "staged_at": datetime.datetime.utcnow().isoformat(),
                                         "reasoning": getattr(p_action, "reasoning", None),
                                         "gif_query": gif_query,
-                                        "visual_spec": visual_spec_dict,
+                                        "research_report": research_report_dict,
                                         "media_paths": media_paths if media_paths else None,
                                         "extracted_link": extracted_link,
                                         "first_reply_text": f"Link / source breakdown: {extracted_link}" if extracted_link else None,
@@ -827,7 +826,7 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                             if persona and live_ctx.get("text"):
                                 # Evaluate algorithmic opportunity score (Phoenix Recommender weights)
                                 opp_score = score_tweet_opportunity(live_ctx)
-                                if opp_score.recommended_action == "skip" and opp_score.score < 25.0:
+                                if opp_score.recommended_action == "skip":
                                     logger.info(
                                         "Phoenix Growth Scorer recommended skipping target tweet %s (score=%.1f): %s",
                                         tweet_url,
@@ -835,7 +834,7 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                         opp_score.reasoning,
                                     )
                                     db_action.status = ActionStatus.SKIPPED
-                                    db_action.error = f"Opportunity score too low ({opp_score.score:.1f}/100): {opp_score.reasoning}"
+                                    db_action.error = f"Opportunity score skipped: {opp_score.reasoning}"
                                     db_action.result = {"opportunity_score": opp_score.model_dump()}
                                     await db.commit()
                                     success = True
@@ -917,10 +916,10 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                     continue
 
                                 target_views = int(live_ctx.get("impressions", 0) or live_ctx.get("views", 0) or 0)
-                                if 0 < target_views < 100_000:
-                                    logger.info("Target tweet %s has only %d views (< 100,000 required for quote-tweeting). Skipping quote action.", tweet_url, target_views)
+                                if 0 < target_views < 50_000:
+                                    logger.info("Target tweet %s has only %d views (< 50,000 required for quote-tweeting). Skipping quote action.", tweet_url, target_views)
                                     db_action.status = ActionStatus.SKIPPED
-                                    db_action.error = f"Target tweet has only {target_views:,} views (< 100,000 required for quote-tweet virality)."
+                                    db_action.error = f"Target tweet has only {target_views:,} views (< 50,000 required for quote-tweet virality)."
                                     success = True
                                     continue
 
@@ -2369,26 +2368,26 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
                         if eval_result.is_relevant and eval_result.relevance_score >= 0.70 and eval_result.optimized_post and items_staged < 3:
                             post_text = eval_result.optimized_post
                             
-                            # Synthesize rich 4:5 visual meme / infographic spec
-                            visual_spec_dict = None
+                            # Conduct deep X research to collect top 20-30 viral posts and download real attached media
                             gif_query = None
                             media_paths = []
+                            research_report_dict = None
                             try:
-                                v_spec = await generate_visual_post_spec(
-                                    topic=post_text,
+                                from xbot.ai.x_researcher import research_topic_comprehensively
+                                r_report = await research_topic_comprehensively(
+                                    topic=item.title,
                                     persona=persona,
+                                    max_tweets=25,
+                                    profile_slug=profile_slug,
                                 )
-                                if v_spec:
-                                    visual_spec_dict = v_spec.model_dump()
-                                    gif_query = v_spec.gif_search_query
-                                    
-                                    # Render physical 4:5 vertical meme/infographic image to disk
-                                    from xbot.ai.meme_renderer import render_visual_spec_to_image
-                                    rendered_img = render_visual_spec_to_image(visual_spec_dict)
-                                    if rendered_img and os.path.exists(rendered_img):
-                                        media_paths.append(os.path.abspath(rendered_img))
-                            except Exception as v_err:
-                                logger.debug("Trend visual spec synthesis skipped: %s", v_err)
+                                if r_report:
+                                    research_report_dict = r_report.model_dump()
+                                    if r_report.downloaded_media:
+                                        for dm in r_report.downloaded_media:
+                                            if os.path.exists(dm.local_path):
+                                                media_paths.append(os.path.abspath(dm.local_path))
+                            except Exception as r_err:
+                                logger.debug("Trend X media research skipped: %s", r_err)
 
                             metadata = {
                                 "trend_id": item.id,
@@ -2402,7 +2401,7 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
                                 "hot_take": eval_result.hot_take,
                                 "draft_post": eval_result.draft_post,
                                 "optimized_post": eval_result.optimized_post,
-                                "visual_spec": visual_spec_dict,
+                                "research_report": research_report_dict,
                                 "gif_query": gif_query,
                                 "media_paths": media_paths if media_paths else None,
                             }
@@ -3006,10 +3005,32 @@ async def _run_growth_and_autofollowback_async() -> dict[str, Any]:
                     page = await context.new_page()
                     page.set_default_timeout(25000)
 
-                    # 1. Scrape current verified followers & following lists from live profile
-                    logger.info("Scanning live verified followers & following for @%s...", clean_handle)
-                    current_followers = await ScrapeFollowList().execute(page, username=clean_handle, list_type="followers", limit=50, verified_only=True)
-                    current_following = await ScrapeFollowList().execute(page, username=clean_handle, list_type="following", limit=50, verified_only=False)
+                    # 1. Scrape current followers & following lists from live profile (check EVERY follower)
+                    logger.info("Scanning live followers & following for @%s...", clean_handle)
+                    current_followers = await ScrapeFollowList().execute(page, username=clean_handle, list_type="followers", limit=100, verified_only=False)
+                    current_following = await ScrapeFollowList().execute(page, username=clean_handle, list_type="following", limit=100, verified_only=False)
+
+                    # 1b. Also check Notifications tab for new follower notifications
+                    try:
+                        logger.info("Checking notifications section for new follower events...")
+                        await page.goto("https://x.com/notifications", wait_until="domcontentloaded", timeout=20000)
+                        await sleep_with_jitter(2000)
+                        notif_articles = await page.query_selector_all("article, [data-testid='cellInnerDiv']")
+                        for notif in notif_articles[:25]:
+                            notif_text = await notif.inner_text()
+                            if "followed you" in notif_text.lower():
+                                links = await notif.query_selector_all("a[href^='/']")
+                                for link in links:
+                                    href = await link.get_attribute("href") or ""
+                                    handle_candidate = href.strip("/")
+                                    if handle_candidate and "/" not in handle_candidate and handle_candidate.lower() not in [
+                                        "home", "explore", "notifications", "messages", "bookmarks", "lists", "profile", "settings", clean_handle.lower()
+                                    ]:
+                                        if handle_candidate not in current_followers:
+                                            current_followers.append(handle_candidate)
+                                            logger.info("Discovered new follower @%s from notifications!", handle_candidate)
+                    except Exception as notif_err:
+                        logger.debug("Notifications follower scan exception: %s", notif_err)
 
                     followers_set = {f.lstrip("@").lower() for f in current_followers}
                     following_set = {f.lstrip("@").lower() for f in current_following}
@@ -3028,21 +3049,21 @@ async def _run_growth_and_autofollowback_async() -> dict[str, Any]:
                         db.add(snap)
                         await db.commit()
 
-                    # 2. AUTO FOLLOW-BACK (VERIFIED-ONLY): Identify verified accounts who follow us!
+                    # 2. AUTO FOLLOW-BACK (EVERY USER WHO FOLLOWS US):
                     unfollowed_followers = [f for f in current_followers if f.lstrip("@").lower() not in following_set and f.lstrip("@").lower() != clean_handle.lower()]
-                    logger.info("Total incoming verified followers needing reciprocal follow-back: %d", len(unfollowed_followers))
+                    logger.info("Total incoming followers needing reciprocal follow-back: %d", len(unfollowed_followers))
                     for target_follower in unfollowed_followers:
                         can_follow = await guard.is_action_safe(db, prof.profile_slug, "follow")
                         if not can_follow:
                             logger.info("Daily follow safety limit reached for %s. Pausing follow-back.", prof.profile_slug)
                             break
 
-                        logger.info("🤝 Auto Follow-Back triggered for Verified Blue-Tick follower @%s!", target_follower)
+                        logger.info("🤝 Auto Follow-Back triggered for incoming follower @%s!", target_follower)
                         f_ok = await FollowUser().execute(page, username=target_follower)
                         if f_ok:
                             followed_back_count += 1
                             following_set.add(target_follower.lstrip("@").lower())
-                            await record_follow_action(prof.id, target_follower, db, is_blue_tick=True, niche="verified_incoming_follower")
+                            await record_follow_action(prof.id, target_follower, db, is_blue_tick=False, niche="incoming_follower")
                             await guard.record_action_success(prof.profile_slug, "follow")
                             db.add(FollowerChangeLog(profile_id=prof.id, change_type="new_follower", handle=target_follower))
                             await db.commit()

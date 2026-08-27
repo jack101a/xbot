@@ -24,7 +24,7 @@ async def test_fallback_thread_validity() -> None:
 @pytest.mark.asyncio
 async def test_generate_thread_structure() -> None:
     topic = "Building Resilient Distributed Systems"
-    resp = await generate_thread(topic=topic, num_tweets=4)
+    resp = await generate_thread(topic=topic, num_tweets=4, deep_research=False)
     assert resp.topic is not None
     assert len(resp.tweets) >= 3
     for tweet in resp.tweets:
