@@ -171,6 +171,7 @@ async def test_check_trend_radar_executes_and_stages_content(
     with patch("xbot.tasks.AsyncSessionLocal", return_value=db_session), \
          patch("xbot.tasks.load_persona", return_value=sample_persona), \
          patch("xbot.tasks.fetch_rss_trends", AsyncMock(return_value=sample_items)) as mock_fetch, \
+         patch("xbot.ai.x_researcher.research_topic_comprehensively", AsyncMock(return_value=None)), \
          patch("xbot.tasks.generate_trend_take", AsyncMock(side_effect=[mock_eval_1, mock_eval_2])) as mock_eval:
 
         result = await _check_trend_radar_async()
@@ -362,6 +363,7 @@ async def test_check_trend_radar_profile_error_isolation(
     with patch("xbot.tasks.AsyncSessionLocal", return_value=db_session), \
          patch("xbot.tasks.load_persona", side_effect=mock_load_persona), \
          patch("xbot.tasks.fetch_rss_trends", AsyncMock(return_value=[healthy_item])), \
+         patch("xbot.ai.x_researcher.research_topic_comprehensively", AsyncMock(return_value=None)), \
          patch("xbot.tasks.generate_trend_take", AsyncMock(return_value=mock_eval)):
 
         result = await _check_trend_radar_async()

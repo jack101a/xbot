@@ -2406,7 +2406,7 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
                                 "media_paths": media_paths if media_paths else None,
                             }
 
-                            cfg_path = manager.base_profile_dir / profile_slug
+                            cfg_path = Path(settings.BASE_PROFILE_DIR) / profile_slug
                             prof_config = load_config(cfg_path) if cfg_path.exists() else None
                             req_appr = getattr(prof_config, "require_post_approval", True) if prof_config else True
                             staged_status = ContentStatus.DRAFT if req_appr else ContentStatus.APPROVED

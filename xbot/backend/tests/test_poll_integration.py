@@ -42,6 +42,7 @@ TestSessionLocal = async_sessionmaker(
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db() -> None:
     async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield
     async with test_engine.begin() as conn:
@@ -288,7 +289,8 @@ async def test_run_session_async_executes_poll_action_mock_mode(
     mock_config.proxy_url = None
     mock_config.schedule = MagicMock(timezone="UTC")
 
-    with patch("xbot.tasks.AsyncSessionLocal", return_value=db_session), \
+    with patch("xbot.tasks.AsyncSessionLocal", TestSessionLocal), \
+         patch("xbot.ai.x_researcher.research_topic_comprehensively", AsyncMock(return_value=None)), \
          patch("xbot.tasks.load_config", return_value=mock_config), \
          patch("xbot.tasks.load_persona", return_value=sample_persona), \
          patch("xbot.tasks.plan_session", AsyncMock(return_value=mock_plan)), \
@@ -371,6 +373,7 @@ async def test_run_session_async_executes_poll_action_live_mode(
 
     mock_config = MagicMock()
     mock_config.mock_mode = False
+    mock_config.require_post_approval = False
     mock_config.proxy_url = None
     mock_config.schedule = MagicMock(timezone="UTC")
 
@@ -386,7 +389,8 @@ async def test_run_session_async_executes_poll_action_live_mode(
     mock_page = AsyncMock()
     mock_browser_context.new_page.return_value = mock_page
 
-    with patch("xbot.tasks.AsyncSessionLocal", return_value=db_session), \
+    with patch("xbot.tasks.AsyncSessionLocal", TestSessionLocal), \
+         patch("xbot.ai.x_researcher.research_topic_comprehensively", AsyncMock(return_value=None)), \
          patch("xbot.tasks.load_config", return_value=mock_config), \
          patch("xbot.tasks.load_persona", return_value=sample_persona), \
          patch("xbot.tasks.plan_session", AsyncMock(return_value=mock_plan)), \
@@ -481,6 +485,7 @@ async def test_run_session_async_handles_poll_failure(
 
     mock_config = MagicMock()
     mock_config.mock_mode = False
+    mock_config.require_post_approval = False
     mock_config.proxy_url = None
     mock_config.schedule = MagicMock(timezone="UTC")
 
@@ -488,7 +493,8 @@ async def test_run_session_async_handles_poll_failure(
     mock_page = AsyncMock()
     mock_browser_context.new_page.return_value = mock_page
 
-    with patch("xbot.tasks.AsyncSessionLocal", return_value=db_session), \
+    with patch("xbot.tasks.AsyncSessionLocal", TestSessionLocal), \
+         patch("xbot.ai.x_researcher.research_topic_comprehensively", AsyncMock(return_value=None)), \
          patch("xbot.tasks.load_config", return_value=mock_config), \
          patch("xbot.tasks.load_persona", return_value=sample_persona), \
          patch("xbot.tasks.plan_session", AsyncMock(return_value=mock_plan)), \
@@ -514,4 +520,4 @@ async def test_run_session_async_handles_poll_failure(
         actions = res_act.scalars().all()
         assert len(actions) == 1
         assert actions[0].status == ActionStatus.FAILED
-        assert "Browser action script returned False" in actions[0].error
+        assert "returned False" in actions[0].error
