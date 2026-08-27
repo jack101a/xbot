@@ -1562,6 +1562,9 @@ async def approve_and_publish_draft(
     if not db_profile:
         raise HTTPException(status_code=404, detail="Profile not found")
 
+    profile_slug = db_profile.profile_slug
+    profile_db_id = db_profile.id
+
     from xbot.models.content import Content, ContentStatus, ContentType
     from xbot.browser.manager import BrowserManager
     from xbot.browser.actions.x_actions import ComposePost, ComposeThread, ReplyToTweet
@@ -1583,7 +1586,7 @@ async def approve_and_publish_draft(
     # Try acquiring lock with retry
     lock_acquired = False
     for _ in range(3):
-        if manager.acquire_lock(db_profile.profile_slug, timeout_seconds=60):
+        if manager.acquire_lock(profile_slug, timeout_seconds=60):
             lock_acquired = True
             break
         import asyncio as _aio
@@ -1603,7 +1606,7 @@ async def approve_and_publish_draft(
     success = False
     try:
         await manager.start()
-        context = await manager.get_context(db_profile.profile_slug)
+        context = await manager.get_context(profile_slug)
         page = await context.new_page()
         page.set_default_timeout(35000)
 
@@ -1612,7 +1615,7 @@ async def approve_and_publish_draft(
             question = meta_poll.get("question") or draft.body.split("\n")[0]
             options = meta_poll.get("options") or ["Yes", "No"]
             duration_days = meta_poll.get("duration_days", 1)
-            screenshot_dir = str(Path(BASE_PROFILE_DIR) / db_profile.profile_slug / "screenshots")
+            screenshot_dir = str(Path(BASE_PROFILE_DIR) / profile_slug / "screenshots")
             action = CreatePoll(screenshot_dir=screenshot_dir)
             success = await action.execute(page, question=question, options=options, duration_days=duration_days)
         elif draft.content_type in (ContentType.THREAD, "thread"):
@@ -1642,7 +1645,7 @@ async def approve_and_publish_draft(
             draft.status = ContentStatus.POSTED
             draft.posted_at = datetime.datetime.utcnow()
             await db.commit()
-            await guard.record_action_success(db_profile.profile_slug, "post")
+            await guard.record_action_success(profile_slug, "post")
 
             # 1st-reply link injection if extracted_link exists
             extracted_link = draft.ai_metadata.get("extracted_link") if draft.ai_metadata else None
@@ -1654,7 +1657,7 @@ async def approve_and_publish_draft(
                     reply_ok = await ReplyToTweet().execute(page, first_reply_msg)
                     if reply_ok:
                         reply_rec = Content(
-                            profile_id=db_profile.id,
+                            profile_id=profile_db_id,
                             content_type=ContentType.REPLY,
                             body=first_reply_msg,
                             status=ContentStatus.POSTED,
@@ -1673,16 +1676,20 @@ async def approve_and_publish_draft(
         }
     except Exception as e:
         logger.error(f"Error publishing draft: {e}", exc_info=True)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
         # Fallback to Celery background task
         from xbot.tasks import auto_publish_pending_drafts
         auto_publish_pending_drafts.delay()
         return {
             "status": "queued",
             "message": "Draft approved! Queued in background worker for execution.",
-            "content_id": str(draft.id),
+            "content_id": str(content_id),
         }
     finally:
-        manager.release_lock(db_profile.profile_slug)
+        manager.release_lock(profile_slug)
         if context:
             try:
                 await context.close()
