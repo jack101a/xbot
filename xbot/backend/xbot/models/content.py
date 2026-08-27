@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 class ContentType(StrEnum):
     ORIGINAL = "original"
+    POST = "original"
     TWEET = "original"
     REPLY = "reply"
     QUOTE = "quote"
@@ -112,3 +113,30 @@ class Content(Base):
 
     # Relationships
     profile: Mapped["Profile"] = relationship("Profile", back_populates="content")
+    thread_items: Mapped[list["ThreadItem"]] = relationship(
+        "ThreadItem",
+        back_populates="content",
+        cascade="all, delete-orphan",
+        order_by="ThreadItem.position",
+        lazy="selectin",
+    )
+
+
+class ThreadItem(Base):
+    __tablename__ = "thread_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    content_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("content.id", ondelete="CASCADE"), index=True
+    )
+    position: Mapped[int] = mapped_column(default=0, index=True)  # 0, 1, 2, ...
+    item_type: Mapped[str] = mapped_column(String(30), default="body")  # "hook", "body", "closer"
+    text: Mapped[str] = mapped_column(Text)
+    media_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    tweet_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    performance: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    content: Mapped["Content"] = relationship("Content", back_populates="thread_items")
+
