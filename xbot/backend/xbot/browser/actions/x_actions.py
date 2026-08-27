@@ -76,12 +76,16 @@ async def check_target_tweet_status(page: Page, timeout: int = 15000) -> dict[st
 
 async def _navigate_home_if_needed(page: Page) -> None:
     """Navigate to the X home feed if not already there."""
-    current = page.url
-    if current == "about:blank" or current.startswith("data:"):
+    current = getattr(page, "url", "") or ""
+    if current.startswith("data:"):
         return
-    if "x.com/home" not in current and "twitter.com/home" not in current:
+    if "x.com/home" not in current and "twitter.com/home" not in current and "127.0.0.1" not in current and "localhost" not in current:
         try:
-            await page.goto("https://x.com/home", wait_until="commit", timeout=25000)
+            # Check if tweet elements already exist on current page (e.g. unit test fixture or pre-rendered DOM)
+            has_tweets = await page.query_selector(SELECTORS["tweet"])
+            if has_tweets:
+                return
+            await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=25000)
             await page.wait_for_selector(SELECTORS["tweet"], timeout=15000)
         except Exception:
             pass
@@ -155,6 +159,7 @@ class BrowseFeed(BaseAction):
 
     async def execute(self, page: Page, max_scrolls: int = 5) -> list[dict[str, Any]]:
         try:
+            await _navigate_home_if_needed(page)
             logger.info("Starting feed browsing session.")
             tweets: list[dict[str, Any]] = []
 
@@ -1140,18 +1145,21 @@ class QuoteTweet(BaseAction):
 
             # Wait for quote option in dropdown menu
             quote_item = await page.wait_for_selector(
-                '[data-testid="Dropdown"] [role="menuitem"]:has-text("Quote"), [role="menuitem"]:has-text("Quote"), a[href*="/compose/post?quote="]',
+                '[data-testid="Dropdown"] [role="menuitem"]:has-text("Quote"), [role="menuitem"]:has-text("Quote"), [role="menuitem"]:has-text("Quote post"), [data-testid="quoteTweet"], div[role="menuitem"] span:has-text("Quote"), a[href*="/compose/post?quote="]',
                 timeout=5000,
             )
-            if not quote_item:
-                logger.warning("Could not find Quote Tweet dropdown item.")
+            if not quote_item and tweet_url:
+                logger.info("Quote dropdown item not found; falling back to direct compose quote URL: %s", tweet_url)
+                await page.goto(f"https://x.com/compose/post?quote={tweet_url}", wait_until="domcontentloaded", timeout=15000)
+            elif quote_item:
+                await sleep_think_time(400, 1000)
+                await human_click(page, quote_item, 200, 500)
+            else:
+                logger.warning("Could not find Quote Tweet dropdown item and no tweet_url fallback.")
                 return False
 
-            await sleep_think_time(400, 1000)
-            await human_click(page, quote_item, 200, 500)
-
             # Wait for modal composer
-            composer_sel = '[role="dialog"] [data-testid="tweetTextarea_0"], [data-testid="tweetTextarea_0"]'
+            composer_sel = '[role="dialog"] [data-testid="tweetTextarea_0"], [data-testid="tweetTextarea_0"], [role="textbox"][data-testid*="tweetTextarea"]'
             editor = await page.wait_for_selector(composer_sel, timeout=8000)
             if not editor:
                 logger.warning("Could not locate quote composer textarea.")
@@ -1394,9 +1402,9 @@ class ScrapeProfileMetrics(BaseAction):
 class ScrapeTrends(BaseAction):
     """Scrapes trending topics from the X explore page."""
 
-    async def execute(self, page: Page) -> list[dict[str, str]]:
+    async def execute(self, page: Page, limit: int = 10) -> list[dict[str, str]]:
         try:
-            logger.info("Scraping X Trends")
+            logger.info("Scraping X Trends (limit=%d)", limit)
             await page.goto("https://x.com/explore/tabs/trending", wait_until="domcontentloaded", timeout=20000)
             await page.wait_for_selector("[data-testid='trend']", timeout=10000)
             await sleep_with_jitter(2000)
@@ -1408,7 +1416,7 @@ class ScrapeTrends(BaseAction):
             from xbot.ai.sniper import BANNED_POLITICS_REGEX
             trends = []
             trend_elements = await page.query_selector_all("[data-testid='trend']")
-            for el in trend_elements[:15]:
+            for el in trend_elements[:limit]:
                 text = await el.inner_text()
                 if BANNED_POLITICS_REGEX.search(text):
                     continue

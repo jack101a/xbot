@@ -547,8 +547,9 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                         topic=post_text,
                                         persona=persona,
                                         max_tweets=25,
-                                        profile_slug=prof.profile_slug,
+                                        profile_slug=profile_slug,
                                     )
+
                                     if r_report:
                                         research_report_dict = r_report.model_dump()
                                         if r_report.downloaded_media:
@@ -1698,309 +1699,7 @@ async def _run_follower_audit_async(profile_id_str: str) -> dict[str, Any]:
             manager.release_lock(profile_slug)
 
 
-@celery_app.task(name="xbot.tasks.run_follower_audit")
-def run_follower_audit(profile_id: str) -> dict[str, Any]:
-    """Celery task running the follower lists snapshot diffing audit."""
-    logger.info("Starting Celery follower audit for profile ID: %s", profile_id)
-    return asyncio.run(_run_follower_audit_async(profile_id))
 
-
-async def _run_reputation_analysis_async(profile_id_str: str) -> dict[str, Any]:
-    from xbot.models.analytics import ReputationLog
-    from xbot.ai.sentiment import analyze_sentiment_rules
-    try:
-        profile_id = uuid.UUID(profile_id_str)
-    except ValueError:
-        return {"status": "failed", "error": "Invalid profile ID format."}
-        
-    async with AsyncSessionLocal() as db:
-        stmt = select(Profile).where(Profile.id == profile_id)
-        result = await db.execute(stmt)
-        profile = result.scalar_one_or_none()
-        if not profile:
-            return {"status": "failed", "error": "Profile not found"}
-        
-        profile_slug = profile.profile_slug
-        x_handle = profile.x_handle
-        
-        manager = BrowserManager()
-        if not manager.acquire_lock(profile_slug, timeout_seconds=1200):
-            return {"status": "failed", "error": "Lock active"}
-            
-        context = None
-        try:
-            context = await manager.get_context(profile_slug=profile_slug)
-            page = await context.new_page()
-            
-            # Search for incoming tweets to us
-            logger.info("Running reputation analysis: searching 'to:%s'", x_handle)
-            results = await SearchQuery().execute(page, f"to:{x_handle}")
-            
-            await context.close()
-            context = None
-            
-            if not results:
-                logger.info("No incoming tweets found for reputation analysis.")
-                # Save neutral log
-                log = ReputationLog(
-                    profile_id=profile_id,
-                    sentiment_score=0.0,
-                    total_replies_analyzed=0,
-                    positive_count=0,
-                    negative_count=0,
-                    neutral_count=0
-                )
-                db.add(log)
-                await db.commit()
-                return {"status": "success", "replies_analyzed": 0}
-                
-            pos = 0
-            neg = 0
-            neu = 0
-            
-            for tweet in results:
-                text = tweet.get("text", "")
-                if text:
-                    sent = analyze_sentiment_rules(text)
-                    if sent == "positive":
-                        pos += 1
-                    elif sent == "negative":
-                        neg += 1
-                    else:
-                        neu += 1
-            
-            total = pos + neg + neu
-            score = (pos - neg) / max(total, 1)
-            
-            log = ReputationLog(
-                profile_id=profile_id,
-                sentiment_score=score,
-                total_replies_analyzed=total,
-                positive_count=pos,
-                negative_count=neg,
-                neutral_count=neu
-            )
-            db.add(log)
-            await db.commit()
-            
-            logger.info("Reputation score calculated: %.2f (Total analyzed: %d)", score, total)
-            return {
-                "status": "success",
-                "sentiment_score": score,
-                "total_replies_analyzed": total,
-                "positive": pos,
-                "negative": neg,
-                "neutral": neu
-            }
-            
-        except Exception as e:
-            logger.error("Reputation analysis task failed: %s", e)
-            return {"status": "failed", "error": str(e)}
-        finally:
-            if context:
-                await context.close()
-            manager.release_lock(profile_slug)
-
-
-@celery_app.task(name="xbot.tasks.run_reputation_analysis")
-def run_reputation_analysis(profile_id: str) -> dict[str, Any]:
-    """Celery task performing sentiment classification on profile mentions/replies."""
-    logger.info("Starting Celery reputation analysis for profile ID: %s", profile_id)
-    return asyncio.run(_run_reputation_analysis_async(profile_id))
-
-
-async def _run_graph_crawler_async(profile_id_str: str, seed_handle: str) -> dict[str, Any]:
-    import os
-    profile_id = uuid.UUID(profile_id_str)
-    
-    async with AsyncSessionLocal() as db:
-        stmt = select(Profile).where(Profile.id == profile_id)
-        result = await db.execute(stmt)
-        profile = result.scalar_one_or_none()
-        if not profile:
-            return {"status": "failed", "error": "Profile not found"}
-        
-        profile_slug = profile.profile_slug
-        
-        manager = BrowserManager()
-        if not manager.acquire_lock(profile_slug, timeout_seconds=2400):
-            return {"status": "failed", "error": "Lock active"}
-            
-        context = None
-        try:
-            context = await manager.get_context(profile_slug=profile_slug)
-            page = await context.new_page()
-            
-            logger.info("Social graph crawler starting: seed @%s", seed_handle)
-            
-            # 1. Scrape who seed follows (up to 15)
-            seed_following = await ScrapeFollowList().execute(page, username=seed_handle, list_type="following", limit=15)
-            
-            nodes = []
-            links = []
-            
-            # Add seed node
-            nodes.append({"id": seed_handle, "label": f"@{seed_handle}", "group": 1, "size": 20})
-            
-            for h in seed_following:
-                nodes.append({"id": h, "label": f"@{h}", "group": 2, "size": 12})
-                links.append({"source": seed_handle, "target": h})
-                
-            # 2. For the top 5 following, scrape who they follow (up to 5 each) to find overlaps
-            for hub in seed_following[:5]:
-                hub_following = await ScrapeFollowList().execute(page, username=hub, list_type="following", limit=5)
-                for h in hub_following:
-                    # Check if node already exists
-                    if not any(n["id"] == h for n in nodes):
-                        nodes.append({"id": h, "label": f"@{h}", "group": 3, "size": 8})
-                    links.append({"source": hub, "target": h})
-                    
-            await context.close()
-            context = None
-            
-            # Save graph JSON to file
-            profile_dir = Path("/home/ubuntu/projects/xbot/data/profiles") / profile_slug
-            graph_file = profile_dir / "social_graph.json"
-            os.makedirs(graph_file.parent, exist_ok=True)
-            
-            graph_data = {
-                "nodes": nodes,
-                "links": links,
-                "created_at": datetime.datetime.utcnow().isoformat(),
-                "seed": seed_handle
-            }
-            
-            with open(graph_file, "w") as f:
-                json.dump(graph_data, f, indent=2)
-                
-            logger.info("Social graph crawl complete: %d nodes, %d links.", len(nodes), len(links))
-            return {"status": "success", "nodes_count": len(nodes), "links_count": len(links)}
-            
-        except Exception as e:
-            logger.error("Social graph crawl failed: %s", e)
-            return {"status": "failed", "error": str(e)}
-        finally:
-            if context:
-                await context.close()
-            manager.release_lock(profile_slug)
-
-
-@celery_app.task(name="xbot.tasks.run_graph_crawler")
-def run_graph_crawler(profile_id: str, seed_handle: str) -> dict[str, Any]:
-    """Celery task performing two-degree social graph connections crawl."""
-    logger.info("Starting Celery social graph crawler for seed handle: %s", seed_handle)
-    return asyncio.run(_run_graph_crawler_async(profile_id, seed_handle))
-
-
-async def _run_autoreply_mentions_async(profile_id_str: str) -> dict[str, Any]:
-    from xbot.models.session import Action, ActionStatus, ActionType
-    from xbot.ai.client import get_ai_client
-    from xbot.config import settings
-    
-    profile_id = uuid.UUID(profile_id_str)
-    async with AsyncSessionLocal() as db:
-        stmt = select(Profile).where(Profile.id == profile_id)
-        result = await db.execute(stmt)
-        profile = result.scalar_one_or_none()
-        if not profile:
-            return {"status": "failed", "error": "Profile not found"}
-        
-        profile_slug = profile.profile_slug
-        x_handle = profile.x_handle
-        profile_dir = Path("/home/ubuntu/projects/xbot/data/profiles") / profile_slug
-        persona = load_persona(profile_dir)
-        
-        manager = BrowserManager()
-        if not manager.acquire_lock(profile_slug, timeout_seconds=1200):
-            return {"status": "failed", "error": "Lock active"}
-            
-        context = None
-        try:
-            context = await manager.get_context(profile_slug=profile_slug)
-            page = await context.new_page()
-            
-            logger.info("Auto-reply: searching for mentions for @%s", x_handle)
-            results = await SearchQuery().execute(page, f"to:{x_handle}")
-            
-            replied_count = 0
-            for tweet in results[:5]:  # Limit to top 5 mentions
-                tweet_url = tweet.get("url")
-                tweet_text = tweet.get("text", "")
-                author = tweet.get("author", "")
-                
-                if not tweet_url or not tweet_text:
-                    continue
-                
-                # Check if already replied
-                stmt_check = select(Action).where(
-                    Action.action_type == ActionType.REPLY,
-                    Action.target_url == tweet_url,
-                    Action.status == ActionStatus.COMPLETED
-                )
-                res_check = await db.execute(stmt_check)
-                if res_check.scalar_one_or_none():
-                    logger.info("Already replied to %s, skipping.", tweet_url)
-                    continue
-                
-                logger.info("Generating reply to @%s: %s", author, tweet_text[:60])
-                
-                system_prompt = (
-                    f"You are {persona.display_name} (@{persona.x_handle}). Reply to a mention on X.\n"
-                    f"Tone: {persona.writing_style.tone}\n"
-                    f"Traits: {', '.join(persona.personality.traits)}\n"
-                    f"Interests: {', '.join(persona.interests.primary)}\n"
-                    f"Writing Examples:\n" + "\n".join(f"- {ex}" for ex in persona.writing_style.examples[:3])
-                )
-                user_prompt = f"Mentions text content:\n\"{tweet_text}\"\n\nWrite a short, engaging reply (under 280 chars) to this user."
-                
-                client = get_ai_client()
-                completion = await client.chat.completions.create(
-                    model=settings.MODEL_REPLY_ANALYSIS,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ]
-                )
-                reply_text = completion.choices[0].message.content or ""
-                reply_text = reply_text.strip()
-                
-                logger.info("Posting generated reply: %s", reply_text)
-                success = await ReplyToTweet().execute(page, reply_text, tweet_url=tweet_url)
-                
-                if success:
-                    replied_count += 1
-                    # Record action in DB
-                    act = Action(
-                        profile_id=profile_id,
-                        action_type=ActionType.REPLY,
-                        target_url=tweet_url,
-                        content=reply_text,
-                        status=ActionStatus.COMPLETED
-                    )
-                    db.add(act)
-                    await db.commit()
-                    
-                    # Cool down
-                    await sleep_with_jitter(10000)
-                    
-            await context.close()
-            context = None
-            return {"status": "success", "replied_count": replied_count}
-            
-        except Exception as e:
-            logger.error("Auto-reply task failed: %s", e)
-            return {"status": "failed", "error": str(e)}
-        finally:
-            if context:
-                await context.close()
-            manager.release_lock(profile_slug)
-
-
-@celery_app.task(name="xbot.tasks.run_autoreply_mentions")
-def run_autoreply_mentions(profile_id: str) -> dict[str, Any]:
-    """Celery task scanning incoming mentions/replies and posting replies aligned with the persona."""
-    logger.info("Starting Celery auto-reply mentions task for profile: %s", profile_id)
-    return asyncio.run(_run_autoreply_mentions_async(profile_id))
 
 
 async def _sniper_check_targets_async() -> dict[str, Any]:
@@ -2833,9 +2532,7 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                 require_approval = getattr(config, "require_post_approval", True) if config else True
 
                 # Allow auto-publishing if require_post_approval is False or if draft status is explicitly APPROVED
-                allowed_statuses = [ContentStatus.APPROVED]
-                if not require_approval:
-                    allowed_statuses.append(ContentStatus.DRAFT)
+                allowed_statuses = [ContentStatus.APPROVED, ContentStatus.DRAFT] if not require_approval else [ContentStatus.APPROVED]
 
                 stmt_draft = (
                     select(Content)
@@ -2843,7 +2540,7 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                         Content.profile_id == prof.id,
                         Content.status.in_(allowed_statuses),
                     )
-                    .order_by(Content.created_at.asc())
+                    .order_by(Content.created_at.desc())
                     .limit(1)
                 )
                 d_res = await db.execute(stmt_draft)
@@ -2933,9 +2630,23 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                                     await db.commit()
                             except Exception as link_e:
                                 logger.warning("Failed to post 1st-reply link injection: %s", link_e)
+                    else:
+                        meta = dict(draft.ai_metadata or {})
+                        meta["publish_attempts"] = meta.get("publish_attempts", 0) + 1
+                        draft.ai_metadata = meta
+                        if meta["publish_attempts"] >= 2:
+                            draft.status = ContentStatus.FAILED
+                            logger.warning("Draft %s marked FAILED after %d attempts", draft.id, meta["publish_attempts"])
+                        await db.commit()
                 except Exception as ex:
                     logger.error("Error auto-publishing draft for %s: %s", prof.profile_slug, ex)
                     errors.append(f"{prof.profile_slug}: {ex}")
+                    meta = dict(draft.ai_metadata or {})
+                    meta["publish_attempts"] = meta.get("publish_attempts", 0) + 1
+                    draft.ai_metadata = meta
+                    if meta["publish_attempts"] >= 2:
+                        draft.status = ContentStatus.FAILED
+                    await db.commit()
                 finally:
                     if context:
                         await context.close()
