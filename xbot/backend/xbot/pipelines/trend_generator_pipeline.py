@@ -339,8 +339,38 @@ async def generate_content_for_topic(
     topic.processed = True
     await db.commit()
 
+    # Automatically post live to X via browser queue
+    try:
+        from xbot.pipelines.browser_queue import BrowserJob, enqueue_browser_job, process_browser_queue
+        if content_record.content_type in (ContentType.POLL, "poll"):
+            meta_poll = content_record.ai_metadata.get("poll", {}) if content_record.ai_metadata else {}
+            enqueue_browser_job(BrowserJob(
+                action_type="poll",
+                profile_slug=profile.profile_slug,
+                params={"question": meta_poll.get("question") or content_record.body, "options": meta_poll.get("options") or ["Yes", "No"], "duration_minutes": 1440},
+                priority=1,
+            ))
+        elif content_record.content_type in (ContentType.THREAD, "thread"):
+            t_items = content_record.ai_metadata.get("thread_items", []) if content_record.ai_metadata else []
+            enqueue_browser_job(BrowserJob(
+                action_type="thread",
+                profile_slug=profile.profile_slug,
+                params={"tweets": t_items, "media_paths": media_to_attach},
+                priority=1,
+            ))
+        else:
+            enqueue_browser_job(BrowserJob(
+                action_type="post",
+                profile_slug=profile.profile_slug,
+                params={"text": content_record.body, "media_paths": media_to_attach, "gif_query": content_record.ai_metadata.get("gif_query") if content_record.ai_metadata else None},
+                priority=1,
+            ))
+        process_browser_queue.delay()
+    except Exception as auto_p_err:
+        logger.warning("Auto-publish dispatch skipped: %s", auto_p_err)
+
     logger.info(
-        "TrendGenerator: Successfully generated and staged %s (%s) for topic '%s'",
+        "TrendGenerator: Successfully generated and dispatched %s (%s) for topic '%s'",
         content_record.content_type,
         creation_format,
         topic.topic,

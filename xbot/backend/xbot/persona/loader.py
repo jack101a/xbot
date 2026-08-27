@@ -111,6 +111,7 @@ class Config(BaseModel):
     proxy_url: str | None = None
     credentials: CredentialsConfig | None = None
     mock_mode: bool = False
+    require_post_approval: bool = False
 
     model_config = ConfigDict(extra="ignore")
 
@@ -207,12 +208,23 @@ class LearnedState(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-def load_persona(profile_dir: Path) -> Persona:
-    """Loads persona.yaml from the given profile directory or direct file path."""
-    if profile_dir.is_file() or str(profile_dir).endswith(".yaml") or str(profile_dir).endswith(".yml"):
-        path = profile_dir
+def load_persona(profile_dir: Path | str) -> Persona:
+    """Loads persona.yaml from the given profile directory, slug, or direct file path."""
+    p = Path(profile_dir)
+    if not p.exists():
+        # Check standard base profile directory
+        candidate = Path("/home/ubuntu/projects/xbot/data/profiles") / p
+        if candidate.exists():
+            p = candidate
+        else:
+            candidate_file = Path("/home/ubuntu/projects/xbot/data/profiles") / p / "persona.yaml"
+            if candidate_file.exists():
+                p = candidate_file
+                
+    if p.is_file() or str(p).endswith(".yaml") or str(p).endswith(".yml"):
+        path = p
     else:
-        path = profile_dir / "persona.yaml"
+        path = p / "persona.yaml"
     if not path.exists():
         raise FileNotFoundError(f"Persona file not found: {path}")
     with path.open(encoding="utf-8") as f:

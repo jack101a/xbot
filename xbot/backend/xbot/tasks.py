@@ -533,7 +533,7 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                 success = True
                                 continue
 
-                            require_approval = getattr(config, "require_post_approval", True)
+                            require_approval = getattr(config, "require_post_approval", False)
                             if require_approval:
                                 logger.info("Staging new standalone post for user approval on dashboard: '%s'", post_text[:50])
                                 
@@ -636,7 +636,7 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                 p_action, profile_slug, manager.base_profile_dir
                             )
                             db_action.content = full_q
-                            require_approval = getattr(config, "require_post_approval", True)
+                            require_approval = getattr(config, "require_post_approval", False)
                             if require_approval:
                                 logger.info("Staging new poll for user approval on dashboard: '%s'", full_q[:50])
                                 draft_c = Content(
@@ -721,7 +721,7 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                 raw_tweets = gen_thread.tweets
 
                             db_action.content = f"Thread: {topic} ({len(raw_tweets)} tweets)"
-                            require_approval = getattr(config, "require_post_approval", True)
+                            require_approval = getattr(config, "require_post_approval", False)
                             if require_approval:
                                 logger.info("Staging new multi-tweet thread for user approval on dashboard: '%s' (%d tweets)", topic[:50], len(raw_tweets))
                                 from xbot.models.content import ThreadItem
@@ -2107,7 +2107,7 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
 
                             cfg_path = Path(settings.BASE_PROFILE_DIR) / profile_slug
                             prof_config = load_config(cfg_path) if cfg_path.exists() else None
-                            req_appr = getattr(prof_config, "require_post_approval", True) if prof_config else True
+                            req_appr = getattr(prof_config, "require_post_approval", False) if prof_config else False
                             staged_status = ContentStatus.DRAFT if req_appr else ContentStatus.APPROVED
 
                             content_record = Content(
@@ -2529,7 +2529,7 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
             for prof in profiles:
                 cfg_path = manager.base_profile_dir / prof.profile_slug
                 config = load_config(cfg_path) if cfg_path.exists() else None
-                require_approval = getattr(config, "require_post_approval", True) if config else True
+                require_approval = getattr(config, "require_post_approval", False) if config else False
 
                 # Allow auto-publishing if require_post_approval is False or if draft status is explicitly APPROVED
                 allowed_statuses = [ContentStatus.APPROVED, ContentStatus.DRAFT] if not require_approval else [ContentStatus.APPROVED]
