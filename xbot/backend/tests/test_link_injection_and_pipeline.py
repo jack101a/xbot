@@ -245,8 +245,10 @@ async def test_session_post_link_extraction_and_1st_reply_staging(db_session: As
     mock_config.schedule.timezone = "Asia/Kolkata"
     mock_config.proxy_url = None
 
+    persona_no_kol = sample_persona_with_kol.model_copy(update={"target_kols": []})
+
     with patch("xbot.tasks.AsyncSessionLocal", TestSessionLocal), \
-         patch("xbot.tasks.load_persona", return_value=sample_persona_with_kol), \
+         patch("xbot.tasks.load_persona", return_value=persona_no_kol), \
          patch("xbot.tasks.load_config", return_value=mock_config), \
          patch("xbot.tasks.plan_session", AsyncMock(return_value=plan)), \
          patch("xbot.tasks.SafetyGuard.is_action_safe", AsyncMock(return_value=True)), \
