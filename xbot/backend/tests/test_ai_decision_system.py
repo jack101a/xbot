@@ -287,14 +287,14 @@ async def test_content_generator_with_retries(db_session: AsyncSession, tmp_path
 async def test_engagement_evaluator_heuristics_and_llm(
     db_session: AsyncSession, tmp_path: Path
 ) -> None:
-    profile_slug = "test_slug"
+    profile_slug = "test_slug_eval"
     profile_dir = tmp_path / profile_slug
     populate_profile_files(profile_dir)
 
     profile = Profile(
         profile_slug=profile_slug,
-        x_handle="@testslug",
-        display_name="Test Slug",
+        x_handle="@testslugeval",
+        display_name="Test Slug Eval",
         status=ProfileStatus.ACTIVE,
     )
     db_session.add(profile)
@@ -310,7 +310,7 @@ async def test_engagement_evaluator_heuristics_and_llm(
         assert decision.action == "skip"
 
     # Test 2: Relationship user (triggers Fast LLM call)
-    tweet_in = {"author": "alice", "text": "check this out!"}
+    tweet_in = {"author": "alice", "text": "check this out!", "impressions": 10000}
     mock_response = AsyncMock()
     mock_response.choices = [
         AsyncMock(
@@ -326,9 +326,13 @@ async def test_engagement_evaluator_heuristics_and_llm(
         )
     ]
 
+    mock_create_resp = AsyncMock()
+    mock_create_resp.choices = [AsyncMock(message=AsyncMock(content='{"content": "This is amazing!"}'))]
+
     with patch("xbot.ai.engagement.get_ai_client") as mock_get_client:
         mock_client = AsyncMock()
         mock_client.beta.chat.completions.parse.return_value = mock_response
+        mock_client.chat.completions.create.return_value = mock_create_resp
         mock_get_client.return_value = mock_client
 
         # Trigger first call (under budget)

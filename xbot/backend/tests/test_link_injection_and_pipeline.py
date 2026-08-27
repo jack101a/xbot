@@ -40,13 +40,11 @@ TestSessionLocal = async_sessionmaker(
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db() -> None:
     async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield
-    try:
-        async with test_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
-    except Exception:
-        pass
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 
 @pytest_asyncio.fixture
@@ -221,7 +219,7 @@ async def test_session_post_link_extraction_and_1st_reply_staging(db_session: As
         id=uuid.uuid4(),
         display_name="Kaya Growth",
         x_handle="@kayagrowth",
-        profile_slug="test_growth_profile",
+        profile_slug=f"test_growth_profile_{uuid.uuid4().hex[:6]}",
         status=ProfileStatus.ACTIVE,
     )
     db_session.add(profile)
@@ -255,7 +253,8 @@ async def test_session_post_link_extraction_and_1st_reply_staging(db_session: As
          patch("xbot.tasks.SafetyGuard.record_action_success", AsyncMock()), \
          patch("xbot.tasks.BrowserManager.acquire_lock", return_value=True), \
          patch("xbot.tasks.BrowserManager.release_lock", return_value=True), \
-         patch("xbot.tasks.BrowserManager.get_context", AsyncMock()):
+         patch("xbot.tasks.BrowserManager.get_context", AsyncMock()), \
+         patch("xbot.ai.x_researcher.research_topic_comprehensively", AsyncMock(return_value=None)):
 
         session_res = await _run_session_async(str(profile.id))
         assert session_res is not None
@@ -283,7 +282,7 @@ async def test_session_post_link_extraction_and_direct_publishing_1st_reply(db_s
         id=uuid.uuid4(),
         display_name="Kaya Growth",
         x_handle="@kayagrowth",
-        profile_slug="test_growth_profile",
+        profile_slug=f"test_growth_profile_{uuid.uuid4().hex[:6]}",
         status=ProfileStatus.ACTIVE,
     )
     db_session.add(profile)
@@ -313,8 +312,10 @@ async def test_session_post_link_extraction_and_direct_publishing_1st_reply(db_s
     mock_page = AsyncMock()
     mock_context.new_page.return_value = mock_page
 
+    persona_no_kol = sample_persona_with_kol.model_copy(update={"target_kols": []})
+
     with patch("xbot.tasks.AsyncSessionLocal", TestSessionLocal), \
-         patch("xbot.tasks.load_persona", return_value=sample_persona_with_kol), \
+         patch("xbot.tasks.load_persona", return_value=persona_no_kol), \
          patch("xbot.tasks.load_config", return_value=mock_config), \
          patch("xbot.tasks.plan_session", AsyncMock(return_value=plan)), \
          patch("xbot.tasks.SafetyGuard.is_action_safe", AsyncMock(return_value=True)), \
@@ -324,6 +325,7 @@ async def test_session_post_link_extraction_and_direct_publishing_1st_reply(db_s
          patch("xbot.tasks.BrowserManager.get_context", AsyncMock(return_value=mock_context)), \
          patch("xbot.tasks.ComposePost.execute", AsyncMock(return_value=True)) as mock_compose, \
          patch("xbot.tasks.ReplyToTweet.execute", AsyncMock(return_value=True)) as mock_reply, \
+         patch("xbot.ai.x_researcher.research_topic_comprehensively", AsyncMock(return_value=None)), \
          patch("xbot.tasks.sleep_with_jitter", AsyncMock()):
 
         session_res = await _run_session_async(str(profile.id))

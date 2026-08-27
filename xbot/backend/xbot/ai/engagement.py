@@ -202,7 +202,7 @@ class EngagementEvaluator:
             action = "skip"
             confidence = 1.0
 
-        impressions = int(tweet_data.get("impressions", 0) or tweet_data.get("views", 0) or 0)
+        impressions = int(tweet.get("impressions", 0) or tweet.get("views", 0) or 0)
         # Enforce min 50k views rule for quote-tweeting
         if action == "quote":
             if 0 < impressions < 50_000:
