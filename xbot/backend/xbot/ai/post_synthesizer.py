@@ -12,6 +12,12 @@ from xbot.ai.client import get_ai_client
 from xbot.ai.fact_grounder import search_web_grounding
 from xbot.ai.hook_optimizer import extract_links, trim_open_loop_hook
 from xbot.ai.vision import analyze_image_context
+from xbot.ai.formatting_engine import (
+    ARCHETYPE_REGISTRY,
+    PostFormattingArchetype,
+    post_process_formatted_content,
+    select_archetype,
+)
 from xbot.config import settings
 from xbot.persona.loader import Persona
 
@@ -21,6 +27,7 @@ logger = logging.getLogger(__name__)
 class SynthesizedPostResult(BaseModel):
     post_type: Literal["post", "thread", "poll"] = "post"
     content: str
+    archetype: str | None = None
     thread_items: list[str] | None = None
     poll_options: list[str] | None = None
     poll_duration_days: int = 1
@@ -41,6 +48,7 @@ def _build_clean_creator_prompt(
     search_facts: list[dict[str, str]] | None = None,
     recent_posts: list[str] | None = None,
     post_type: str = "post",
+    archetype: PostFormattingArchetype | None = None,
 ) -> str:
     """
     Constructs a clean, high-signal, zero-bloat prompt for the heavy writing model.
@@ -73,10 +81,15 @@ def _build_clean_creator_prompt(
         if fact_lines:
             sections.append(f"## 🌐 Live Web Search Facts (Verified via SearXNG)\n" + "\n".join(fact_lines))
 
-    # 4. Few-Shot Creator Examples
-    examples = persona.writing_style.examples if persona.writing_style.examples else []
-    if examples:
-        ex_formatted = "\n\n".join(f"Example {idx+1}:\n\"{ex}\"" for idx, ex in enumerate(examples[:5]))
+    # 4. Archetype-Specific Layout Directives & Few-Shot Formatting
+    if post_type == "post" and archetype and archetype in ARCHETYPE_REGISTRY:
+        spec = ARCHETYPE_REGISTRY[archetype]
+        sections.append(f"## 🎯 Structural Archetype Directive: {spec.display_name}\n{spec.directives}")
+        if spec.few_shot_examples:
+            ex_text = "\n\n".join(f"Example {i+1}:\n\"{ex}\"" for i, ex in enumerate(spec.few_shot_examples))
+            sections.append(f"## ✍️ Layout & Micro-Pacing Few-Shot Examples\n{ex_text}")
+    elif persona.writing_style.examples:
+        ex_formatted = "\n\n".join(f"Example {idx+1}:\n\"{ex}\"" for idx, ex in enumerate(persona.writing_style.examples[:5]))
         sections.append(f"## ✍️ High-Engagement Creator Style Examples\n{ex_formatted}")
 
     # 5. Anti-Duplication Guard
@@ -89,9 +102,9 @@ def _build_clean_creator_prompt(
     if post_type == "thread":
         sections.append(
             "## 🧵 Multi-Tweet Thread Instructions (3-4 Tweets):\n"
-            "- Tweet 1 (Hook): Scroll-stopping curiosity cliffhanger strictly < 100 characters before the mobile fold with 1 emoji ending in 🧵\n"
+            "- Tweet 1 (Hook): Scroll-stopping curiosity cliffhanger strictly < 100 characters before the mobile fold\n"
             "- Tweets 2-3 (Body): 1 punchy takeaway per tweet formatted as high-utility bookmark-bait (numbered action steps or minimal bullets `•` / `-`)\n"
-            "- Tweet 4 (Closer): Concluding natural takeaway or debate question (NEVER write 'TL;DR:' or 'TLDR:') + 1 authentic research hashtag\n"
+            "- Tweet 4 (Closer): Concluding natural takeaway or debate question (NEVER write 'TL;DR:' or 'TLDR:')\n"
             "- Spacing: Use clean double line breaks (\\n\\n) between thoughts for mobile readability\n"
             "- Zero external URLs in tweets (links belong in 1st reply)"
         )
@@ -103,14 +116,12 @@ def _build_clean_creator_prompt(
         )
     else:
         sections.append(
-            "## ✍️ Standalone Post Instructions:\n"
-            "- Creative Freedom & Variety: Match human creator cadence. Choose naturally among:\n"
-            "  • Ultra-short punchy take (1-10 words: 'real', 'pure cinema', 'W', 'who approved this')\n"
-            "  • Dry observation or relatable irony with natural wit\n"
-            "  • Open-loop curiosity hook (< 100 characters before the mobile fold)\n"
-            "  • High-utility numbered framework, cheat sheet, or bookmark-bait (+50x reach)\n"
-            "- Emojis & Formatting: Include 1-2 authentic emojis (e.g. 🍿, ☕, 💀, 💅, 🧵, 👀, 🤌) and 1-2 research-grounded hashtags (e.g. #Bollywood, #AppleEvent). Use clean double line breaks (\\n\\n) for spacing.\n"
-            "- Single Topic Focus: Centered on ONE clear premise. Grounded in actual research from X and search engines.\n"
+            "## ✍️ General Post Rules:\n"
+            "- Mobile Fold Hook: Keep the opening curiosity hook < 100 characters before the first line break.\n"
+            "- High-Utility & Variety: Match authentic human cadence (micro-takes, staccato observations, bookmark-bait frameworks).\n"
+            "- Double Line Breaks: Separate distinct thoughts with clean double line breaks (\\n\\n) for mobile readability.\n"
+            "- No Formulaic Trailing Emojis: Do NOT default to adding a solitary emoji at the end of the post. Keep >60% of posts ending cleanly on punctuation.\n"
+            "- Single Topic Focus: Centered on ONE clear premise. Grounded in actual research.\n"
             "- Native Text Only: DO NOT include external URLs in the post body (100% native text)."
         )
 
@@ -123,16 +134,16 @@ async def synthesize_creator_post(
     image_url: str | None = None,
     recent_posts: list[str] | None = None,
     post_type: Literal["post", "thread", "poll"] = "post",
+    recent_archetypes: list[str] | None = None,
     client: Any | None = None,
 ) -> SynthesizedPostResult:
     """
     Unified 5-Stage Creator Post Synthesis Pipeline:
-    1. Vision Analysis via Gemini Flash Lite (2 retries) if image present.
-    2. Real-Time Fact Grounding via SearXNG (search.ajaxhs.duckdns.org).
-    3. Few-Shot Creator Examples Injection.
-    4. Clean, Zero-Bloat Prompt Assembly (with open-loop hook & bookmark directives).
-    5. Heavy Writing Model Generation (Gemini Flash Latest -> DeepSeek Flash) with safe discard,
-       link stripping to isolated extracted_link for 1st-reply injection, and <100 char open-loop hook extraction.
+    1. Vision Analysis via Gemini Flash Lite if image present.
+    2. Real-Time Fact Grounding via SearXNG.
+    3. Dynamic Structural Archetype Selection (Anti-Monotony).
+    4. Clean Prompt Assembly with archetype layout directives and few-shot pacing.
+    5. Heavy Writing Generation + Post-processing (whitespace pacing, trailing emoji stripping, link extraction).
     """
     if client is None:
         client = get_ai_client()
@@ -155,7 +166,16 @@ async def synthesize_creator_post(
     except Exception as s_err:
         logger.debug("Web search grounding skipped: %s", s_err)
 
-    # Step 3 & 4: Clean, Uncluttered User Prompt
+    # Step 3: Dynamic Archetype Selection
+    selected_archetype = select_archetype(
+        topic=topic,
+        has_media=bool(image_url),
+        persona=persona,
+        recent_archetypes=recent_archetypes,
+        content_type=post_type,
+    )
+
+    # Step 4: Clean, Uncluttered User Prompt with Archetype Directives
     user_prompt = _build_clean_creator_prompt(
         topic=topic,
         persona=persona,
@@ -163,6 +183,7 @@ async def synthesize_creator_post(
         search_facts=search_facts,
         recent_posts=recent_posts,
         post_type=post_type,
+        archetype=selected_archetype,
     )
 
     system_prompt = (
@@ -185,7 +206,12 @@ async def synthesize_creator_post(
 
     # Step 5: Heavy Writing Model Generation
     try:
-        logger.info("Synthesizing creator post via heavy writing cascade (%s) on topic: '%s'", writing_model, topic[:50])
+        logger.info(
+            "Synthesizing creator post via heavy writing cascade (%s) on topic '%s' [archetype=%s]",
+            writing_model,
+            topic[:50],
+            selected_archetype.value,
+        )
         response = await client.chat.completions.create(
             model=writing_model,
             messages=[
@@ -203,11 +229,11 @@ async def synthesize_creator_post(
         data = json.loads(clean_json)
         raw_content = data.get("content", "").strip()
 
-        # Gatekeeper check & minor typography remediation
-        remediated_content = gatekeeper.remediate_minor_issues(raw_content)
+        # Enforce dynamic formatting post-processing (whitespace pacing, trailing emoji stripping, length cadence)
+        formatted_content = post_process_formatted_content(raw_content, archetype=selected_archetype)
 
         # Enforce link extraction: strip external URLs into extracted_link for 1st-reply injection
-        clean_content, extracted_link = extract_links(remediated_content)
+        clean_content, extracted_link = extract_links(formatted_content)
 
         # Extract <100 char open-loop curiosity hook
         open_loop_hook = None
@@ -220,7 +246,7 @@ async def synthesize_creator_post(
             cleaned_threads = []
             for t in thread_items:
                 if t:
-                    rem_t = gatekeeper.remediate_minor_issues(str(t).strip())
+                    rem_t = post_process_formatted_content(str(t).strip())
                     clean_t, t_link = extract_links(rem_t)
                     cleaned_threads.append(clean_t)
                     if not extracted_link and t_link:
@@ -236,6 +262,7 @@ async def synthesize_creator_post(
         return SynthesizedPostResult(
             post_type=post_type,
             content=clean_content,
+            archetype=selected_archetype.value,
             thread_items=thread_items,
             poll_options=poll_options,
             poll_duration_days=int(data.get("poll_duration_days", 1)),
@@ -252,6 +279,7 @@ async def synthesize_creator_post(
         return SynthesizedPostResult(
             post_type=post_type,
             content="",
+            archetype=selected_archetype.value if 'selected_archetype' in locals() else None,
             reasoning="Writing failed: Heavy writing models were unavailable or timed out. Discarded to prevent posting low-quality slop.",
             status="failed",
             error=str(e),

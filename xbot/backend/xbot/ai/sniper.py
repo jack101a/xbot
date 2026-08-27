@@ -8,6 +8,10 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from xbot.ai.client import get_ai_client
+from xbot.ai.formatting_engine import (
+    enforce_pacing_whitespace,
+    strip_formulaic_trailing_emojis,
+)
 from xbot.config import settings
 from xbot.persona.loader import Persona
 
@@ -16,17 +20,17 @@ logger = logging.getLogger(__name__)
 VALID_ANGLES = {"contrarian", "framework", "question", "witty", "data", "insight"}
 
 SNIPER_PROMPT_TEMPLATE = """=== HIGH-IMPACT SNIPER REPLY ARCHITECTURE ===
-Select the most natural, high-signal reply archetype based on the tweet and room vibe:
-1. Sharp One-Liner / Witty Banter (40-100 chars): Direct observation, sarcastic humor, or dry roast.
-2. High-Value Counter-Take / Insight (90-250 chars): Nuanced trade-off, data angle, or contrarian perspective.
-3. Engaging Debate Catalyst (80-240 chars): Provocative observation concluding in a compelling question ('?') to compel an author reply-back (+150x Phoenix multiplier).
+Give yourself creative freedom to match the room naturally:
+1. Casual Banter / Pure Reaction (1-40 chars): Casual takes like 'good 💯', 'nice', 'real', 'W', 'pure cinema 😭', or simply a reaction GIF query.
+2. Sharp One-Liner / Witty Banter (40-100 chars): Direct observation, sarcastic humor, or dry roast.
+3. High-Value Counter-Take / Insight (90-260 chars): Nuanced trade-off, data angle, or contrarian perspective.
+4. Engaging Debate Catalyst (80-260 chars): Provocative observation concluding in a compelling question ('?') to compel an author reply-back (+150x Phoenix multiplier).
 
 === STRICT EMOJI & TONE RULES ===
+- EMOTION-DRIVEN CONTEXT ONLY: Use emojis naturally without fixed formulas; at least 50% should have ZERO emojis and NO trailing emoji habit.
 - NO TOPIC-LABELING EMOJIS: NEVER use literal category icons (NO 🍿 for cinema/movies, NO 🏴‍☠️ for anime/One Piece, NO ⌚ for watches, NO 🤖 for AI/tech, NO 💻 for code).
-- EMOTION-DRIVEN CONTEXT ONLY: Use an emoji ONLY if it reflects real human facial expression / emotional subtext (e.g. 😭, 🫠, 🤦‍♂️, 😮‍💨, 🤝, 🔥, 👀).
-- ZERO EMOJIS IS NATURAL: At least 50% of the time, use NO emoji at all (especially for deadpan, cynical, witty, or technical takes).
-- DO NOT PUT A FIXED EMOJI AT THE END OF EVERY POST.
-- DYNAMIC LENGTH: Do NOT force every reply into the same character length. Adapt naturally to the thought.
+- NATURAL CASUAL BANTER: Speak like a real human on X (punchy, witty, sarcastic, dry, or insightful).
+- DYNAMIC NATURAL LENGTH: Allow short 2-5 word takes ('real', 'pure cinema', 'W', 'nice 💯'), dry observations, or nuanced breakdowns.
 - Banned AI Clichés: delve, testament, tapestry, supercharge, beacon, plethora, moreover, furthermore, in conclusion, game-changer, leverage, multifaceted, pivotal, foster, vital, crucial, endeavor, Great post!, Awesome thread!
 - No Hashtags: Never include hashtags (#).
 - Indian Politics Ban: Zero political references.
@@ -136,7 +140,7 @@ def _build_sniper_system_prompt(persona: Persona, preferred_angle: str | None = 
         "   - Dry Disbelief/Humor: 'Marketing departments treating individual TV episodes like software patch notes is crazy 😭'\n"
         "   - Direct Punchy Observation: 'The M4 Max efficiency gap is actually absurd. Intel needs a miracle.'\n"
         "5. DYNAMIC LENGTH VARIETY: Do not force all replies to be the exact same length. Allow natural variety from a punchy 1-sentence observation (40-90 chars) to a multi-line thought (120-250 chars).\n"
-        "6. EMOJI EMOTION CONTEXT: Never use emojis as literal topic category tags (no 🍿 for movies, no 🏴‍☠️ for anime, no ⌚ for watches). Use emojis strictly for facial expression, tone, or sarcasm (😭, 🫠, 🤦‍♂️, 😮‍💨, 🤝, 🔥, 👀), and frequently use ZERO emojis for deadpan or technical takes.\n"
+        "6. EMOJI FREEDOM & ZERO TRAILING HABIT: Do NOT make it a fixed formula to end replies with 1 emoji. Over 50% of your replies should contain ZERO emojis. Never use emojis as category labels (no 🍿, no 🤖). Let text carry the weight.\n"
         "7. ZERO EXPENSIVE / FAKE ACADEMIC AI ENGLISH: STRICTLY BANNED: delve, tapestry, testament, supercharge, beacon, plethora, moreover, furthermore, in conclusion, game-changer, leverage, multifaceted, pivotal, foster, vital, crucial, endeavor. Speak in natural, grounded conversational voice.\n"
         "8. READ THE ROOM & POPULAR COMMENTS: Look at the tweet and top comments. If people are roasting or joking, join the banter with witty sarcasm. If it's a technical debate, bring empirical nuance.\n"
         "9. GIF / REACTION ATTACHMENT: When a reply has strong comedic timing, reaction, shock, or sarcasm, provide a 1-3 word gif_query (e.g. 'side eye', 'facepalm', 'smug nod', 'confused math', 'holding back tears') to attach a visual meme/reaction. For dry analytical takes, return null.\n"
@@ -310,7 +314,7 @@ def _build_sniper_user_prompt(target_tweet: dict[str, Any], preferred_angle: str
     prompt += (
         "\nReturn a JSON object with this exact schema:\n"
         "{\n"
-        "  \"reply_text\": \"Your complete 3-stage reply text (strictly 140-260 characters, ending with a debate catalyst question '?')\",\n"
+        "  \"reply_text\": \"Your complete reply text (natural length 60-260 characters, ending with a debate catalyst question '?')\",\n"
         "  \"debate_catalyst\": \"The exact closing question extracted from reply_text that compels the author to reply back\",\n"
         "  \"angle\": \"contrarian | framework | question | witty | data | insight\",\n"
         "  \"gif_query\": \"null by default. ONLY provide a 1-2 word reaction GIF search keyword if a visual reaction is genuinely needed for comedic impact; otherwise ALWAYS return null\",\n"
@@ -438,6 +442,7 @@ async def generate_sniper_reply(
     persona: Persona,
     target_tweet: dict[str, Any],
     preferred_angle: str | None = None,
+    opportunity_score: Any | None = None,
     client: Any | None = None,
 ) -> SniperResult:
     """
@@ -561,6 +566,9 @@ async def generate_sniper_reply(
                 if raw_gif and str(raw_gif).strip().lower() not in ("null", "none", "", "n/a", "false"):
                     if angle_used in ("witty", "contrarian"):
                         gif_query = str(raw_gif).strip()
+
+                reply_text = strip_formulaic_trailing_emojis(reply_text)
+                reply_text = enforce_pacing_whitespace(reply_text)
 
                 if not reply_text.endswith("?") and reply_text:
                     reply_text = reply_text.rstrip(".! ") + "?"
