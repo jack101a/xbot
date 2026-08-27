@@ -702,10 +702,12 @@ class ReplyToTweet(BaseAction):
     Supports optional reaction GIF attachment.
     """
 
-    async def scrape_target_tweet_context(self, page: Page, target_idx: int = 0) -> dict[str, Any]:
+    async def scrape_target_tweet_context(
+        self, page: Page, target_idx: int = 0, tweet_url: str | None = None
+    ) -> dict[str, Any]:
         """
-        Scrapes full live text, author, and top 5-10 visible comment replies from the current tweet thread.
-        Performs smooth scroll to ensure deep thread comprehension (5-10 comments).
+        Scrapes full live text, author, metrics, media URLs/alts, and top visible comment replies
+        from the current tweet thread.
         """
         try:
             tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
@@ -729,33 +731,36 @@ class ReplyToTweet(BaseAction):
             if text_el:
                 text = (await text_el.inner_text()).strip()
 
-            # Helper to parse metric numbers like "1.2K", "450", "2M"
-            def _parse_comment_likes(val_str: str) -> int:
-                val = val_str.strip().replace(",", "")
-                if not val:
+            # Helper to parse metric numbers like "1.2K", "450", "2M", "1,200"
+            def _parse_metric(val_str: str | None) -> int:
+                if not val_str:
                     return 0
-                m = re.search(r'([\d\.]+)\s*([KkMm]?)', val)
+                val = str(val_str).replace(",", "").replace("\u00a0", " ").strip()
+                m = re.search(r'([\d\.]+)\s*([KkMmBbtT]?)', val)
                 if not m:
                     return 0
                 try:
-                    n = float(m.group(1))
+                    num = float(m.group(1))
                     unit = m.group(2).upper()
                     if unit == "K":
-                        return int(n * 1000)
+                        return int(num * 1000)
                     elif unit == "M":
-                        return int(n * 1000000)
-                    return int(n)
+                        return int(num * 1000000)
+                    elif unit == "B" or unit == "T":
+                        return int(num * 1000000000)
+                    return int(num)
                 except Exception:
                     return 0
 
-            # Scrape top 5-10 comments in thread (filtered & sorted by popularity/likes)
+            # Scrape top comments in thread (filtered & sorted by popularity/likes)
             collected_comments: list[dict[str, Any]] = []
             seen_texts: set[str] = set()
 
             async def _collect_comments():
                 nonlocal collected_comments, seen_texts
                 all_tweets = await page.query_selector_all(SELECTORS["tweet"])
-                for comment_el in all_tweets[1:]:
+                comment_elements = all_tweets[target_idx + 1:] if len(all_tweets) > target_idx else []
+                for comment_el in comment_elements:
                     c_text_el = await comment_el.query_selector(SELECTORS.get("tweet_text", '[data-testid="tweetText"]'))
                     if not c_text_el:
                         continue
@@ -780,7 +785,7 @@ class ReplyToTweet(BaseAction):
                         if like_el:
                             aria_label = await like_el.get_attribute("aria-label") or ""
                             like_text = await like_el.inner_text() or ""
-                            c_likes = _parse_comment_likes(aria_label) or _parse_comment_likes(like_text)
+                            c_likes = _parse_metric(aria_label) or _parse_metric(like_text)
                     except Exception:
                         pass
 
@@ -794,41 +799,58 @@ class ReplyToTweet(BaseAction):
             await _collect_comments()
 
             # Scroll gently down to load 15-20 comments to find the most popular/top-liked
-            if len(collected_comments) < 8:
-                await page.evaluate("window.scrollBy(0, 600)")
-                await sleep_with_jitter(1000)
-                await _collect_comments()
+            try:
+                if len(collected_comments) < 8:
+                    await page.evaluate("window.scrollBy(0, 600)")
+                    await sleep_with_jitter(1000)
+                    await _collect_comments()
 
-            if len(collected_comments) < 15:
-                await page.evaluate("window.scrollBy(0, 800)")
-                await sleep_with_jitter(1000)
-                await _collect_comments()
+                if len(collected_comments) < 15:
+                    await page.evaluate("window.scrollBy(0, 800)")
+                    await sleep_with_jitter(1000)
+                    await _collect_comments()
+            except Exception:
+                pass
 
             # Sort descending by likes / popularity (most popular first)
             collected_comments.sort(key=lambda c: c["likes"], reverse=True)
+            top_comments = collected_comments[:10]
 
-            top_comments: list[str] = []
-            for c in collected_comments[:10]:
-                if c["author"]:
-                    like_info = f" ({c['likes']} likes)" if c['likes'] > 0 else ""
-                    top_comments.append(f"@{c['author']}{like_info}: {c['text']}")
-                else:
-                    top_comments.append(c['text'])
-
-            # Scrape attached media images and alt text
+            # Scrape attached media images, videos, and alt text
             media_urls: list[str] = []
             media_alts: list[str] = []
             try:
+                # 1. Images
                 img_elements = await target_tweet.query_selector_all(
-                    '[data-testid="tweetPhoto"] img, div[aria-label="Image"] img, img[alt*="Image"]'
+                    '[data-testid="tweetPhoto"] img, div[aria-label="Image"] img, img[alt*="Image"], img'
                 )
                 for img in img_elements:
                     src = await img.get_attribute("src")
                     alt = await img.get_attribute("alt")
-                    if src and src.startswith("http") and "profile_images" not in src and "emoji" not in src and "svg" not in src:
-                        media_urls.append(src)
-                    if alt and alt.strip() and alt != "Image":
-                        media_alts.append(alt.strip())
+                    if src and src.startswith("http") and not any(ignored in src for ignored in ("profile_images", "emoji", "svg", "twemoji", "avatar")):
+                        if src not in media_urls:
+                            media_urls.append(src)
+                    if alt and alt.strip():
+                        alt_clean = alt.strip()
+                        if alt_clean.lower() not in ("image", "embedded video", "profile image", "avatar") and alt_clean not in media_alts:
+                            media_alts.append(alt_clean)
+
+                # 2. Videos
+                video_elements = await target_tweet.query_selector_all(
+                    '[data-testid="videoPlayer"] video, [data-testid="videoComponent"] video, video'
+                )
+                for vid in video_elements:
+                    v_src = await vid.get_attribute("src")
+                    if not v_src:
+                        source_el = await vid.query_selector("source")
+                        if source_el:
+                            v_src = await source_el.get_attribute("src")
+                    if v_src and v_src.startswith("http") and v_src not in media_urls:
+                        media_urls.append(v_src)
+                    elif not v_src:
+                        v_poster = await vid.get_attribute("poster")
+                        if v_poster and v_poster.startswith("http") and v_poster not in media_urls:
+                            media_urls.append(v_poster)
             except Exception:
                 pass
 
@@ -839,37 +861,39 @@ class ReplyToTweet(BaseAction):
             retweets_count = 0
             try:
                 # 1. Views / Analytics
-                view_el = await target_tweet.query_selector('a[href*="/analytics"], [data-testid="app-text-transition-container"], [aria-label*="Views"], [aria-label*="views"]')
+                view_el = await target_tweet.query_selector(
+                    'a[href*="/analytics"], [data-testid="app-text-transition-container"], [aria-label*="Views"], [aria-label*="views"], [aria-label*="Impressions"], [aria-label*="impressions"]'
+                )
                 if view_el:
                     v_aria = await view_el.get_attribute("aria-label") or ""
                     v_text = await view_el.inner_text() or ""
-                    views_count = _parse_comment_likes(v_aria) or _parse_comment_likes(v_text)
+                    views_count = _parse_metric(v_aria) or _parse_metric(v_text)
 
                 # 2. Likes
-                like_el = await target_tweet.query_selector('[data-testid="like"], button[aria-label*="Like"]')
+                like_el = await target_tweet.query_selector('[data-testid="like"], button[aria-label*="Like"], div[data-testid="like"]')
                 if like_el:
                     l_aria = await like_el.get_attribute("aria-label") or ""
                     l_text = await like_el.inner_text() or ""
-                    likes_count = _parse_comment_likes(l_aria) or _parse_comment_likes(l_text)
+                    likes_count = _parse_metric(l_aria) or _parse_metric(l_text)
 
                 # 3. Replies
-                reply_el = await target_tweet.query_selector('[data-testid="reply"], button[aria-label*="Reply"]')
+                reply_el = await target_tweet.query_selector('[data-testid="reply"], button[aria-label*="Reply"], div[data-testid="reply"]')
                 if reply_el:
                     r_aria = await reply_el.get_attribute("aria-label") or ""
                     r_text = await reply_el.inner_text() or ""
-                    replies_count = _parse_comment_likes(r_aria) or _parse_comment_likes(r_text)
+                    replies_count = _parse_metric(r_aria) or _parse_metric(r_text)
 
                 # 4. Retweets
-                rt_el = await target_tweet.query_selector('[data-testid="retweet"], button[aria-label*="Repost"]')
+                rt_el = await target_tweet.query_selector('[data-testid="retweet"], button[aria-label*="Repost"], button[aria-label*="Retweet"], div[data-testid="retweet"]')
                 if rt_el:
                     rt_aria = await rt_el.get_attribute("aria-label") or ""
                     rt_text = await rt_el.inner_text() or ""
-                    retweets_count = _parse_comment_likes(rt_aria) or _parse_comment_likes(rt_text)
+                    retweets_count = _parse_metric(rt_aria) or _parse_metric(rt_text)
             except Exception:
                 pass
 
             logger.info(
-                "Scraped live thread context on page: author=@%s, text_preview='%s', views=%d, likes=%d, captured_comments=%d, images=%d",
+                "Scraped live thread context on page: author=@%s, text_preview='%s', views=%d, likes=%d, captured_comments=%d, media=%d",
                 author,
                 text[:40],
                 views_count,
@@ -885,7 +909,7 @@ class ReplyToTweet(BaseAction):
                 "likes": likes_count,
                 "replies": replies_count,
                 "retweets": retweets_count,
-                "top_comments": top_comments[:10],
+                "top_comments": top_comments,
                 "media_urls": media_urls[:4],
                 "media_alts": media_alts[:4],
             }
