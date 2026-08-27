@@ -16,11 +16,12 @@ import {
   Moon,
   Shield,
   Layers,
-  User
+  User,
+  Sparkles,
 } from "lucide-react";
 import { Profile, SystemHealth } from "@/lib/api";
 
-export type TabType = "overview" | "growth" | "activity" | "persona" | "limits";
+export type TabType = "overview" | "campaigns" | "growth" | "activity" | "persona" | "limits";
 
 interface SidebarProps {
   activeTab: TabType;
@@ -53,6 +54,7 @@ export function Sidebar({
 
   const navItems: { id: TabType; label: string; icon: React.ElementType; badge?: string }[] = [
     { id: "overview", label: "Overview", icon: LayoutDashboard },
+    { id: "campaigns", label: "Campaign Studio", icon: Sparkles, badge: "AI" },
     { id: "growth", label: "Growth Engine", icon: Zap, badge: "AI" },
     { id: "activity", label: "Live Activity", icon: Activity },
     { id: "persona", label: "Persona & Memory", icon: Brain },
@@ -60,7 +62,7 @@ export function Sidebar({
   ];
 
   return (
-    <aside className="w-72 flex-shrink-0 flex flex-col h-screen border-r border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/80 backdrop-blur-xl transition-colors duration-200 z-30">
+    <aside className="hidden lg:flex w-72 flex-shrink-0 flex-col h-screen border-r border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/80 backdrop-blur-xl transition-colors duration-200 z-30">
       {/* App Branding */}
       <div className="p-5 pb-3 flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60">
         <div className="flex items-center gap-3">

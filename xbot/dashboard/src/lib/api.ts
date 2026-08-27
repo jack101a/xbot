@@ -414,5 +414,52 @@ export const api = {
     if (baseUrl) q += `&base_url=${encodeURIComponent(baseUrl)}`;
     if (apiKey) q += `&api_key=${encodeURIComponent(apiKey)}`;
     return request<{ models: string[]; raw?: any[] }>(q);
-  }
+  },
+
+  // On-Demand Campaign Studio (AI Creative Director)
+  generateCampaign: (data: { profile_id: string; prompt: string }) =>
+    request<{ campaign_id: string; status: string; message: string }>('/api/campaigns/generate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getCampaignStatus: (campaignId: string) =>
+    request<{
+      campaign_id: string;
+      status: 'initializing' | 'decomposing' | 'researching' | 'synthesizing' | 'ready' | 'failed';
+      current_step: string;
+      progress_percent: number;
+      plan?: {
+        campaign_title: string;
+        theme: string;
+        overall_strategy: string;
+        deliverables: Array<{
+          id: string;
+          type: string;
+          topic: string;
+          search_query: string;
+          target_media_count: number;
+          instructions: string;
+        }>;
+      };
+      deliverables: Array<{
+        content_id: string;
+        deliverable_id: string;
+        type: 'thread' | 'poll' | 'visual' | 'post';
+        topic: string;
+        text?: string;
+        thread_tweets?: string[];
+        question?: string;
+        options?: string[];
+        duration_days?: number;
+        media_paths?: string[];
+        status: string;
+        extracted_link?: string;
+      }>;
+      error?: string;
+    }>(`/api/campaigns/${campaignId}/status`),
+  publishCampaign: (campaignId: string, data: { content_ids: string[]; mode: 'instant' | 'schedule'; interval_minutes?: number }) =>
+    request<{ status: string; campaign_id: string; mode: string; items_updated: number }>(`/api/campaigns/${campaignId}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 };

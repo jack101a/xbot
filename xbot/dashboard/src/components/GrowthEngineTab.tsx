@@ -20,7 +20,8 @@ import {
   Check,
   BadgeCheck,
   UserCheck,
-  Users
+  Users,
+  Search
 } from "lucide-react";
 import { api, Profile } from "@/lib/api";
 

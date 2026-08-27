@@ -608,7 +608,7 @@ export function OverviewTab({
                         </span>
                       </div>
                       <div className="p-2 flex flex-wrap gap-2 justify-center bg-slate-950/40">
-                        {d.ai_metadata.media_paths.map((mPath, mIdx) => {
+                        {d.ai_metadata.media_paths.map((mPath: string, mIdx: number) => {
                           const cleanRel = mPath.replace(/^.*\/data\//, "");
                           const base = (API_BASE_URL || "").replace(/\/$/, "");
                           const fullUrl = mPath.startsWith("http://") || mPath.startsWith("https://") 
