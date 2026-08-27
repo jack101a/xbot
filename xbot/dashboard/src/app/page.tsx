@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { useAppStore } from "@/store/useAppStore";
+import { useAppStore, TabType } from "@/store/useAppStore";
 import { DesktopSidebar } from "@/components/layout/DesktopSidebar";
+import { DesktopTopBar } from "@/components/layout/DesktopTopBar";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { MobileNavigation } from "@/components/layout/MobileNavigation";
 import { OverviewTab } from "@/features/overview/OverviewTab";
@@ -26,6 +27,7 @@ export default function DashboardPage() {
     sessions,
     rateLimits,
     loadingProfiles,
+    triggeringSession,
     showConnectModal,
     showSettingsModal,
     setModals,
@@ -40,14 +42,35 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+      const isModifier = e.metaKey || e.ctrlKey;
+
+      if (isModifier && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
         setModals({ settings: false, connect: false });
         useAppStore.getState().setCommandPaletteOpen(!useAppStore.getState().isCommandPaletteOpen);
+        return;
       }
-      if ((e.metaKey || e.ctrlKey) && (e.key === "\\" || e.key === "|" || e.code === "Backslash")) {
+
+      if (isModifier && (e.key === "\\" || e.key === "|" || e.code === "Backslash")) {
         e.preventDefault();
         useAppStore.getState().setConsoleOpen(!useAppStore.getState().isConsoleOpen);
+        return;
+      }
+
+      if (isModifier && ["1", "2", "3", "4", "5", "6"].includes(e.key)) {
+        e.preventDefault();
+        const tabMap: Record<string, TabType> = {
+          "1": "overview",
+          "2": "campaigns",
+          "3": "growth",
+          "4": "activity",
+          "5": "persona",
+          "6": "limits",
+        };
+        const targetTab = tabMap[e.key];
+        if (targetTab) {
+          useAppStore.getState().setActiveTab(targetTab);
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -62,6 +85,7 @@ export default function DashboardPage() {
 
       <main className="flex-1 flex flex-col h-screen overflow-y-auto relative pb-16 lg:pb-0">
         <MobileHeader />
+        <DesktopTopBar />
         
         <div className="flex-1 p-4 lg:p-6 pb-24 lg:pb-6 relative z-10 w-full max-w-7xl mx-auto">
           {loadingProfiles ? (
@@ -119,7 +143,7 @@ export default function DashboardPage() {
                   selectedProfile={selectedProfile}
                   initialSessionId={selectedSessionId}
                   onTriggerSession={triggerSession}
-                  triggeringSession={false} // Will integrate loading state later if needed
+                  triggeringSession={triggeringSession}
                 />
               )}
 

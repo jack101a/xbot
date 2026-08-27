@@ -21,6 +21,8 @@ interface AppState {
   mobileMenuOpen: boolean;
   isConsoleOpen: boolean;
   isCommandPaletteOpen: boolean;
+  sidebarCollapsed: boolean;
+  triggeringSession: boolean;
   activityStream: { id: string; timestamp: number; message: string; type: "info" | "success" | "error" }[];
 
   // Actions
@@ -31,6 +33,8 @@ interface AppState {
   setModals: (modals: Partial<{ connect: boolean; settings: boolean; mobileMenu: boolean }>) => void;
   setConsoleOpen: (isOpen: boolean) => void;
   setCommandPaletteOpen: (isOpen: boolean) => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
+  toggleSidebarCollapsed: () => void;
   appendActivityLog: (message: string, type?: "info" | "success" | "error") => void;
   
   // Async Actions
@@ -47,6 +51,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadingProfiles: true,
   sessions: [],
   selectedSessionId: undefined,
+  triggeringSession: false,
   
   activeTab: 'overview',
   darkMode: true,
@@ -55,6 +60,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   mobileMenuOpen: false,
   isConsoleOpen: false,
   isCommandPaletteOpen: false,
+  sidebarCollapsed: false,
   activityStream: [],
 
   setActiveTab: (tab) => set({ activeTab: tab, mobileMenuOpen: false }),
@@ -79,6 +85,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   })),
   setConsoleOpen: (isOpen) => set({ isConsoleOpen: isOpen }),
   setCommandPaletteOpen: (isOpen) => set({ isCommandPaletteOpen: isOpen }),
+  setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
+  toggleSidebarCollapsed: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   appendActivityLog: (message, type = "info") => set((state) => {
     const newLog = { id: Math.random().toString(36).substring(2, 11), timestamp: Date.now(), message, type };
     return { activityStream: [newLog, ...state.activityStream].slice(0, 100) };
@@ -127,11 +135,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   triggerSession: async () => {
     const { selectedProfileId } = get();
     if (!selectedProfileId) return;
+    set({ triggeringSession: true });
     try {
       await api.triggerSession(selectedProfileId);
       await get().loadProfileSessions(selectedProfileId);
     } catch (err) {
       console.error("Failed to trigger session", err);
+    } finally {
+      set({ triggeringSession: false });
     }
   }
 }));
