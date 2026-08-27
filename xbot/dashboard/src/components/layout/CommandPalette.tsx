@@ -132,7 +132,7 @@ export function CommandPalette() {
   profiles.forEach((p) => {
     actions.push({
       id: `profile-${p.id}`,
-      label: `Switch to workspace: ${p.display_name} (@${p.x_handle.replace(/^@/, "")})`,
+      label: `Switch to workspace: ${p.display_name} (@${(p.x_handle || "").replace(/^@/, "")})`,
       category: "Workspaces",
       icon: User,
       action: () => setSelectedProfileId(p.id),
@@ -167,7 +167,7 @@ export function CommandPalette() {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] px-4 sm:px-6">
       <div
-        className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm transition-opacity"
+        className="fixed inset-0 bg-slate-950/60 transition-opacity"
         onClick={() => setCommandPaletteOpen(false)}
       />
       <div

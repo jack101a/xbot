@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const {
     profiles,
     selectedProfileId,
+    selectedSessionId,
     activeTab,
     sessions,
     rateLimits,
@@ -116,7 +117,7 @@ export default function DashboardPage() {
                 <LiveActivityTab
                   profileId={selectedProfile.id}
                   selectedProfile={selectedProfile}
-                  initialSessionId={useAppStore.getState().selectedSessionId}
+                  initialSessionId={selectedSessionId}
                   onTriggerSession={triggerSession}
                   triggeringSession={false} // Will integrate loading state later if needed
                 />
