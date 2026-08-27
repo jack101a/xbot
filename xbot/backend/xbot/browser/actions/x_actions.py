@@ -77,6 +77,8 @@ async def check_target_tweet_status(page: Page, timeout: int = 15000) -> dict[st
 async def _navigate_home_if_needed(page: Page) -> None:
     """Navigate to the X home feed if not already there."""
     current = page.url
+    if current == "about:blank" or current.startswith("data:"):
+        return
     if "x.com/home" not in current and "twitter.com/home" not in current:
         try:
             await page.goto("https://x.com/home", wait_until="commit", timeout=25000)
@@ -84,6 +86,7 @@ async def _navigate_home_if_needed(page: Page) -> None:
         except Exception:
             pass
         await sleep_with_jitter(2000)
+
 
 
 async def _random_tab_detour(page: Page) -> None:
@@ -260,20 +263,22 @@ class BrowseFeed(BaseAction):
 
 
 async def _attach_gif_if_requested(page: Page, gif_query: str | None) -> bool:
-    """Helper to open X native GIF search, search for a query, and select a relevant GIF."""
+    """Helper to open X native Tenor GIF search, search for a query, and select a relevant GIF item."""
     if not gif_query:
         return False
     try:
         logger.info("Attempting to search and attach GIF for query: '%s'", gif_query)
         gif_btn_sel = (
-            'button[data-testid="gifSearchButton"], '
             'button[aria-label="Add a GIF"], '
+            'button[data-testid="gifSearchButton"], '
+            '[data-testid="gifSearchButton"], '
             'button[aria-label*="GIF"], '
+            'button[aria-label*="gif" i], '
             '[data-testid="fileInput"] + div button'
         )
         gif_btn = await page.query_selector(gif_btn_sel)
         if not gif_btn:
-            logger.debug("GIF search button not found in composer.")
+            logger.debug("GIF search button not found in composer, falling back to text-only.")
             return False
 
         await human_click(page, gif_btn, 200, 500)
@@ -281,31 +286,53 @@ async def _attach_gif_if_requested(page: Page, gif_query: str | None) -> bool:
 
         # Search input in GIF modal
         search_input_sel = (
+            'input[data-testid="searchBox"], '
             'input[data-testid="SearchBox_Search_Input"], '
+            'input[placeholder*="Search GIFs"], '
             'input[placeholder*="Search for GIFs"], '
-            'input[aria-label*="Search for GIFs"]'
+            'input[aria-label*="Search for GIFs"], '
+            'input[aria-label*="Search GIFs"]'
         )
-        search_input = await page.wait_for_selector(search_input_sel, timeout=6000)
-        if search_input:
-            await human_type(page, search_input_sel, gif_query)
-            await sleep_think_time(1200, 2500)
+        try:
+            search_input = await page.wait_for_selector(search_input_sel, timeout=6000)
+        except Exception:
+            search_input = None
 
-            # Select top GIF result
-            gif_result_sel = (
-                '[data-testid="gifSearchResults"] [role="button"], '
-                '[data-testid="gifCategory"], '
-                'div[role="button"][data-testid*="gif"]'
-            )
-            gif_items = await page.query_selector_all(gif_result_sel)
-            if gif_items:
-                target_gif = gif_items[0] if len(gif_items) == 1 else random.choice(gif_items[:min(3, len(gif_items))])
-                await human_click(page, target_gif, 300, 700)
-                await sleep_think_time(1000, 2000)
-                logger.info("Successfully attached GIF for query: '%s'", gif_query)
-                return True
+        if not search_input:
+            logger.warning("GIF search input not found, falling back to text-only.")
+            return False
+
+        await human_type(page, search_input_sel, gif_query)
+        await sleep_think_time(1200, 2500)
+
+        # Select top GIF result
+        gif_result_sel = (
+            '[data-testid="gifItem"], '
+            '[data-testid="gifSearchResults"] img, '
+            '[data-testid="gifSearchResults"] [role="button"], '
+            '[data-testid="gifCategory"], '
+            'div[role="button"][data-testid*="gif"], '
+            '[data-testid="gifSearchResults"] div'
+        )
+        try:
+            await page.wait_for_selector(gif_result_sel, timeout=6000)
+        except Exception:
+            pass
+
+        gif_items = await page.query_selector_all(gif_result_sel)
+        if gif_items:
+            target_gif = gif_items[0] if len(gif_items) == 1 else random.choice(gif_items[:min(2, len(gif_items))])
+            await human_click(page, target_gif, 300, 700)
+            await sleep_think_time(1000, 2000)
+            logger.info("Successfully attached GIF for query: '%s'", gif_query)
+            return True
+        else:
+            logger.warning("No GIF items found for query '%s', falling back to text-only.", gif_query)
+            return False
     except Exception as e:
-        logger.warning("Could not attach GIF: %s", e)
-    return False
+        logger.warning("Could not attach GIF (falling back to text-only): %s", e)
+        return False
+
 
 
 async def _attach_media_files(page: Page, media_paths: list[str] | None) -> bool:
@@ -363,10 +390,10 @@ class ComposePost(BaseAction):
     ) -> bool:
         try:
             # Ensure text is strictly <= 260 chars for free tier X accounts
-            if len(text) > 260:
+            if text and len(text) > 260:
                 text = text[:257].rstrip() + "..."
 
-            logger.info("Composing new post (%d chars, media=%s, gif=%s): %s...", len(text), media_paths, gif_query, text[:40])
+            logger.info("Composing new post (%d chars, media=%s, gif=%s): %s...", len(text) if text else 0, media_paths, gif_query, (text or "")[:40])
 
             textarea_sel = (
                 'div[data-testid="tweetTextarea_0"], '
@@ -404,10 +431,11 @@ class ComposePost(BaseAction):
             await human_click(page, textarea_el, 200, 500)
             await sleep_think_time(600, 1200)
 
-            # Type text via keyboard
-            for ch in text:
-                await page.keyboard.type(ch, delay=15)
-            await sleep_think_time(1000, 2000)
+            # Type text via keyboard if text is provided
+            if text:
+                for ch in text:
+                    await page.keyboard.type(ch, delay=15)
+                await sleep_think_time(1000, 2000)
 
             # Attach media files (images/videos) if provided
             if media_paths:
@@ -924,6 +952,7 @@ class ReplyToTweet(BaseAction):
         tweet_url: str | None = None,
         tweet_index: int | None = None,
         gif_query: str | None = None,
+        media_paths: list[str] | None = None,
     ) -> bool:
         try:
             if tweet_url:
@@ -949,7 +978,7 @@ class ReplyToTweet(BaseAction):
                     visible_count = min(len(tweet_elements), 6)
                     target_idx = random.randint(0, visible_count - 1)
 
-            logger.info("Replying to tweet at index %d (gif=%s)", target_idx, gif_query)
+            logger.info("Replying to tweet at index %d (gif=%s, media=%s)", target_idx, gif_query, media_paths)
 
             tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
             target_tweet = tweet_elements[target_idx] if tweet_elements and target_idx < len(tweet_elements) else None
@@ -974,15 +1003,20 @@ class ReplyToTweet(BaseAction):
             await sleep_think_time(1000, 2500)  # Formulate reply
 
             # Ensure reply_text is strictly <= 260 chars
-            if len(reply_text) > 260:
-                reply_text = reply_text[:257].rstrip() + "..."
+            if reply_text:
+                if len(reply_text) > 260:
+                    reply_text = reply_text[:257].rstrip() + "..."
+                # Type reply
+                await human_type(page, textarea_sel, reply_text)
+                await sleep_think_time(800, 2000)  # Review reply
 
-            # Type reply
-            await human_type(page, textarea_sel, reply_text)
-            await sleep_think_time(800, 2000)  # Review reply
+            # Attach media files if provided
+            if media_paths:
+                await _attach_media_files(page, media_paths)
+                await sleep_think_time(1500, 3000)
 
             # Attach GIF if requested
-            if gif_query:
+            if gif_query and not media_paths:
                 await _attach_gif_if_requested(page, gif_query)
                 await sleep_think_time(1000, 2000)
 
@@ -1071,6 +1105,8 @@ class QuoteTweet(BaseAction):
         quote_text: str,
         tweet_url: str | None = None,
         tweet_index: int | None = None,
+        gif_query: str | None = None,
+        media_paths: list[str] | None = None,
     ) -> bool:
         try:
             if tweet_url:
@@ -1121,9 +1157,22 @@ class QuoteTweet(BaseAction):
                 logger.warning("Could not locate quote composer textarea.")
                 return False
 
-            await sleep_think_time(600, 1500)
-            await human_type(page, composer_sel, quote_text)
-            await sleep_think_time(1000, 2500)
+            if quote_text:
+                if len(quote_text) > 260:
+                    quote_text = quote_text[:257].rstrip() + "..."
+                await sleep_think_time(600, 1500)
+                await human_type(page, composer_sel, quote_text)
+                await sleep_think_time(1000, 2500)
+
+            # Attach media files (images/videos) if provided
+            if media_paths:
+                await _attach_media_files(page, media_paths)
+                await sleep_think_time(1500, 3000)
+
+            # Attach GIF if requested
+            if gif_query and not media_paths:
+                await _attach_gif_if_requested(page, gif_query)
+                await sleep_think_time(1000, 2000)
 
             post_btn = await page.wait_for_selector(
                 '[role="dialog"] [data-testid="tweetButton"], [data-testid="tweetButton"]',
@@ -1141,6 +1190,7 @@ class QuoteTweet(BaseAction):
             await self.capture_failure(page, "quote_tweet")
             logger.error("Failed to quote tweet: %s", e)
             return False
+
 
 
 
