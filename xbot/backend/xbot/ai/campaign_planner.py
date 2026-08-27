@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from xbot.ai.client import get_ai_client
+from xbot.config import settings
 from xbot.persona.loader import Persona
 
 logger = logging.getLogger(__name__)
@@ -98,8 +99,9 @@ async def plan_campaign_from_prompt(
     user_msg = f"Creator Instruction:\n\"{prompt}\"\n{persona_context}\nDecompose this instruction into a high-impact Campaign Plan."
 
     try:
+        model = getattr(settings, "MODEL_PLANNER", "litellm/deepseek-v4-flash-0731,litellm/gemini-flash-latest")
         response = await client.chat.completions.create(
-            model="litellm/gemini-3.5-flash",
+            model=model,
             messages=[
                 {"role": "system", "content": CAMPAIGN_PLANNER_SYSTEM_PROMPT},
                 {"role": "user", "content": user_msg},

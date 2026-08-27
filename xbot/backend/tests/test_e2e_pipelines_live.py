@@ -221,7 +221,7 @@ async def test_e2e_trend_generator_4way_creation_matrix():
         # Verify staged content in DB
         staged_contents = (
             await db.execute(
-                select(Content).where(Content.profile_id == profile.id).order_by(Content.id.desc()).limit(3)
+                select(Content).where(Content.profile_id == profile.id).order_by(Content.created_at.desc()).limit(10)
             )
         ).scalars().all()
         

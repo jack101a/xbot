@@ -7,7 +7,12 @@ import re
 from typing import Any, Literal
 from pydantic import BaseModel, Field
 
-from xbot.ai.anti_ai_gatekeeper import ANTI_AI_TYPOGRAPHY_DIRECTIVE, AntiAIGatekeeper
+from xbot.ai.anti_ai_gatekeeper import (
+    ANTI_AI_TYPOGRAPHY_DIRECTIVE,
+    AntiAIGatekeeper,
+    strip_surrounding_quotes,
+)
+
 from xbot.ai.client import get_ai_client
 from xbot.ai.fact_grounder import search_web_grounding
 from xbot.ai.hook_optimizer import extract_links, trim_open_loop_hook
@@ -49,6 +54,7 @@ def _build_clean_creator_prompt(
     recent_posts: list[str] | None = None,
     post_type: str = "post",
     archetype: PostFormattingArchetype | None = None,
+    context_summary: str | None = None,
 ) -> str:
     """
     Constructs a clean, high-signal, zero-bloat prompt for the heavy writing model.
@@ -67,6 +73,10 @@ def _build_clean_creator_prompt(
     # 2. Image Vision Context (if present)
     if vision_summary:
         sections.append(f"## 📸 Visual Image Analysis (From Multimodal Vision)\n{vision_summary}")
+
+    # 2b. Live Researched Context / Discussion Dossier (if present)
+    if context_summary:
+        sections.append(f"## 💬 Live Community Context & Social Reactions\n{context_summary}")
 
     # 3. Live Web Search Facts from SearXNG
     if search_facts:
@@ -103,25 +113,24 @@ def _build_clean_creator_prompt(
         sections.append(
             "## 🧵 Multi-Tweet Thread Instructions (3-4 Tweets):\n"
             "- Tweet 1 (Hook): Scroll-stopping curiosity cliffhanger strictly < 100 characters before the mobile fold\n"
-            "- Tweets 2-3 (Body): 1 punchy takeaway per tweet formatted as high-utility bookmark-bait (numbered action steps or minimal bullets `•` / `-`)\n"
-            "- Tweet 4 (Closer): Concluding natural takeaway or debate question (NEVER write 'TL;DR:' or 'TLDR:')\n"
-            "- Spacing: Use clean double line breaks (\\n\\n) between thoughts for mobile readability\n"
-            "- Zero external URLs in tweets (links belong in 1st reply)"
+            "- Tweets 2-3 (Body): Atomic value nuggets with generous whitespace (\\n\\n) and bullet frameworks\n"
+            "- Tweet 4 (Closer): High-conviction punchy takeaway + bookmark CTA"
         )
     elif post_type == "poll":
         sections.append(
-            "## 📊 Interactive Poll Instructions:\n"
-            "- Question: Punchy dilemma or debate hook (< 160 chars)\n"
-            "- Options: Exactly 2 to 4 choices, each strictly under 25 characters"
+            "## 📊 Interactive Poll Directives:\n"
+            "- Question: Clear, polarizing dilemma or scenario with no obvious middle ground\n"
+            "- Options: 2-4 punchy, distinct choices strictly under 25 characters each\n"
+            "- Include context_hook explaining why this dilemma matters right now"
         )
     else:
         sections.append(
-            "## ✍️ General Post Rules:\n"
-            "- Mobile Fold Hook: Keep the opening curiosity hook < 100 characters before the first line break.\n"
-            "- High-Utility & Variety: Match authentic human cadence (micro-takes, staccato observations, bookmark-bait frameworks).\n"
-            "- Double Line Breaks: Separate distinct thoughts with clean double line breaks (\\n\\n) for mobile readability.\n"
-            "- No Formulaic Trailing Emojis: Do NOT default to adding a solitary emoji at the end of the post. Keep >60% of posts ending cleanly on punctuation.\n"
-            "- Single Topic Focus: Centered on ONE clear premise. Grounded in actual research.\n"
+            "## 📝 Standalone Post Directives:\n"
+            "- Mobile Fold Hook: Keep opening curiosity hook strictly < 100 characters before the mobile fold\n"
+            "- High-Utility & Variety: Match authentic human cadence (micro-takes, staccato observations, bookmark-bait frameworks)\n"
+            "- Structure: Clear line breaks (\\n\\n) between setup, observation, and punchline\n"
+            "- Zero Emojis at the very end unless organically tied to humor\n"
+            "- Character count: Strictly <= 260 characters\n"
             "- Native Text Only: DO NOT include external URLs in the post body (100% native text)."
         )
 
@@ -135,6 +144,7 @@ async def synthesize_creator_post(
     recent_posts: list[str] | None = None,
     post_type: Literal["post", "thread", "poll"] = "post",
     recent_archetypes: list[str] | None = None,
+    context_summary: str | None = None,
     client: Any | None = None,
 ) -> SynthesizedPostResult:
     """
@@ -184,6 +194,7 @@ async def synthesize_creator_post(
         recent_posts=recent_posts,
         post_type=post_type,
         archetype=selected_archetype,
+        context_summary=context_summary,
     )
 
     system_prompt = (
@@ -227,18 +238,20 @@ async def synthesize_creator_post(
             clean_json = re.sub(r"^```(?:json)?", "", clean_json).rstrip("`").strip()
 
         data = json.loads(clean_json)
-        raw_content = data.get("content", "").strip()
+        raw_content = strip_surrounding_quotes(data.get("content", "").strip())
 
         # Enforce dynamic formatting post-processing (whitespace pacing, trailing emoji stripping, length cadence)
         formatted_content = post_process_formatted_content(raw_content, archetype=selected_archetype)
 
         # Enforce link extraction: strip external URLs into extracted_link for 1st-reply injection
         clean_content, extracted_link = extract_links(formatted_content)
+        clean_content = strip_surrounding_quotes(clean_content)
 
         # Extract <100 char open-loop curiosity hook
         open_loop_hook = None
         if clean_content:
             first_line = clean_content.strip().split("\n")[0].strip()
+            first_line = strip_surrounding_quotes(first_line)
             open_loop_hook = trim_open_loop_hook(first_line, max_len=99)
 
         thread_items = data.get("thread_items")
@@ -248,10 +261,12 @@ async def synthesize_creator_post(
                 if t:
                     rem_t = post_process_formatted_content(str(t).strip())
                     clean_t, t_link = extract_links(rem_t)
+                    clean_t = strip_surrounding_quotes(clean_t)
                     cleaned_threads.append(clean_t)
                     if not extracted_link and t_link:
                         extracted_link = t_link
             thread_items = cleaned_threads
+
 
         poll_options = data.get("poll_options")
         if poll_options and isinstance(poll_options, list):
