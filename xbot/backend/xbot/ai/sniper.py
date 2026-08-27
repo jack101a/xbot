@@ -5,48 +5,91 @@ import logging
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
+from xbot.ai.anti_ai_gatekeeper import strip_surrounding_quotes
 from xbot.ai.client import get_ai_client
 from xbot.ai.formatting_engine import (
     enforce_pacing_whitespace,
     strip_formulaic_trailing_emojis,
 )
+
 from xbot.config import settings
 from xbot.persona.loader import Persona
 
 logger = logging.getLogger(__name__)
 
 VALID_ANGLES = {"contrarian", "framework", "question", "witty", "data", "insight"}
+VALID_RESPONSE_MODES = {
+    "pure_gif",
+    "emoji_reaction",
+    "punchy_one_liner",
+    "witty_sarcasm",
+    "casual_take",
+    "in_depth_breakdown",
+}
 
-SNIPER_PROMPT_TEMPLATE = """=== HIGH-IMPACT SNIPER REPLY ARCHITECTURE ===
-Give yourself creative freedom to match the room naturally:
-1. Casual Banter / Pure Reaction (1-40 chars): Casual takes like 'good 💯', 'nice', 'real', 'W', 'pure cinema 😭', or simply a reaction GIF query.
-2. Sharp One-Liner / Witty Banter (40-100 chars): Direct observation, sarcastic humor, or dry roast.
-3. High-Value Counter-Take / Insight (90-260 chars): Nuanced trade-off, data angle, or contrarian perspective.
-4. Engaging Debate Catalyst (80-260 chars): Provocative observation concluding in a compelling question ('?') to compel an author reply-back (+150x Phoenix multiplier).
+SNIPER_PROMPT_TEMPLATE = """=== HIGH-IMPACT SNIPER REPLY ARCHITECTURE (6 DYNAMIC MODALITIES) ===
+Read the room and select ONE of the following 6 response modes based on the target post, vibe, and top comments:
 
-=== STRICT EMOJI & TONE RULES ===
-- EMOTION-DRIVEN CONTEXT ONLY: Use emojis naturally without fixed formulas; at least 50% should have ZERO emojis and NO trailing emoji habit.
-- NO TOPIC-LABELING EMOJIS: NEVER use literal category icons (NO 🍿 for cinema/movies, NO 🏴‍☠️ for anime/One Piece, NO ⌚ for watches, NO 🤖 for AI/tech, NO 💻 for code).
-- NATURAL CASUAL BANTER: Speak like a real human on X (punchy, witty, sarcastic, dry, or insightful).
-- DYNAMIC NATURAL LENGTH: Allow short 2-5 word takes ('real', 'pure cinema', 'W', 'nice 💯'), dry observations, or nuanced breakdowns.
-- Banned AI Clichés: delve, testament, tapestry, supercharge, beacon, plethora, moreover, furthermore, in conclusion, game-changer, leverage, multifaceted, pivotal, foster, vital, crucial, endeavor, Great post!, Awesome thread!
-- No Hashtags: Never include hashtags (#).
-- Indian Politics Ban: Zero political references.
+1. pure_gif:
+   - Provide a targeted Tenor / X GIF search query in `gif_query` (e.g. 'side eye', 'popcorn eating', 'facepalm', 'mind blown').
+   - `reply_text` should be an optional ultra-short reaction (e.g. 'real', '💀', 'no notes', 'pure cinema', 'W') or empty/minimal.
+
+2. emoji_reaction:
+   - Ultra-short, authentic emoji reaction in `reply_text` (1-2 emojis max, e.g. 💀, 😭, 🔥, 🤌) when the room is purely reactive.
+   - NO filler text.
+
+3. punchy_one_liner:
+   - Short conversational punch (20-70 chars) delivering immediate humor, dry agreement, or disbelief.
+   - Examples: 'ok i agree', 'they are not gonna like this one', 'bro had 2 lines and dipped 💀', 'we really doing leetcode in the replies now'.
+
+4. witty_sarcasm:
+   - 1-2 sentences (50-140 chars) of dry humor, sarcastic observation, or relatable banter matching the comments.
+   - Great for roasting bad takes, tech ironies, or shared community pain points.
+
+5. casual_take:
+   - Clear, grounded perspective or opinion (60-180 chars) without sounding like a textbook or lecture.
+   - Conversational, human, authentic.
+
+6. in_depth_breakdown:
+   - 2-4 sentences (120-260 chars) of technical nuance, empirical data, or first-principles analysis when the room calls for domain depth.
+
+=== CRITICAL RULES (STRICT) ===
+- NO FORCED QUESTIONS: NEVER force your reply to end with a question mark ('?'). Only ask a question if your angle/response mode naturally calls for one. Statements, roasts, memes, and punchy takes should end with natural punctuation (. ! or none).
+- NO FIXED LENGTH MINIMUMS: Ultra-short replies (1-30 chars) are 100% valid and encouraged for pure_gif, emoji_reaction, and punchy_one_liner modes.
+- EMOJI RULES: Use emojis naturally based on emotion. Never use topic-labeling emojis (no 🍿 for cinema, no 🤖 for AI, no 💻 for coding).
+- ZERO AI CLICHÉS: STRICTLY BANNED: delve, testament, tapestry, supercharge, beacon, plethora, moreover, furthermore, in conclusion, game-changer, leverage, multifaceted, pivotal, foster, vital, crucial, endeavor, Great post!, Awesome thread!
+- NO HASHTAGS: Never include hashtags (#).
+- NO INDIAN POLITICS: Zero references to Indian political parties or figures.
 """
 
 
 class SniperResult(BaseModel):
+    response_mode: str = Field(
+        default="witty_sarcasm",
+        description="Response mode: pure_gif, emoji_reaction, punchy_one_liner, witty_sarcasm, casual_take, in_depth_breakdown",
+    )
     reply_text: str = Field(..., description="The drafted high-value reply text (natural length, sentence case)")
-    debate_catalyst: str = Field(default="", description="Optional extracted closing question or hook")
+    debate_catalyst: str = Field(default="", description="Optional closing question or hook if asked")
     angle: str = Field(default="insight", description="The angle chosen: contrarian, framework, question, witty, data, or insight")
     angle_used: str | None = Field(default=None, description="Backwards compatibility alias for angle")
-    gif_query: str | None = Field(default=None, description="Optional search term for a reaction GIF if a visual meme/reaction fits the emotion, or null")
+    gif_query: str | None = Field(default=None, description="Search term for Tenor/X GIF picker or None")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    reasoning: str = Field(default="", description="Brief explanation of the chosen angle")
+    reasoning: str = Field(default="", description="Brief explanation of the chosen response mode and angle")
 
     def __init__(self, **data: Any) -> None:
+        if "reply_text" in data and isinstance(data["reply_text"], str):
+            data["reply_text"] = strip_surrounding_quotes(data["reply_text"].strip())
+        if "debate_catalyst" in data and isinstance(data["debate_catalyst"], str):
+            data["debate_catalyst"] = strip_surrounding_quotes(data["debate_catalyst"].strip())
+
+        if "response_mode" in data and isinstance(data["response_mode"], str):
+            mode = data["response_mode"].strip().lower()
+            data["response_mode"] = mode if mode in VALID_RESPONSE_MODES else "witty_sarcasm"
+        else:
+            data["response_mode"] = "witty_sarcasm"
+
         if "angle" in data and "angle_used" not in data:
             data["angle_used"] = data["angle"]
         elif "angle_used" in data and "angle" not in data:
@@ -63,11 +106,16 @@ class SniperResult(BaseModel):
                     data["debate_catalyst"] = questions[-1].strip()
                 elif reply.strip().endswith("?"):
                     data["debate_catalyst"] = reply.strip()
+                else:
+                    data["debate_catalyst"] = ""
+            else:
+                data["debate_catalyst"] = ""
         super().__init__(**data)
 
 
-# Backwards compatibility alias
+# Backwards compatibility aliases
 SniperReplyResult = SniperResult
+DynamicReplyResult = SniperResult
 
 
 def clean_text_for_json(text: str) -> str:
@@ -85,14 +133,13 @@ def clean_text_for_json(text: str) -> str:
 def clean_raw_reply_text(text: str) -> str:
     """Cleans raw text output when JSON parsing fails."""
     text = clean_text_for_json(text).strip()
-    # Remove leading quotes or formatting
     text = re.sub(r'^(?:Reply|Draft|Tweet|Response):\s*', '', text, flags=re.IGNORECASE)
-    text = text.strip().strip('"\'`')
+    text = strip_surrounding_quotes(text)
     return text.strip()
 
 
 def _build_sniper_system_prompt(persona: Persona, preferred_angle: str | None = None) -> str:
-    """Constructs the high-retention sniper system prompt."""
+    """Constructs the high-retention sniper system prompt supporting 6 dynamic modalities."""
     prompt_parts = [
         f"You are {persona.display_name} (@{persona.x_handle}). You are executing a high-impact Sniper Reply on X.",
         "Your goal is to draft an immediate, high-value, high-retention reply to a target Key Opinion Leader (KOL) post.",
@@ -131,21 +178,21 @@ def _build_sniper_system_prompt(persona: Persona, preferred_angle: str | None = 
 
     prompt_parts.append(
         "\n=== X ALGORITHM & RETENTION OPTIMIZATION RULES ===\n"
-        "1. STRICT TOPIC RELEVANCE (MANDATORY): You MUST directly address the EXACT topic, premise, claim, or joke of the target post. If the tweet is about tech, coding, AI, or startups, reply with witty commentary on tech/coding. If it is about comedy, banter with comedy. If it is about traffic, talk about traffic. NEVER bring up unrelated persona hobbies (DO NOT mention gym, sarees, trial rooms, or tea unless the target tweet is specifically about fitness, styling, or drinks). Off-topic replies make the account look like a dumb spam bot.\n"
+        "1. STRICT TOPIC RELEVANCE (MANDATORY): You MUST directly address the EXACT topic, premise, claim, or joke of the target post. If the tweet is about tech, coding, AI, or startups, reply with witty commentary on tech/coding. If it is about comedy, banter with comedy. If it is about traffic, talk about traffic. NEVER bring up unrelated persona hobbies.\n"
         "2. MATCH ENERGY & SCALE: Match the vibe of the room. Keep your reply sharp, authentic, and human.\n"
-        "3. HIGH ENGAGEMENT & CLOSERS: When asking a question, make it specific and thought-provoking. When making a strong statement or witty roast, deliver it with conviction without needing a forced survey question.\n"
-        "4. DYNAMIC HOOK OPENINGS & EMOTIONAL VARIETY (STRICT): Vary your opening sentence structure dynamically with genuine human emotion, humor, shock, or sarcasm (never start every reply with 'If...'):\n"
+        "3. NO FORCED QUESTIONS: Deliver statements, one-liners, and roasts with conviction. Do NOT force a closing question mark unless you are genuinely asking a debate question.\n"
+        "4. DYNAMIC HOOK OPENINGS & EMOTIONAL VARIETY: Vary your opening structure dynamically with genuine human emotion, humor, shock, or sarcasm:\n"
         "   - Sarcastic Banter: 'Bro had 2 lines in 2019 and dipped 💀', 'We are really out here doing algorithm boot camp training in the replies instead of just shipping code...'\n"
         "   - Shock & Hype: 'Masahide Fujii returning as Rocks is pure cinema. That laugh alone is carrying the entire arc 🔥'\n"
         "   - Dry Disbelief/Humor: 'Marketing departments treating individual TV episodes like software patch notes is crazy 😭'\n"
         "   - Direct Punchy Observation: 'The M4 Max efficiency gap is actually absurd. Intel needs a miracle.'\n"
-        "5. DYNAMIC LENGTH VARIETY: Do not force all replies to be the exact same length. Allow natural variety from a punchy 1-sentence observation (40-90 chars) to a multi-line thought (120-250 chars).\n"
-        "6. EMOJI FREEDOM & ZERO TRAILING HABIT: Do NOT make it a fixed formula to end replies with 1 emoji. Over 50% of your replies should contain ZERO emojis. Never use emojis as category labels (no 🍿, no 🤖). Let text carry the weight.\n"
+        "5. DYNAMIC NATURAL LENGTH: Allow short 1-5 word takes ('real', 'pure cinema', 'W', 'nice 💯'), dry observations, or nuanced breakdowns.\n"
+        "6. EMOJI FREEDOM & ZERO TRAILING HABIT: Do NOT make it a fixed formula to end replies with 1 emoji. Over 50% of your replies should contain ZERO emojis. Never use emojis as category labels (no 🍿, no 🤖).\n"
         "7. ZERO EXPENSIVE / FAKE ACADEMIC AI ENGLISH: STRICTLY BANNED: delve, tapestry, testament, supercharge, beacon, plethora, moreover, furthermore, in conclusion, game-changer, leverage, multifaceted, pivotal, foster, vital, crucial, endeavor. Speak in natural, grounded conversational voice.\n"
         "8. READ THE ROOM & POPULAR COMMENTS: Look at the tweet and top comments. If people are roasting or joking, join the banter with witty sarcasm. If it's a technical debate, bring empirical nuance.\n"
-        "9. GIF / REACTION ATTACHMENT: When a reply has strong comedic timing, reaction, shock, or sarcasm, provide a 1-3 word gif_query (e.g. 'side eye', 'facepalm', 'smug nod', 'confused math', 'holding back tears') to attach a visual meme/reaction. For dry analytical takes, return null.\n"
+        "9. GIF / REACTION ATTACHMENT: For pure_gif mode or strong comedic timing/shock, provide a 1-3 word gif_query (e.g. 'side eye', 'facepalm', 'smug nod', 'confused math'). For analytical takes, return null.\n"
         "10. NO HASHTAGS: Never include hashtags (#).\n"
-        "11. ABSOLUTE ZERO TOLERANCE FOR INDIAN POLITICS (HARD BAN): STRICTLY FORBIDDEN from discussing, referencing, mentioning, or reacting to ANY Indian political party, politician, election, policy, or controversy (STRICTLY BANNED: BJP, Congress, AAP, Modi, Rahul Gandhi, Kejriwal, Amit Shah, Yogi, Hindutva, RSS, Lok Sabha, Indian government). If a target post touches Indian politics, NEVER reply to it!\n"
+        "11. ABSOLUTE ZERO TOLERANCE FOR INDIAN POLITICS (HARD BAN): STRICTLY FORBIDDEN from discussing or mentioning Indian political parties or politicians.\n"
         "12. ANTI-BOT: NEVER use generic praise like 'Great post!', '100% agree!', 'Awesome thread!'. Stand out."
     )
 
@@ -154,7 +201,7 @@ def _build_sniper_system_prompt(persona: Persona, preferred_angle: str | None = 
         "- contrarian: Respectfully challenge the core premise with a crisp, logical counter-example or alternative viewpoint.\n"
         "- framework: Distill the topic into a concise, actionable mental model or 2-3 point framework.\n"
         "- question: Pose a deep, provocative technical dilemma that cuts straight to the trade-offs.\n"
-        "- witty: Deliver a sharp, clever insider observation or relatable punchline with an engaging closer.\n"
+        "- witty: Deliver a sharp, clever insider observation or relatable punchline.\n"
         "- data: Supply a concrete data point, metric, historical precedent, or empirical nuance.\n"
         "- insight: Provide profound domain depth, first-principles analysis, or unique tactical insight."
     )
@@ -222,7 +269,7 @@ GROWTH_KEYWORDS = {
 
 
 def _build_sniper_user_prompt(target_tweet: dict[str, Any], preferred_angle: str | None = None) -> str:
-    """Constructs the user prompt containing target tweet details, top 5-10 comments, language directive, and schema instructions."""
+    """Constructs the user prompt containing target tweet details, top comments, media descriptions, language directive, and schema instructions."""
     author = target_tweet.get("author") or target_tweet.get("handle") or target_tweet.get("author_handle") or "KOL"
     author = str(author).lstrip("@")
     text = target_tweet.get("text", "").strip()
@@ -254,8 +301,7 @@ def _build_sniper_user_prompt(target_tweet: dict[str, Any], preferred_angle: str
             "🎯 DOMAIN LOCK (MANDATORY - TECH CONVERSATION):\n"
             "- The target post is strictly about TECHNOLOGY / HARDWARE / AI / COMPUTING.\n"
             "- YOUR REPLY MUST BE 100% ABOUT TECH.\n"
-            "- STRICTLY FORBIDDEN: DO NOT mention anime, manga, One Piece, Oda, or unrelated pop culture! "
-            "Replying with anime on a tech post makes the bot look like a broken spam account."
+            "- STRICTLY FORBIDDEN: DO NOT mention anime, manga, One Piece, Oda, or unrelated pop culture!"
         )
     elif is_anime and not is_tech:
         domain_lock = (
@@ -290,10 +336,17 @@ def _build_sniper_user_prompt(target_tweet: dict[str, Any], preferred_angle: str
     )
 
     if top_comments:
-        prompt += "\n--- TOP COMMENTS IN THREAD (READ THE ROOM - 5 TO 10 COMMENTS) ---\n"
+        prompt += "\n--- TOP COMMENTS IN THREAD (ROOM CONTEXT & SENTIMENT) ---\n"
         for i, tc in enumerate(top_comments[:10], 1):
-            tc_text = tc.get("text", "") if isinstance(tc, dict) else str(tc)
-            prompt += f"{i}. \"{tc_text}\"\n"
+            if isinstance(tc, dict):
+                c_author = tc.get("author") or tc.get("handle") or tc.get("username") or ""
+                c_author_str = f"@{str(c_author).lstrip('@')}: " if c_author else ""
+                c_text = tc.get("text", "").strip()
+                c_likes = tc.get("likes") or tc.get("like_count") or tc.get("favorites")
+                c_likes_str = f" ({c_likes} likes)" if c_likes is not None else ""
+                prompt += f"{i}. {c_author_str}\"{c_text}\"{c_likes_str}\n"
+            else:
+                prompt += f"{i}. \"{str(tc).strip()}\"\n"
 
     media_alts = target_tweet.get("media_alts") or []
     if media_alts:
@@ -304,7 +357,7 @@ def _build_sniper_user_prompt(target_tweet: dict[str, Any], preferred_angle: str
     prompt += "-------------------\n\n"
     prompt += f"{domain_lock}\n\n"
     prompt += f"{lang_instruction}\n\n"
-    prompt += "Craft a high-retention sniper reply strictly adhering to the post's exact topic, 3-stage formula, and algorithm rules.\n"
+    prompt += "Select the single best response_mode among (pure_gif, emoji_reaction, punchy_one_liner, witty_sarcasm, casual_take, in_depth_breakdown) that fits the context.\n"
 
     if preferred_angle and preferred_angle.lower() in VALID_ANGLES:
         prompt += f"Guide your response using the '{preferred_angle.lower()}' angle.\n"
@@ -314,12 +367,13 @@ def _build_sniper_user_prompt(target_tweet: dict[str, Any], preferred_angle: str
     prompt += (
         "\nReturn a JSON object with this exact schema:\n"
         "{\n"
-        "  \"reply_text\": \"Your complete reply text (natural length 60-260 characters, ending with a debate catalyst question '?')\",\n"
-        "  \"debate_catalyst\": \"The exact closing question extracted from reply_text that compels the author to reply back\",\n"
+        "  \"response_mode\": \"pure_gif | emoji_reaction | punchy_one_liner | witty_sarcasm | casual_take | in_depth_breakdown\",\n"
+        "  \"reply_text\": \"Your complete reply text (natural length, sentence case, DO NOT force ? at the end unless asking a genuine question)\",\n"
+        "  \"debate_catalyst\": \"Optional closing question extracted from reply_text if asked, otherwise empty string\",\n"
         "  \"angle\": \"contrarian | framework | question | witty | data | insight\",\n"
-        "  \"gif_query\": \"null by default. ONLY provide a 1-2 word reaction GIF search keyword if a visual reaction is genuinely needed for comedic impact; otherwise ALWAYS return null\",\n"
+        "  \"gif_query\": \"Search keyword for GIF if response_mode is pure_gif or witty reaction fits; otherwise null\",\n"
         "  \"confidence\": 0.0-1.0,\n"
-        "  \"reasoning\": \"Brief explanation of why the reply and debate catalyst fit the room vibe\"\n"
+        "  \"reasoning\": \"Brief explanation of why the response_mode and angle fit the room vibe\"\n"
         "}\n"
         "Return ONLY the valid JSON object with no surrounding commentary."
     )
@@ -370,16 +424,21 @@ def verify_sniper_reply(
     reply_text: str,
     language_mode: str = "english",
     target_text: str | None = None,
+    response_mode: str | None = None,
+    gif_query: str | None = None,
 ) -> tuple[bool, str | None]:
     """
     Validates candidate reply against quality, safety, and domain-matching gatekeepers.
+    Supports short replies, emoji reactions, and GIF queries without artificial length barriers.
     Returns (is_valid, failure_reason).
     """
     text = reply_text.strip()
-    if not text:
+    if response_mode == "pure_gif" and gif_query:
+        pass
+    elif not text:
         return False, "Empty reply text."
 
-    # Stage 1: Length Constraint
+    # Stage 1: Length Constraint (No fixed minimums, maximum 280 chars)
     if len(text) > 280:
         return False, f"Length exceeds 280 characters ({len(text)} chars)."
 
@@ -446,8 +505,8 @@ async def generate_sniper_reply(
     client: Any | None = None,
 ) -> SniperResult:
     """
-    Generates an algorithm-optimized, high-retention sniper reply to a target KOL tweet.
-    Uses persona voice, rules, and selected angle (contrarian, framework, question, witty, data, insight).
+    Generates an algorithm-optimized, high-retention sniper reply supporting 6 modalities to a target KOL tweet.
+    Uses persona voice, rules, room reading, and selected angle without forcing artificial question marks.
     Enforces verification with up to 2 retries.
     """
     author = target_tweet.get("author") or target_tweet.get("handle") or "creator"
@@ -504,8 +563,7 @@ async def generate_sniper_reply(
             if isinstance(parsed, SniperResult):
                 if len(parsed.reply_text) > 260:
                     parsed.reply_text = parsed.reply_text[:260].strip()
-                    if not parsed.reply_text.endswith("?"):
-                        parsed.reply_text = parsed.reply_text.rstrip(".! ") + "?"
+                parsed.reply_text = strip_surrounding_quotes(parsed.reply_text)
                 return parsed
     except Exception as parse_err:
         logger.debug("Structured parse skipped/failed: %s", parse_err)
@@ -544,36 +602,47 @@ async def generate_sniper_reply(
                 elif "content" in data and isinstance(data["content"], dict):
                     data = data["content"]
 
-                reply_text = str(data.get("reply_text") or data.get("content") or "").strip()
-                debate_catalyst = str(data.get("debate_catalyst") or "").strip()
+                reply_text = strip_surrounding_quotes(str(data.get("reply_text") or data.get("content") or "").strip())
+                response_mode = str(data.get("response_mode") or "witty_sarcasm").lower().strip()
+                if response_mode not in VALID_RESPONSE_MODES:
+                    response_mode = "witty_sarcasm"
+
+                debate_catalyst = strip_surrounding_quotes(str(data.get("debate_catalyst") or "").strip())
                 angle_used = str(data.get("angle") or data.get("angle_used") or chosen_default_angle).lower()
                 if angle_used not in VALID_ANGLES:
                     angle_used = chosen_default_angle
                 confidence = float(data.get("confidence", 1.0))
                 reasoning = str(data.get("reasoning") or "")
 
+                raw_gif = data.get("gif_query")
+                gif_query = None
+                if raw_gif and str(raw_gif).strip().lower() not in ("null", "none", "", "n/a", "false"):
+                    gif_query = str(raw_gif).strip()
+
                 # Verification Check
                 is_valid, fail_reason = verify_sniper_reply(
-                    reply_text, language_mode=lang_mode, target_text=target_text
+                    reply_text,
+                    language_mode=lang_mode,
+                    target_text=target_text,
+                    response_mode=response_mode,
+                    gif_query=gif_query,
                 )
                 if not is_valid and attempt < 2:
                     logger.warning("Sniper reply verification failed on attempt %d: %s. Retrying...", attempt + 1, fail_reason)
                     user_prompt += f"\n\nPREVIOUS GENERATION FAILED VERIFICATION: {fail_reason}. Please rewrite cleanly."
                     continue
 
-                raw_gif = data.get("gif_query")
-                gif_query = None
-                if raw_gif and str(raw_gif).strip().lower() not in ("null", "none", "", "n/a", "false"):
-                    if angle_used in ("witty", "contrarian"):
-                        gif_query = str(raw_gif).strip()
+                reply_text = strip_surrounding_quotes(reply_text)
+                if response_mode not in ("emoji_reaction", "pure_gif"):
+                    reply_text = strip_formulaic_trailing_emojis(reply_text)
+                    reply_text = enforce_pacing_whitespace(reply_text)
+                reply_text = strip_surrounding_quotes(reply_text)
 
-                reply_text = strip_formulaic_trailing_emojis(reply_text)
-                reply_text = enforce_pacing_whitespace(reply_text)
-
-                if not reply_text.endswith("?") and reply_text:
-                    reply_text = reply_text.rstrip(".! ") + "?"
+                if len(reply_text) > 260:
+                    reply_text = reply_text[:260].strip()
 
                 return SniperResult(
+                    response_mode=response_mode,
                     reply_text=reply_text,
                     debate_catalyst=debate_catalyst,
                     angle=angle_used,
@@ -589,11 +658,11 @@ async def generate_sniper_reply(
     if 'raw_content' in locals() and raw_content:
         cleaned_raw = clean_raw_reply_text(raw_content)
         if cleaned_raw:
-            if not cleaned_raw.endswith("?"):
-                cleaned_raw = cleaned_raw.rstrip(".! ") + "?"
             if len(cleaned_raw) > 260:
-                cleaned_raw = cleaned_raw[:259].rstrip() + "?"
+                cleaned_raw = cleaned_raw[:260].strip()
+            cleaned_raw = strip_surrounding_quotes(cleaned_raw)
             return SniperResult(
+                response_mode="casual_take",
                 reply_text=cleaned_raw,
                 angle=chosen_default_angle,
                 angle_used=chosen_default_angle,
@@ -601,9 +670,10 @@ async def generate_sniper_reply(
                 reasoning="Fallback parsed from raw text completion",
             )
 
-    # 4. If all top-tier writing models fail/timeout after retries, discard to avoid low-quality slop
+    # 4. If all models fail/timeout after retries, discard to avoid low-quality slop
     logger.warning("All top-tier writing models exhausted for @%s. Discarding reply to retry in next session.", clean_author)
     return SniperResult(
+        response_mode="witty_sarcasm",
         reply_text="",
         debate_catalyst="",
         angle=chosen_default_angle,
