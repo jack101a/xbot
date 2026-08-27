@@ -7,7 +7,6 @@ import {
   Image as ImageIcon,
   CheckCircle2,
   AlertCircle,
-  Clock,
   Send,
   Calendar,
   Layers,
@@ -15,15 +14,10 @@ import {
   BarChart2,
   MessageSquare,
   RefreshCw,
-  Eye,
   ExternalLink,
-  ChevronRight,
-  ListTree,
-  SlidersHorizontal,
   Lightbulb,
   CheckSquare,
-  Square,
-  FileText
+  Square
 } from "lucide-react";
 import { api, Profile } from "@/lib/api";
 
@@ -37,7 +31,6 @@ export function CampaignStudioTab({ selectedProfile }: CampaignStudioTabProps) {
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [campaignStatus, setCampaignStatus] = useState<any | null>(null);
   const [selectedDeliverableIds, setSelectedDeliverableIds] = useState<string[]>([]);
-  const [publishMode, setPublishMode] = useState<"instant" | "schedule">("schedule");
   const [scheduleInterval, setScheduleInterval] = useState<number>(60);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishingItemIds, setPublishingItemIds] = useState<string[]>([]);
@@ -610,7 +603,7 @@ export function CampaignStudioTab({ selectedProfile }: CampaignStudioTabProps) {
             </div>
 
             {/* Sticky Campaign Publish Bar */}
-            <div className="sticky bottom-0 z-20 mt-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur border border-indigo-500/40 p-3 rounded-xl shadow-lg flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="sticky bottom-0 z-20 mt-4 bg-white dark:bg-slate-900 border border-indigo-500/40 p-3 rounded-xl shadow-lg flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
                   {selectedDeliverableIds.length} of {campaignStatus.deliverables.length} Selected
