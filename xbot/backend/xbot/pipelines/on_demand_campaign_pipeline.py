@@ -207,15 +207,15 @@ async def execute_on_demand_campaign(
 
         context_summary = "\n".join(scraped_context_snippets) if scraped_context_snippets else spec.topic
 
-        # Download viral media if requested
+        # Download viral media ONLY IF target_media_count > 0 and media was found
         downloaded_media: list[str] = []
-        if media_urls_to_download:
+        if spec.target_media_count > 0 and media_urls_to_download:
             update_campaign_status(
                 campaign_id,
                 current_step=f"Downloading {len(media_urls_to_download)} viral media assets...",
                 progress_percent=step_base + 5,
             )
-            downloaded_media = await _download_media_urls(media_urls_to_download, campaign_media_dir)
+            downloaded_media = await _download_media_urls(media_urls_to_download[:spec.target_media_count], campaign_media_dir)
 
         # 3. Synthesize deliverable based on type
         update_campaign_status(
@@ -229,7 +229,7 @@ async def execute_on_demand_campaign(
             "deliverable_id": spec.id,
             "type": spec.type.value if hasattr(spec.type, "value") else str(spec.type),
             "topic": spec.topic,
-            "media_paths": downloaded_media,
+            "media_paths": downloaded_media if spec.target_media_count > 0 else [],
         }
 
         if spec.type == DeliverableType.THREAD:
@@ -247,6 +247,7 @@ async def execute_on_demand_campaign(
                 f_t = format_content(t, profile_slug=profile_slug, content_type="thread")
                 formatted_tweets.append(strip_surrounding_quotes(f_t))
 
+            thread_media = downloaded_media if spec.target_media_count > 0 else []
             content_record = Content(
                 profile_id=profile.id,
                 content_type=ContentType.THREAD,
@@ -258,7 +259,7 @@ async def execute_on_demand_campaign(
                     "topic": spec.topic,
                     "thread_items": formatted_tweets,
                     "tweets": formatted_tweets,
-                    "media_paths": downloaded_media,
+                    "media_paths": thread_media,
                     "instructions": spec.instructions,
                 },
             )
@@ -359,7 +360,7 @@ async def execute_on_demand_campaign(
                     "topic": spec.topic,
                     "extracted_link": opt_res.extracted_link,
                     "first_reply_text": f"Link / source breakdown: {opt_res.extracted_link}" if opt_res.extracted_link else None,
-                    "media_paths": downloaded_media,
+                    "media_paths": downloaded_media if spec.target_media_count > 0 else [],
                     "instructions": spec.instructions,
                 },
             )

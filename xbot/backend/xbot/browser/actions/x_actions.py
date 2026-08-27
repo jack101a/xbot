@@ -153,14 +153,15 @@ def _extract_tweet_id_from_url(url: str) -> str | None:
 
 class BrowseFeed(BaseAction):
     """
-    Browses the X home feed by scrolling incrementally with inertia,
+    Browses the X home feed or search results by scrolling incrementally with inertia,
     mimicking natural reading pauses and occasional back-scrolls.
     """
 
-    async def execute(self, page: Page, max_scrolls: int = 5) -> list[dict[str, Any]]:
+    async def execute(self, page: Page, max_scrolls: int = 5, navigate_home: bool = True) -> list[dict[str, Any]]:
         try:
-            await _navigate_home_if_needed(page)
-            logger.info("Starting feed browsing session.")
+            if navigate_home:
+                await _navigate_home_if_needed(page)
+            logger.info("Starting feed browsing session (navigate_home=%s, current_url=%s).", navigate_home, page.url)
             tweets: list[dict[str, Any]] = []
 
             # Random initial idle — as if just opening the app
@@ -1336,10 +1337,10 @@ class SearchQuery(BaseAction):
                 pass
             await sleep_with_jitter(2000)
 
-            # Browse search results like a human
+            # Browse search results without redirecting back to home
             browser = BrowseFeed(str(self.screenshot_dir))
-            results = await browser.execute(page, max_scrolls=3)
-            logger.info("Gathered %d search results.", len(results))
+            results = await browser.execute(page, max_scrolls=3, navigate_home=False)
+            logger.info("Gathered %d search results for query '%s'.", len(results), query)
             return results
         except Exception as e:
             await self.capture_failure(page, "search")
