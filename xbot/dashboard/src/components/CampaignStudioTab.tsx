@@ -40,6 +40,8 @@ export function CampaignStudioTab({ selectedProfile }: CampaignStudioTabProps) {
   const [publishMode, setPublishMode] = useState<"instant" | "schedule">("schedule");
   const [scheduleInterval, setScheduleInterval] = useState<number>(60);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [publishingItemIds, setPublishingItemIds] = useState<string[]>([]);
+  const [publishedStatus, setPublishedStatus] = useState<Record<string, string>>({});
   const [publishSuccessMessage, setPublishSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -119,6 +121,7 @@ export function CampaignStudioTab({ selectedProfile }: CampaignStudioTabProps) {
     setIsGenerating(true);
     setCampaignStatus(null);
     setSelectedDeliverableIds([]);
+    setPublishedStatus({});
 
     try {
       const res = await api.generateCampaign({
@@ -132,24 +135,77 @@ export function CampaignStudioTab({ selectedProfile }: CampaignStudioTabProps) {
     }
   };
 
+  const handlePublishSingleDeliverable = async (contentId: string, mode: "instant" | "schedule") => {
+    if (!contentId) return;
+    setPublishingItemIds((prev) => [...prev, contentId]);
+    setErrorMessage(null);
+    setPublishSuccessMessage(null);
+
+    try {
+      if (campaignId) {
+        await api.publishCampaign(campaignId, {
+          content_ids: [contentId],
+          mode: mode,
+          interval_minutes: scheduleInterval,
+        });
+      } else if (selectedProfile) {
+        await api.approveDraft(selectedProfile.id, contentId);
+      }
+      setPublishedStatus((prev) => ({
+        ...prev,
+        [contentId]: mode === "instant" ? "Queued for Live X" : "Scheduled",
+      }));
+      setPublishSuccessMessage(
+        `🚀 Successfully ${mode === "instant" ? "queued deliverable for immediate publishing" : "scheduled deliverable"}!`
+      );
+    } catch (err: any) {
+      setErrorMessage(err?.message || "Failed to publish deliverable.");
+    } finally {
+      setPublishingItemIds((prev) => prev.filter((id) => id !== contentId));
+    }
+  };
+
   const handlePublishDeliverables = async (mode: "instant" | "schedule") => {
-    if (!campaignId || selectedDeliverableIds.length === 0) return;
+    let targetIds = selectedDeliverableIds;
+    if (targetIds.length === 0 && campaignStatus?.deliverables?.length) {
+      targetIds = campaignStatus.deliverables.map((d: any) => d.content_id).filter(Boolean);
+      setSelectedDeliverableIds(targetIds);
+    }
+
+    if (targetIds.length === 0) {
+      setErrorMessage("Please select at least one deliverable to publish or schedule.");
+      return;
+    }
 
     setIsPublishing(true);
     setPublishSuccessMessage(null);
     setErrorMessage(null);
 
     try {
-      const res = await api.publishCampaign(campaignId, {
-        content_ids: selectedDeliverableIds,
-        mode: mode,
-        interval_minutes: scheduleInterval,
-      });
+      let itemsCount = targetIds.length;
+      if (campaignId) {
+        const res = await api.publishCampaign(campaignId, {
+          content_ids: targetIds,
+          mode: mode,
+          interval_minutes: scheduleInterval,
+        });
+        itemsCount = res.items_updated || itemsCount;
+      } else if (selectedProfile) {
+        for (const cid of targetIds) {
+          await api.approveDraft(selectedProfile.id, cid);
+        }
+      }
+
+      const newStatuses: Record<string, string> = {};
+      for (const cid of targetIds) {
+        newStatuses[cid] = mode === "instant" ? "Queued for Live X" : "Scheduled";
+      }
+      setPublishedStatus((prev) => ({ ...prev, ...newStatuses }));
 
       if (mode === "instant") {
-        setPublishSuccessMessage(`🚀 Successfully queued ${res.items_updated} deliverable(s) for immediate publishing!`);
+        setPublishSuccessMessage(`🚀 Successfully queued ${itemsCount} deliverable(s) for immediate publishing to live X!`);
       } else {
-        setPublishSuccessMessage(`⏱️ Successfully scheduled ${res.items_updated} deliverable(s) spaced ${scheduleInterval} minutes apart!`);
+        setPublishSuccessMessage(`⏱️ Successfully scheduled ${itemsCount} deliverable(s) spaced ${scheduleInterval} minutes apart!`);
       }
     } catch (err: any) {
       setErrorMessage(err?.message || "Failed to publish deliverables.");
@@ -489,6 +545,48 @@ export function CampaignStudioTab({ selectedProfile }: CampaignStudioTabProps) {
                       <span className="truncate">1st-Reply: {item.extracted_link}</span>
                     </div>
                   )}
+
+                  {/* Per-Card Quick Publish / Schedule Actions */}
+                  <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-slate-800/80">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePublishSingleDeliverable(item.content_id, "instant");
+                        }}
+                        disabled={publishingItemIds.includes(item.content_id)}
+                        className="px-2.5 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 text-[11px] font-bold flex items-center gap-1 transition disabled:opacity-50"
+                      >
+                        <Send className="w-3 h-3" />
+                        {publishingItemIds.includes(item.content_id) ? "Queuing..." : "Publish Now"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePublishSingleDeliverable(item.content_id, "schedule");
+                        }}
+                        disabled={publishingItemIds.includes(item.content_id)}
+                        className="px-2.5 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-[11px] font-bold flex items-center gap-1 transition disabled:opacity-50"
+                      >
+                        <Calendar className="w-3 h-3" />
+                        Schedule
+                      </button>
+                    </div>
+
+                    {publishedStatus[item.content_id] ? (
+                      <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                        <CheckCircle2 className="w-3 h-3" />
+                        {publishedStatus[item.content_id]}
+                      </span>
+                    ) : item.status === "approved" || item.status === "queued" ? (
+                      <span className="text-[11px] font-bold text-sky-400 flex items-center gap-1 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/30">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Queued for Publishing
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
               );
             })}
