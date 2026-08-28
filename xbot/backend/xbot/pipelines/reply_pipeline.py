@@ -5,7 +5,7 @@ Runs every 5 minutes (during active hours: 6:00 AM - 2:00 AM IST):
 Merges 3 high-impact reply engines:
 1. Priority 1 (Sniper): Scans target KOL handles for fresh tweets (<30m), evaluates Phoenix opportunity score, crafts value-first debate catalyst replies (Priority 0 job).
 2. Priority 2 (Fast Response Sentinel): Follows up on active conversations within the 15m window to capture the +150x author engagement multiplier (Priority 1 job).
-3. Priority 3 (Feed Opportunities): Scans feed for high-leverage tweets (>=5K impressions) and replies with structured archetypes (Priority 2 job).
+3. Priority 3 (Feed Opportunities): Scans feed for high-leverage tweets and replies with structured archetypes (Priority 2 job).
 
 Applies:
 - Anti-AI Gatekeeper validation & quote stripping
@@ -110,7 +110,7 @@ async def execute_kol_sniper_replies(
         if guard.is_target_acted_upon(profile_slug, "reply", tweet_id):
             continue
 
-        # Growth scorer check (enforce 5K impression floor unless high score)
+        # Growth scorer check (skip if opportunity score is low)
         opp_score = score_tweet_opportunity(tweet_data)
         if opp_score.recommended_action == "skip" and opp_score.score < 25.0:
             logger.info("ReplyPipeline: Sniper skipped tweet %s (score %.1f)", tweet_id, opp_score.score)

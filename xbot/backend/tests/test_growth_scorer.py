@@ -157,8 +157,8 @@ def test_score_tweet_opportunity_aged_tweet_decay() -> None:
     assert "decayed" in result.reasoning.lower() or "aged" in result.reasoning.lower()
 
 
-def test_score_tweet_opportunity_under_5k_impressions_skipped() -> None:
-    """Tests that candidate tweets with under 5k impressions are skipped for replies."""
+def test_score_tweet_opportunity_under_5k_impressions_allowed() -> None:
+    """Tests that candidate tweets with under 5k impressions are allowed for replies."""
     ref_time = datetime(2026, 8, 25, 12, 0, 0, tzinfo=timezone.utc)
     low_reach_tweet = {
         "tweet_id": "190011223348",
@@ -171,8 +171,8 @@ def test_score_tweet_opportunity_under_5k_impressions_skipped() -> None:
         "created_at_utc": ref_time - timedelta(minutes=30),
     }
     result = score_tweet_opportunity(low_reach_tweet, reference_time=ref_time)
-    assert result.recommended_action == "skip"
-    assert "under 5k" in result.reasoning.lower()
+    assert result.recommended_action == "sniper_reply"
+    assert "under 5k" not in result.reasoning.lower()
 
 
 def test_score_tweet_opportunity_bookmark_potential_detection() -> None:

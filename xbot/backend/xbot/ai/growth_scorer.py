@@ -363,12 +363,8 @@ def score_tweet_opportunity(
         reasoning_parts.append("Growth/F4F train detected (quoting forbidden; engage via reply/follow or create original post)")
 
     # Determine recommended action:
-    # 1. Skip if impressions are below 5K threshold (do not reply/comment on low reach posts)
-    if 0 < impressions < 5_000:
-        recommended_action = "skip"
-        reasoning_parts.append(f"Target impressions ({impressions:,}) under 5K minimum threshold for replies/comments")
-    # 2. Skip stale tweets (>12h), explicit bots, or dead link spam (score < 25)
-    elif is_bot or delta_hours > 12.0 or (has_link_penalty and final_score < 25.0):
+    # 1. Skip stale tweets (>12h), explicit bots, or dead link spam (score < 25)
+    if is_bot or delta_hours > 12.0 or (has_link_penalty and final_score < 25.0):
         recommended_action = "skip"
     elif bookmark_potential >= 25.0 and final_score >= 50.0:
         recommended_action = "bookmark_reference"
