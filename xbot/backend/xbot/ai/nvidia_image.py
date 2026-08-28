@@ -167,7 +167,7 @@ def build_nvidia_payload(
 
 async def generate_nvidia_image_async(
     prompt: str,
-    model_name: str = "flux.1-dev",
+    model_name: str | None = None,
     negative_prompt: str = "",
     steps: int = 50,
     cfg_scale: float = 5.0,
@@ -189,8 +189,13 @@ async def generate_nvidia_image_async(
         raise ValueError("NVIDIA API Key is missing. Set NVIDIA_API_KEY in environment or .env file.")
 
     resolved_base_url = (base_url or getattr(settings, "NVIDIA_BASE_URL", None) or "https://ai.api.nvidia.com/v1/genai").rstrip("/")
-    endpoint = NVIDIA_MODELS.get(model_name, NVIDIA_MODELS.get("flux.1-dev", "black-forest-labs/flux.1-dev"))
-    url = f"{resolved_base_url}/{endpoint}"
+    chosen_model = model_name or getattr(settings, "NVIDIA_DEFAULT_IMAGE_MODEL", "flux.2-klein-4b") or "flux.2-klein-4b"
+
+    # Candidate cascade order
+    cascade = [chosen_model]
+    for alt in ["flux.2-klein-4b", "flux.1-dev"]:
+        if alt not in cascade:
+            cascade.append(alt)
 
     headers = {
         "Authorization": f"Bearer {resolved_api_key}",
@@ -198,50 +203,53 @@ async def generate_nvidia_image_async(
         "Content-Type": "application/json",
     }
 
-    payload = build_nvidia_payload(
-        prompt=prompt,
-        endpoint=endpoint,
-        negative_prompt=negative_prompt,
-        steps=steps,
-        cfg_scale=cfg_scale,
-        seed=seed,
-        width=width,
-        height=height,
-        aspect_ratio=aspect_ratio,
-        init_image=init_image,
-        kontext_example_id=kontext_example_id,
-    )
+    last_err: Exception | None = None
+    for target_model in cascade:
+        endpoint = NVIDIA_MODELS.get(target_model, NVIDIA_MODELS.get("flux.2-klein-4b", "black-forest-labs/flux.2-klein-4b"))
+        url = f"{resolved_base_url}/{endpoint}"
 
-    logger.info("Sending request to NVIDIA GenAI model '%s' (prompt: %.50s...)", model_name, prompt)
+        payload = build_nvidia_payload(
+            prompt=prompt,
+            endpoint=endpoint,
+            negative_prompt=negative_prompt,
+            steps=steps,
+            cfg_scale=cfg_scale,
+            seed=seed,
+            width=width,
+            height=height,
+            aspect_ratio=aspect_ratio,
+            init_image=init_image,
+            kontext_example_id=kontext_example_id,
+        )
 
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+        logger.info("Sending request to NVIDIA GenAI model '%s' (prompt: %.50s...)", target_model, prompt)
+
         try:
-            response = await client.post(url, headers=headers, json=payload)
-        except httpx.RequestError as exc:
-            logger.error("NVIDIA API request failed: %s", exc)
-            raise RuntimeError(f"Failed to connect to NVIDIA API: {exc}") from exc
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+                response = await client.post(url, headers=headers, json=payload)
+                if response.status_code == 200:
+                    res_json = response.json()
+                    b64 = extract_image_from_response(res_json)
+                    if b64:
+                        if isinstance(b64, str) and b64.startswith("data:"):
+                            b64 = b64.split(",", 1)[1]
+                        return b64
+                    logger.warning("NVIDIA model '%s' returned HTTP 200 without image. Trying fallback...", target_model)
+                else:
+                    logger.warning("NVIDIA model '%s' returned HTTP %s: %s. Trying fallback...", target_model, response.status_code, response.text[:120])
+                    last_err = RuntimeError(f"NVIDIA API error ({response.status_code}): {response.text}")
+        except Exception as exc:
+            logger.warning("NVIDIA model '%s' request failed: %s. Trying fallback...", target_model, exc)
+            last_err = exc
 
-    if response.status_code != 200:
-        logger.error("NVIDIA API error (HTTP %s): %s", response.status_code, response.text)
-        raise RuntimeError(f"NVIDIA API error (HTTP {response.status_code}): {response.text}")
-
-    res_json = response.json()
-    b64 = extract_image_from_response(res_json)
-
-    if not b64:
-        raise RuntimeError("NVIDIA returned HTTP 200, but no image data. The prompt may have triggered the safety filter.")
-
-    if isinstance(b64, str) and b64.startswith("data:"):
-        b64 = b64.split(",", 1)[1]
-
-    return b64
+    raise last_err or RuntimeError("All NVIDIA image generation models in cascade failed.")
 
 
 async def generate_and_save_nvidia_image_async(
     prompt: str,
     output_dir: str | Path | None = None,
     filename: str | None = None,
-    model_name: str = "flux.1-dev",
+    model_name: str | None = None,
     negative_prompt: str = "",
     steps: int = 50,
     cfg_scale: float = 5.0,
