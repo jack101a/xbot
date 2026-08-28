@@ -15,6 +15,8 @@ import {
   ChevronRight,
   PanelLeftClose,
   PanelLeftOpen,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
@@ -30,6 +32,8 @@ export function DesktopTopBar() {
     sidebarCollapsed,
     toggleSidebarCollapsed,
     setModals,
+    darkMode,
+    setDarkMode,
   } = useAppStore();
 
   const selectedProfile = profiles.find((p) => p.id === selectedProfileId);
@@ -152,6 +156,16 @@ export function DesktopTopBar() {
             {systemHealth?.status === "healthy" ? "API Online" : "API Offline"}
           </span>
         </div>
+
+        {/* Theme Toggle Button */}
+        <button
+          onClick={() => setDarkMode(!darkMode)}
+          className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-800/80 bg-slate-100/50 dark:bg-slate-900/50 transition"
+          title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          aria-label="Toggle Theme"
+        >
+          {darkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-700" />}
+        </button>
       </div>
     </header>
   );
