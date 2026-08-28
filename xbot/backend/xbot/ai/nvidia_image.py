@@ -25,14 +25,14 @@ NVIDIA_MODELS: dict[str, str] = {
 # Valid dimension snapping list for Flux models
 VALID_FLUX_DIMS: list[int] = [768, 832, 896, 960, 1024, 1088, 1152, 1216, 1280, 1344]
 
-# Preset Aspect Ratio to (width, height) mappings
+# Preset Aspect Ratio to (width, height) mappings validated on NVIDIA GenAI
 ASPECT_RATIO_PRESETS: dict[str, tuple[int, int]] = {
     "1:1": (1024, 1024),
-    "4:5": (1024, 1280),
-    "16:9": (1344, 768),
-    "9:16": (768, 1344),
-    "3:2": (1216, 832),
-    "2:3": (832, 1216),
+    "4:5": (768, 960),    # Exact 4:5 aspect ratio (0.80) for X mobile feed takeover
+    "16:9": (1024, 768),  # Widescreen
+    "9:16": (768, 1024),  # Vertical story
+    "3:2": (1024, 768),
+    "2:3": (768, 1024),
 }
 
 REQUEST_TIMEOUT_SECONDS = 180

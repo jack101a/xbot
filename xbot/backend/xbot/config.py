@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = "placeholder_openrouter"
     NVIDIA_API_KEY: str | None = None
     NVIDIA_BASE_URL: str = "https://ai.api.nvidia.com/v1/genai"
-    NVIDIA_DEFAULT_IMAGE_MODEL: str = "flux.1-dev"
+    NVIDIA_DEFAULT_IMAGE_MODEL: str = "flux.2-klein-4b"
 
     # Secret key must be 32 URL-safe base64-encoded bytes for Fernet
     SECRET_KEY: str = "supersecretfernetkeyforlocaldev12="
