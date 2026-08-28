@@ -112,21 +112,29 @@ async def _extract_or_generate_poll_data(
     return full_question, poll_options, poll_duration_days, poll_context_hook, poll_reasoning
 
 
+def extract_tweet_id_from_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    m = re.search(r'/status/(\d+)', str(url))
+    return m.group(1) if m else None
+
+
 async def has_already_acted(
     db: AsyncSession,
     profile_id: uuid.UUID,
     target_url: str | None,
     action_type: Any,
-    hours: int = 48,
+    hours: int = 168,
 ) -> bool:
     """
-    Checks if an action of the specified type has already been executed
-    against the given target_url within the last `hours` (default 48h).
+    Checks if an action of the specified type has already been executed or queued
+    against the given target_url or canonical numeric tweet ID within the last `hours` (default 7 days).
     Prevents duplicate likes, replies, and quotes on the exact same tweets.
     """
     if not target_url:
         return False
     clean_target = target_url.strip().rstrip("/")
+    t_id = extract_tweet_id_from_url(clean_target)
     cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=hours)
     act_type_str = action_type.value if hasattr(action_type, "value") else str(action_type)
 
@@ -135,14 +143,20 @@ async def has_already_acted(
         .where(
             Action.profile_id == profile_id,
             Action.action_type == act_type_str,
-            Action.status == ActionStatus.COMPLETED,
+            Action.status.in_([ActionStatus.COMPLETED, ActionStatus.PENDING, ActionStatus.STAGED]),
             Action.executed_at >= cutoff,
-            (Action.target_url == clean_target) | (Action.target_url == f"{clean_target}/"),
         )
-        .limit(1)
     )
     res = await db.execute(stmt)
-    return res.scalar_one_or_none() is not None
+    actions = res.scalars().all()
+    for act in actions:
+        if not act.target_url:
+            continue
+        if t_id and extract_tweet_id_from_url(act.target_url) == t_id:
+            return True
+        if act.target_url.strip().rstrip("/") == clean_target:
+            return True
+    return False
 
 
 async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
@@ -266,65 +280,30 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                 except Exception as p_err:
                     logger.warning("Error during KOL opportunity scanning: %s", p_err)
 
-                # 2b. Live Growth & Follow-Back Search Hunting: Scan live Twitter Search for active mutuals/f4f posts
+                # 2b. High-Signal Domain Search: Scan for relevant niche discussions from target creators and topics
                 try:
-                    growth_queries = [
-                        '("drop your handle" OR "follow back") (tech OR anime OR "blue tick" OR mutuals)',
-                        '("looking for mutuals" OR "verified mutuals") (anime OR tech OR AI)',
-                        '("follow back everyone" OR "f4f") (tech OR anime OR "blue tick")',
-                        '("drop your handle" OR "mutuals connect")',
-                    ]
-                    chosen_query = random.choice(growth_queries)
-                    logger.info("Hunting active follow-back posts on live X Search: %s", chosen_query)
-                    searcher = SearchQuery()
-                    growth_results = await searcher.execute(page, query=chosen_query)
-                    for gr in growth_results[:5]:
-                        g_url = gr.get("url")
-                        if g_url and await has_already_acted(db, profile_id, g_url, "reply", hours=48):
-                            logger.info("Skipping growth thread %s: already replied in last 48h", g_url)
-                            continue
-                        feed_snapshot.append({
-                            "author": gr.get("author", "mutuals_creator"),
-                            "text": f"🤝 [ACTIVE FOLLOW-BACK / MUTUALS THREAD]: {gr.get('text', '')}",
-                            "url": g_url,
-                            "is_blue_tick": gr.get("is_blue_tick", True),
-                            "likes": gr.get("likes", 25),
-                            "retweets": gr.get("retweets", 15),
-                            "replies": gr.get("replies", 20),
-                            "is_growth_thread": True,
-                        })
-
-                    # Harvest active commenters from the top growth thread into FollowCandidate table
-                    if growth_results:
-                        top_growth_url = growth_results[0].get("url")
-                        if top_growth_url:
-                            from xbot.browser.actions.x_actions import HarvestFollowBackThread
-                            from xbot.models.follow_growth import FollowCandidate
-                            harvester = HarvestFollowBackThread()
-                            thread_candidates = await harvester.execute(page, tweet_url=top_growth_url, max_candidates=6)
-                            for tc in thread_candidates:
-                                c_handle = tc["handle"]
-                                ex_stmt = select(FollowCandidate).where(
-                                    FollowCandidate.profile_id == profile_id,
-                                    FollowCandidate.handle == c_handle
-                                )
-                                ex_res = await db.execute(ex_stmt)
-                                if not ex_res.scalar_one_or_none():
-                                    cand = FollowCandidate(
-                                        profile_id=profile_id,
-                                        handle=c_handle,
-                                        display_name=tc.get("display_name"),
-                                        niche="growth_mutuals",
-                                        is_blue_tick=tc.get("is_blue_tick", True),
-                                        source_discussion=f"Commenter in follow-back thread: {top_growth_url}",
-                                        source_tweet_url=top_growth_url,
-                                        reciprocity_score=tc.get("reciprocity_score", 85.0),
-                                        status="discovered"
-                                    )
-                                    db.add(cand)
-                            await db.commit()
+                    target_topics = getattr(persona, "content_pillars", []) or ["technology", "cinema", "AI", "gaming"]
+                    if target_topics:
+                        chosen_topic = random.choice(target_topics)
+                        search_q = f"{chosen_topic} min_faves:50 lang:en"
+                        logger.info("Searching high-signal discussions on live X Search: %s", search_q)
+                        searcher = SearchQuery()
+                        niche_results = await searcher.execute(page, query=search_q)
+                        for nr in (niche_results or [])[:4]:
+                            n_url = nr.get("url")
+                            if n_url and await has_already_acted(db, profile_id, n_url, "reply", hours=168):
+                                continue
+                            feed_snapshot.append({
+                                "author": nr.get("author", "creator"),
+                                "text": nr.get("text", ""),
+                                "url": n_url,
+                                "is_blue_tick": nr.get("is_blue_tick", False),
+                                "likes": nr.get("likes", 50),
+                                "retweets": nr.get("retweets", 10),
+                                "replies": nr.get("replies", 15),
+                            })
                 except Exception as s_err:
-                    logger.warning("Live follow-back search scan encountered non-fatal error: %s", s_err)
+                    logger.warning("Niche topic search scan encountered non-fatal error: %s", s_err)
 
                 # 3. Live Trends Ingestion: Fetch breaking trends and viral discussions
                 try:
@@ -904,7 +883,6 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                 success = True
                                 continue
 
-                            # Check target tweet popularity before quoting (minimum 100k views threshold & no F4F trains)
                             if not is_mock:
                                 live_ctx = await ReplyToTweet().scrape_target_tweet_context(page, tweet_url=tweet_url, target_idx=0)
                                 target_text = live_ctx.get("text", "")
@@ -916,16 +894,24 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                                     success = True
                                     continue
 
-                                target_views = int(live_ctx.get("impressions", 0) or live_ctx.get("views", 0) or 0)
-                                if 0 < target_views < 50_000:
-                                    logger.info("Target tweet %s has only %d views (< 50,000 required for quote-tweeting). Skipping quote action.", tweet_url, target_views)
-                                    db_action.status = ActionStatus.SKIPPED
-                                    db_action.error = f"Target tweet has only {target_views:,} views (< 50,000 required for quote-tweet virality)."
-                                    success = True
-                                    continue
+                                # Generate high-value, context-aware quote take with full thread & top comments
+                                from xbot.ai.sniper import generate_quote_take
+                                quote_res = await generate_quote_take(persona=persona, target_tweet=live_ctx)
+                                quote_text = quote_res.quote_text
+                                quote_gif_query = quote_res.gif_query or getattr(p_action, "gif_query", None)
+                                db_action.content = quote_text
+                                db_action.result = quote_res.model_dump()
+                                await db.commit()
+                            else:
+                                quote_text = p_action.content or "Sharp perspective on this. Adding to the discussion."
+                                quote_gif_query = getattr(p_action, "gif_query", None)
 
-                            quote_text = p_action.content or "Sharp perspective on this. Adding to the discussion."
-                            success = await QuoteTweet().execute(page, quote_text=quote_text, tweet_url=tweet_url)
+                            success = await QuoteTweet().execute(
+                                page,
+                                quote_text=quote_text,
+                                tweet_url=tweet_url,
+                                gif_query=quote_gif_query,
+                            )
                         elif p_action.type == "follow":
                             from xbot.models.follow_growth import FollowCandidate, FollowRelationship
                             target_to_follow = username_target or p_action.target

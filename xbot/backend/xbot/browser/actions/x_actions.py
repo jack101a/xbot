@@ -384,6 +384,20 @@ async def _attach_media_files(page: Page, media_paths: list[str] | None) -> bool
     return False
 
 
+def smart_truncate_tweet_text(text: str, max_chars: int = 260) -> str:
+    """Truncates tweet text cleanly at natural punctuation or word boundaries without severing words."""
+    if not text or len(text) <= max_chars:
+        return text
+    truncated = text[:max_chars]
+    last_punc = max(truncated.rfind("."), truncated.rfind("!"), truncated.rfind("?"))
+    if last_punc > 120:
+        return truncated[:last_punc + 1].strip()
+    last_space = truncated.rfind(" ")
+    if last_space > 100:
+        return truncated[:last_space].strip() + "..."
+    return truncated[:max_chars - 3].strip() + "..."
+
+
 class ComposePost(BaseAction):
     """Composes and publishes a new post (tweet), optionally with attached images/GIF."""
 
@@ -395,9 +409,9 @@ class ComposePost(BaseAction):
         gif_query: str | None = None,
     ) -> bool:
         try:
-            # Ensure text is strictly <= 260 chars for free tier X accounts
-            if text and len(text) > 260:
-                text = text[:257].rstrip() + "..."
+            # Ensure text is cleanly <= 260 chars for free tier X accounts with smart boundary truncation
+            if text:
+                text = smart_truncate_tweet_text(text, 260)
 
             logger.info("Composing new post (%d chars, media=%s, gif=%s): %s...", len(text) if text else 0, media_paths, gif_query, (text or "")[:40])
 
@@ -1008,10 +1022,9 @@ class ReplyToTweet(BaseAction):
             await page.wait_for_selector(textarea_sel, timeout=12000)
             await sleep_think_time(1000, 2500)  # Formulate reply
 
-            # Ensure reply_text is strictly <= 260 chars
+            # Ensure reply_text is cleanly <= 260 chars with smart boundary truncation
             if reply_text:
-                if len(reply_text) > 260:
-                    reply_text = reply_text[:257].rstrip() + "..."
+                reply_text = smart_truncate_tweet_text(reply_text, 260)
                 # Type reply
                 await human_type(page, textarea_sel, reply_text)
                 await sleep_think_time(800, 2000)  # Review reply
@@ -1167,8 +1180,7 @@ class QuoteTweet(BaseAction):
                 return False
 
             if quote_text:
-                if len(quote_text) > 260:
-                    quote_text = quote_text[:257].rstrip() + "..."
+                quote_text = smart_truncate_tweet_text(quote_text, 260)
                 await sleep_think_time(600, 1500)
                 await human_type(page, composer_sel, quote_text)
                 await sleep_think_time(1000, 2500)

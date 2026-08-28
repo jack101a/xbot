@@ -1,28 +1,48 @@
-"""Unit & Integration Tests for On-Demand Campaign Pipeline."""
-
 import uuid
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from xbot.ai.campaign_planner import CampaignPlan, DeliverableSpec, DeliverableType
-from xbot.database import AsyncSessionLocal
+from xbot.models.base import Base
 from xbot.models import Profile, Content, ContentType, ContentStatus
+import xbot.models  # Register all models on Base.metadata
 from xbot.pipelines.on_demand_campaign_pipeline import (
     execute_on_demand_campaign,
     get_campaign_status,
     publish_campaign_deliverables,
 )
 
+TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
+test_engine = create_async_engine(TEST_DB_URL, echo=False)
+TestingSessionLocal = async_sessionmaker(
+    bind=test_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+
+async def _reset_db():
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+
 
 @pytest.mark.asyncio
 async def test_execute_on_demand_campaign_flow(tmp_path):
-    """Verifies that an on-demand campaign executes research, synthesis, and DB staging."""
-    async with AsyncSessionLocal() as db:
-        profile_res = await db.execute(select(Profile))
-        profile = profile_res.scalars().first()
-        if not profile:
-            pytest.skip("No profile found in DB")
+    """Verifies that an on-demand campaign executes research, synthesis, and DB staging in isolated DB."""
+    await _reset_db()
+    async with TestingSessionLocal() as db:
+        profile = Profile(
+            id=uuid.uuid4(),
+            profile_slug="testcreator",
+            x_handle="testcreator",
+            display_name="Test Creator",
+        )
+        db.add(profile)
+        await db.commit()
+        await db.refresh(profile)
 
         campaign_id = f"camp_{uuid.uuid4().hex[:8]}"
         prompt = "build a thread on giva jewellery controversy with media, and a poll on upcoming apple launch event"
@@ -94,12 +114,18 @@ async def test_execute_on_demand_campaign_flow(tmp_path):
 
 @pytest.mark.asyncio
 async def test_publish_campaign_deliverables():
-    """Verifies publishing deliverables either instantly or via scheduled queue."""
-    async with AsyncSessionLocal() as db:
-        profile_res = await db.execute(select(Profile))
-        profile = profile_res.scalars().first()
-        if not profile:
-            pytest.skip("No profile found in DB")
+    """Verifies publishing deliverables either instantly or via scheduled queue in isolated test DB."""
+    await _reset_db()
+    async with TestingSessionLocal() as db:
+        profile = Profile(
+            id=uuid.uuid4(),
+            profile_slug="testcreator2",
+            x_handle="testcreator2",
+            display_name="Test Creator 2",
+        )
+        db.add(profile)
+        await db.commit()
+        await db.refresh(profile)
 
         campaign_id = f"camp_{uuid.uuid4().hex[:8]}"
 

@@ -30,37 +30,37 @@ VALID_RESPONSE_MODES = {
 }
 
 SNIPER_PROMPT_TEMPLATE = """=== HIGH-IMPACT SNIPER REPLY ARCHITECTURE (6 DYNAMIC MODALITIES) ===
-Read the room and select ONE of the following 6 response modes based on the target post, vibe, and top comments:
+Read the room, attached media, and top comments to select ONE of the following 6 response modes:
 
 1. pure_gif:
-   - Provide a targeted Tenor / X GIF search query in `gif_query` (e.g. 'side eye', 'popcorn eating', 'facepalm', 'mind blown').
+   - Provide a targeted Tenor / X GIF search query in `gif_query` (e.g. 'side eye', 'popcorn eating', 'facepalm', 'mind blown', 'sweating nervous', 'tired sigh').
    - `reply_text` should be an optional ultra-short reaction (e.g. 'real', '💀', 'no notes', 'pure cinema', 'W') or empty/minimal.
 
 2. emoji_reaction:
-   - Ultra-short, authentic emoji reaction in `reply_text` (1-2 emojis max, e.g. 💀, 😭, 🔥, 🤌) when the room is purely reactive.
+   - Ultra-short, authentic emoji reaction in `reply_text` (1-2 emojis max, e.g. 💀, 😭, 🔥, 🤌, 💯) when the room is purely reactive.
    - NO filler text.
 
 3. punchy_one_liner:
-   - Short conversational punch (20-70 chars) delivering immediate humor, dry agreement, or disbelief.
-   - Examples: 'ok i agree', 'they are not gonna like this one', 'bro had 2 lines and dipped 💀', 'we really doing leetcode in the replies now'.
+   - Short conversational punch (20-90 chars) delivering immediate humor, dry agreement, or disbelief.
+   - Examples: 'ok i agree', 'they are not gonna like this one', 'bro had 2 lines and dipped 💀', 'Rockstar is making a second life not a game 🔥'.
 
 4. witty_sarcasm:
-   - 1-2 sentences (50-140 chars) of dry humor, sarcastic observation, or relatable banter matching the comments.
-   - Great for roasting bad takes, tech ironies, or shared community pain points.
+   - 1-2 sentences (50-160 chars) of dry humor, sarcastic observation, or relatable banter matching the comments.
+   - Great for roasting bad takes, tech ironies, movie tropes, or shared community pain points.
 
 5. casual_take:
-   - Clear, grounded perspective or opinion (60-180 chars) without sounding like a textbook or lecture.
+   - Clear, grounded perspective or opinion (60-200 chars) without sounding like a textbook or lecture.
    - Conversational, human, authentic.
 
 6. in_depth_breakdown:
-   - 2-4 sentences (120-260 chars) of technical nuance, empirical data, or first-principles analysis when the room calls for domain depth.
+   - 2-4 sentences (120-260 chars) of technical nuance, empirical data, or filmmaking/story analysis when the room calls for domain depth.
 
 === CRITICAL RULES (STRICT) ===
-- NO FORCED QUESTIONS: NEVER force your reply to end with a question mark ('?'). Only ask a question if your angle/response mode naturally calls for one. Statements, roasts, memes, and punchy takes should end with natural punctuation (. ! or none).
+- STRICT CONTEXT ACCURACY: Talk directly and accurately about the exact subject, image, and discussion in the target tweet. NEVER force artificial analogies or unrelated hobbies.
+- NO FORCED QUESTIONS: NEVER force your reply to end with a question mark ('?'). Only ask a question if your angle naturally calls for one. Statements, roasts, memes, and punchy takes should end with natural punctuation (. ! or none).
 - NO FIXED LENGTH MINIMUMS: Ultra-short replies (1-30 chars) are 100% valid and encouraged for pure_gif, emoji_reaction, and punchy_one_liner modes.
-- EMOJI RULES: Use emojis naturally based on emotion. Never use topic-labeling emojis (no 🍿 for cinema, no 🤖 for AI, no 💻 for coding).
+- EMOJIS & HASHTAGS: Use natural, expressive emojis (💀, 😭, 🔥, 😂, 💯, 🤌, 🌴, 🎮) where fitting to express human emotion and timing. Include 1-2 relevant hashtags if natural for the topic (e.g. #GTA6, #Cinema, #DCU, #Tech).
 - ZERO AI CLICHÉS: STRICTLY BANNED: delve, testament, tapestry, supercharge, beacon, plethora, moreover, furthermore, in conclusion, game-changer, leverage, multifaceted, pivotal, foster, vital, crucial, endeavor, Great post!, Awesome thread!
-- NO HASHTAGS: Never include hashtags (#).
 - NO INDIAN POLITICS: Zero references to Indian political parties or figures.
 """
 
@@ -178,22 +178,21 @@ def _build_sniper_system_prompt(persona: Persona, preferred_angle: str | None = 
 
     prompt_parts.append(
         "\n=== X ALGORITHM & RETENTION OPTIMIZATION RULES ===\n"
-        "1. STRICT TOPIC RELEVANCE (MANDATORY): You MUST directly address the EXACT topic, premise, claim, or joke of the target post. If the tweet is about tech, coding, AI, or startups, reply with witty commentary on tech/coding. If it is about comedy, banter with comedy. If it is about traffic, talk about traffic. NEVER bring up unrelated persona hobbies.\n"
+        "1. STRICT TOPIC RELEVANCE (MANDATORY): You MUST directly address the EXACT topic, premise, claim, or joke of the target post. If the tweet is about tech, coding, AI, or startups, reply with witty commentary on tech/coding. If it is about cinema, talk about cinema. If it is about gaming/GTA, talk about gaming. NEVER bring up unrelated persona hobbies or forced metaphors.\n"
         "2. MATCH ENERGY & SCALE: Match the vibe of the room. Keep your reply sharp, authentic, and human.\n"
         "3. NO FORCED QUESTIONS: Deliver statements, one-liners, and roasts with conviction. Do NOT force a closing question mark unless you are genuinely asking a debate question.\n"
         "4. DYNAMIC HOOK OPENINGS & EMOTIONAL VARIETY: Vary your opening structure dynamically with genuine human emotion, humor, shock, or sarcasm:\n"
-        "   - Sarcastic Banter: 'Bro had 2 lines in 2019 and dipped 💀', 'We are really out here doing algorithm boot camp training in the replies instead of just shipping code...'\n"
+        "   - Sarcastic Banter: 'Bro had 2 lines in 2019 and dipped 💀', 'Rockstar is basically building a second life we have to pay $70 to enter 🔥'\n"
         "   - Shock & Hype: 'Masahide Fujii returning as Rocks is pure cinema. That laugh alone is carrying the entire arc 🔥'\n"
-        "   - Dry Disbelief/Humor: 'Marketing departments treating individual TV episodes like software patch notes is crazy 😭'\n"
-        "   - Direct Punchy Observation: 'The M4 Max efficiency gap is actually absurd. Intel needs a miracle.'\n"
-        "5. DYNAMIC NATURAL LENGTH: Allow short 1-5 word takes ('real', 'pure cinema', 'W', 'nice 💯'), dry observations, or nuanced breakdowns.\n"
-        "6. EMOJI FREEDOM & ZERO TRAILING HABIT: Do NOT make it a fixed formula to end replies with 1 emoji. Over 50% of your replies should contain ZERO emojis. Never use emojis as category labels (no 🍿, no 🤖).\n"
+        "   - Dry Disbelief/Humor: 'The classic tired office worker vs coworker who makes HR mandatory dynamic 💀'\n"
+        "   - Direct Punchy Observation: 'The draw distance alone is absurd. My GPU is sweating just looking at this 🌴'\n"
+        "5. DYNAMIC NATURAL LENGTH: Allow short takes, witty roasts, or nuanced breakdowns (up to 260 chars).\n"
+        "6. NATURAL EMOJIS & HASHTAGS: Use expressive emojis (💀, 😭, 🔥, 😂, 💯, 🤌, 🌴, 🎮) where fitting to express human emotion and timing. Include 1-2 relevant hashtags if natural for the topic (e.g. #GTA6, #Cinema, #DCU, #Tech).\n"
         "7. ZERO EXPENSIVE / FAKE ACADEMIC AI ENGLISH: STRICTLY BANNED: delve, tapestry, testament, supercharge, beacon, plethora, moreover, furthermore, in conclusion, game-changer, leverage, multifaceted, pivotal, foster, vital, crucial, endeavor. Speak in natural, grounded conversational voice.\n"
         "8. READ THE ROOM & POPULAR COMMENTS: Look at the tweet and top comments. If people are roasting or joking, join the banter with witty sarcasm. If it's a technical debate, bring empirical nuance.\n"
-        "9. GIF / REACTION ATTACHMENT: For pure_gif mode or strong comedic timing/shock, provide a 1-3 word gif_query (e.g. 'side eye', 'facepalm', 'smug nod', 'confused math'). For analytical takes, return null.\n"
-        "10. NO HASHTAGS: Never include hashtags (#).\n"
-        "11. ABSOLUTE ZERO TOLERANCE FOR INDIAN POLITICS (HARD BAN): STRICTLY FORBIDDEN from discussing or mentioning Indian political parties or politicians.\n"
-        "12. ANTI-BOT: NEVER use generic praise like 'Great post!', '100% agree!', 'Awesome thread!'. Stand out."
+        "9. GIF / REACTION ATTACHMENT: For pure_gif mode or strong comedic timing/shock, provide a 1-3 word gif_query (e.g. 'side eye', 'facepalm', 'sweating nervous', 'tired sigh', 'this is fine fire', 'mind blown'). For analytical takes, return null.\n"
+        "10. ABSOLUTE ZERO TOLERANCE FOR INDIAN POLITICS (HARD BAN): STRICTLY FORBIDDEN from discussing or mentioning Indian political parties or politicians.\n"
+        "11. ANTI-BOT: NEVER use generic praise like 'Great post!', '100% agree!', 'Awesome thread!'. Stand out."
     )
 
     prompt_parts.append(
@@ -312,9 +311,8 @@ def _build_sniper_user_prompt(target_tweet: dict[str, Any], preferred_angle: str
         )
     elif is_growth:
         domain_lock = (
-            "🎯 DOMAIN LOCK (MANDATORY - MUTUALS & GROWTH THREAD):\n"
-            "- The target post is an active follow-back / mutuals train.\n"
-            "- Introduce yourself authentically (anime, tech & cinema enthusiast) and invite active mutuals to connect!"
+            "🎯 DOMAIN LOCK (MANDATORY):\n"
+            "- Reply naturally, casually, and concisely to this post without forcing self-introductions or artificial analogies."
         )
     elif is_movies:
         domain_lock = (
@@ -682,3 +680,118 @@ async def generate_sniper_reply(
         confidence=0.0,
         reasoning=f"Generation failed: All top-tier writing models failed or timed out after retries for @{clean_author}. Discarded to prevent posting low-quality output.",
     )
+
+
+class QuoteTakeResult(BaseModel):
+    quote_text: str = Field(..., description="The drafted high-value standalone quote take")
+    gif_query: str | None = Field(default=None, description="Search term for Tenor/X GIF picker or None")
+    reasoning: str = Field(default="", description="Strategic rationale for the quote take")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    topic_understanding: str = Field(default="", description="Brief breakdown of what the target post and room are about")
+
+
+async def generate_quote_take(
+    persona: Persona,
+    target_tweet: dict[str, Any],
+    client: Any | None = None,
+) -> QuoteTakeResult:
+    """
+    Generates a viral, high-signal Quote Tweet take tailored to the full root post,
+    attached visual media descriptions, and top 10 liked comments in the thread.
+    """
+    author = target_tweet.get("author") or target_tweet.get("handle") or "Creator"
+    author = str(author).lstrip("@")
+    text = target_tweet.get("text", "").strip()
+    media_alts = target_tweet.get("media_alts") or []
+    top_comments = target_tweet.get("top_comments") or []
+
+    comments_formatted = ""
+    for ci, c in enumerate(top_comments[:10], 1):
+        if isinstance(c, dict):
+            c_author = c.get("author") or "user"
+            c_text = c.get("text", "").strip()
+            c_likes = c.get("likes") or 0
+            comments_formatted += f"{ci}. @{c_author}: \"{c_text}\" ({c_likes} likes)\n"
+        else:
+            comments_formatted += f"{ci}. \"{str(c).strip()}\"\n"
+
+    media_desc_str = ", ".join(media_alts) if media_alts else "Embedded image/video media"
+
+    prompt = f"""You are an authentic, culturally savvy, high-IQ creator on X (Twitter) named {persona.display_name}.
+You are analyzing this real live post to draft a viral, high-value QUOTE TWEET (standalone take adding a strong perspective).
+
+=== TARGET TWEET ===
+Author: @{author}
+Content: "{text}"
+Attached Media / Visual Details: {media_desc_str}
+
+=== TOP 10 COMMENTS IN THE ROOM (SENTIMENT, HUMOR & DEBATE) ===
+{comments_formatted if comments_formatted else 'No comments yet'}
+
+=== GENERATION DIRECTIVES ===
+1. 100% CONTEXT ACCURACY: Understand what the post, media, and room are actually discussing. Speak directly to the core topic. Never force bizarre analogies or unrelated persona hobbies.
+2. HIGH-VALUE STANDALONE PERSPECTIVE: Deliver an insightful observation, witty comparison, or sharp industry take that adds genuine value to the timeline.
+3. NATURAL HUMAN VOICE: Sound authentic, conversational, and observant.
+4. EMOJIS & HASHTAGS: Use natural, expressive emojis (💀, 😭, 🔥, 😂, 💯, 🤌, 🌴, 🎮) where fitting. Include 1-2 relevant hashtags if natural for the topic (e.g. #GTA6, #Cinema, #DCU, #Tech).
+5. GIF ATTACHMENT: Provide a 1-3 word Tenor search query in `gif_query` if a reaction GIF adds punch (e.g. 'mind blown', 'popcorn', 'sweating nervous', 'this is fine fire'); otherwise null.
+6. LENGTH: Under 260 characters with clean natural punctuation (no cutting words in half).
+
+Return ONLY a JSON object matching this schema:
+{{
+  "topic_understanding": "1-2 sentences explaining what the post, image, and room are discussing",
+  "quote_text": "Your complete quote tweet take (natural length, sentence case)",
+  "gif_query": "Tenor search query or null",
+  "reasoning": "Brief explanation of why this perspective fits the topic"
+}}
+"""
+
+    model = getattr(
+        settings,
+        "MODEL_REPLY_ANALYSIS",
+        getattr(settings, "MODEL_GENERATION", getattr(settings, "MODEL_POST_CREATION", "gemini-3.5-flash-lite")),
+    )
+    ai_client = client if client is not None else get_ai_client()
+
+    for attempt in range(3):
+        try:
+            resp = await ai_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are a world-class social media strategist and authentic creator on X."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.75,
+                max_tokens=600,
+            )
+            raw = resp.choices[0].message.content or ""
+            clean_json = clean_text_for_json(raw)
+            data = json.loads(clean_json)
+
+            if isinstance(data, dict):
+                quote_text = strip_surrounding_quotes(str(data.get("quote_text") or data.get("content") or "").strip())
+                if len(quote_text) > 260:
+                    quote_text = quote_text[:260].strip()
+
+                raw_gif = data.get("gif_query")
+                gif_query = None
+                if raw_gif and str(raw_gif).strip().lower() not in ("null", "none", "", "n/a", "false"):
+                    gif_query = str(raw_gif).strip()
+
+                return QuoteTakeResult(
+                    quote_text=quote_text,
+                    gif_query=gif_query,
+                    reasoning=str(data.get("reasoning") or ""),
+                    topic_understanding=str(data.get("topic_understanding") or ""),
+                    confidence=1.0,
+                )
+        except Exception as err:
+            logger.warning("Attempt %d failed during quote take generation for @%s: %s", attempt + 1, author, err)
+
+    # Fallback
+    return QuoteTakeResult(
+        quote_text=f"Sharp perspective on this from @{author}. Adding to the discussion.",
+        gif_query=None,
+        reasoning="Fallback quote take after retry exhaustion",
+        confidence=0.5,
+    )
+
