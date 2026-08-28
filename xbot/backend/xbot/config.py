@@ -4,17 +4,25 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://xbot:xbot@localhost:5432/xbot"
     REDIS_URL: str = "redis://localhost:6379/0"
+    BASE_PROFILE_DIR: str = "/home/ubuntu/projects/xbot/data/profiles"
     LITELLM_BASE_URL: str = "http://localhost:4000"
     LITELLM_API_KEY: str = "placeholder_key"
-    LITELLM_PRIMARY_MODEL: str = "gpt-oss-120b"
-    LITELLM_FAST_MODEL: str = "deepseek-v4-flash"
+    LITELLM_PRIMARY_MODEL: str = "gemini-flash-latest"
+    LITELLM_FAST_MODEL: str = "deepseek-v4-flash-0731"
     
     # Model configuration by work type / job
-    MODEL_POST_CREATION: str = "litellm/gpt-oss-120b"
-    MODEL_REPLY_ANALYSIS: str = "litellm/deepseek-v4-flash"
-    MODEL_TREND_ANALYSIS: str = "litellm/gpt-oss-120b"
-    MODEL_LIKE_RETWEET: str = "litellm/deepseek-v4-flash"
-    MODEL_FOLLOW: str = "litellm/deepseek-v4-flash"
+    # Creative Writing (Heavy Models Only: 2-3 Tries Gemini Flash Latest -> 2-3 Tries DeepSeek Flash 0731. Never fall over to cheap/small models)
+    MODEL_POST_CREATION: str = "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
+    MODEL_REPLY_ANALYSIS: str = "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
+    MODEL_HOOK_OPTIMIZER: str = "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
+    MODEL_POLL_GENERATOR: str = "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
+    
+    # Analysis & Planning (Primary DeepSeek Flash -> Fallback Gemini Flash Lite -> Fallback GPT-OSS-120B)
+    MODEL_PLANNER: str = "litellm/deepseek-v4-flash-0731,litellm/gemini-3.1-flash-lite,litellm/gpt-oss-120b"
+    MODEL_TREND_ANALYSIS: str = "litellm/deepseek-v4-flash-0731,litellm/gemini-3.1-flash-lite,litellm/gpt-oss-120b"
+    MODEL_LIKE_RETWEET: str = "litellm/deepseek-v4-flash-0731,litellm/gemini-3.1-flash-lite,litellm/gpt-oss-120b"
+    MODEL_FOLLOW: str = "litellm/deepseek-v4-flash-0731,litellm/gemini-3.1-flash-lite,litellm/gpt-oss-120b"
+    MODEL_REFLECTION: str = "litellm/deepseek-v4-flash-0731,litellm/gemini-3.1-flash-lite,litellm/gpt-oss-120b"
 
     # Prompts for each job category
     PROMPT_POST_CREATION: str = (
@@ -76,6 +84,9 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = "placeholder_gemini"
     DEEPSEEK_API_KEY: str = "placeholder_deepseek"
     OPENROUTER_API_KEY: str = "placeholder_openrouter"
+    NVIDIA_API_KEY: str | None = None
+    NVIDIA_BASE_URL: str = "https://ai.api.nvidia.com/v1/genai"
+    NVIDIA_DEFAULT_IMAGE_MODEL: str = "flux.1-dev"
 
     # Secret key must be 32 URL-safe base64-encoded bytes for Fernet
     SECRET_KEY: str = "supersecretfernetkeyforlocaldev12="

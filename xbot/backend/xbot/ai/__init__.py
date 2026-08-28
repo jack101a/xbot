@@ -23,9 +23,23 @@ from xbot.ai.growth_scorer import (
     is_f4f_or_engagement_growth_post,
     score_tweet_opportunity,
 )
+from xbot.ai.formatting_engine import (
+    ARCHETYPE_REGISTRY,
+    PostFormattingArchetype,
+    format_content,
+    post_process_formatted_content,
+    select_archetype,
+)
 from xbot.ai.trend_generator import TrendEvaluation, generate_trend_take
-from xbot.ai.trend_radar import TrendItem, fetch_rss_trends
-from xbot.ai.thread_generator import GeneratedThreadResponse, generate_thread
+
+from xbot.ai.nvidia_image import (
+    NVIDIA_MODELS,
+    build_nvidia_payload,
+    extract_image_from_response,
+    generate_and_save_nvidia_image_async,
+    generate_nvidia_image_async,
+    snap_flux_dimension,
+)
 from xbot.ai.x_researcher import (
     DownloadedMedia,
     TopicResearchReport,
@@ -70,9 +84,18 @@ __all__ = [
     "generate_visual_post_spec",
     "GeneratedThreadResponse",
     "generate_thread",
+    "PostFormattingArchetype",
+    "format_content",
+    "select_archetype",
+    "post_process_formatted_content",
     "TopicResearchReport",
     "ViralTweet",
     "DownloadedMedia",
     "research_topic_comprehensively",
+    "generate_nvidia_image_async",
+    "generate_and_save_nvidia_image_async",
+    "NVIDIA_MODELS",
+    "snap_flux_dimension",
 ]
+
 
