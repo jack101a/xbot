@@ -37,8 +37,11 @@ class RoutingClient:
         def __init__(self, is_beta: bool):
             self.is_beta = is_beta
             
-        def _get_provider_client(self, provider: str) -> AsyncOpenAI:
-            if provider == "gemini":
+        def _get_provider_client(self, provider: str) -> Any:
+            if provider == "chatgpt":
+                from xbot.ai.chatgpt_adapter import ChatGPTBridgeAdapter
+                return ChatGPTBridgeAdapter()
+            elif provider == "gemini":
                 return AsyncOpenAI(base_url="https://generativelanguage.googleapis.com/v1beta/openai/", api_key=settings.GEMINI_API_KEY, timeout=30.0, max_retries=1)
             elif provider == "mistral":
                 return AsyncOpenAI(base_url="https://api.mistral.ai/v1", api_key=settings.MISTRAL_API_KEY, timeout=30.0, max_retries=1)

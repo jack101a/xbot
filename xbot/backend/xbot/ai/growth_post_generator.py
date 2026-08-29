@@ -8,7 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from xbot.ai.client import get_ai_client
-from xbot.ai.nvidia_image import generate_and_save_nvidia_image_async
+from xbot.ai.image_engine import generate_post_image_async
 from xbot.config import settings
 from xbot.persona.loader import Persona
 
@@ -136,7 +136,7 @@ async def generate_growth_post_with_image(
         return None, None
 
     try:
-        image_path = await generate_and_save_nvidia_image_async(
+        image_path = await generate_post_image_async(
             prompt=post_spec.image_prompt,
             aspect_ratio="4:5",
             output_dir=output_dir,
@@ -146,7 +146,7 @@ async def generate_growth_post_with_image(
         verified_prompt = random.choice(GROWTH_IMAGE_THEMES)
         post_spec.image_prompt = verified_prompt
         try:
-            image_path = await generate_and_save_nvidia_image_async(
+            image_path = await generate_post_image_async(
                 prompt=verified_prompt,
                 aspect_ratio="4:5",
                 output_dir=output_dir,

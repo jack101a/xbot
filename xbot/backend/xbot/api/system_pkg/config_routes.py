@@ -237,3 +237,126 @@ async def get_system_models(
     except Exception as e:
         logger.error(f"Exception fetching models for {provider}: {e}")
         return {"models": []}
+
+
+class ChatGPTCookiePayload(BaseModel):
+    cookies: str
+
+
+@router.get("/system/chatgpt/status")
+async def get_chatgpt_status() -> dict[str, Any]:
+    """Inspects the on-disk cookies and active session state of ChatGPT Web Bridge."""
+    from pathlib import Path
+    from xbot.ai.chatgpt_bridge.session import COOKIE_JSON, COOKIE_TXT
+    from xbot.ai.chatgpt_bridge.cookies import load_cookie_file, cookies_valid
+
+    cookie_path = COOKIE_JSON if COOKIE_JSON.exists() else (COOKIE_TXT if COOKIE_TXT.exists() else None)
+    if not cookie_path:
+        return {
+            "status": "missing_cookies",
+            "has_cookie_file": False,
+            "cookie_count": 0,
+            "has_valid_session_token": False,
+            "message": "No cookies.json or cookies.txt found in ~/.chatgpt-bridge/",
+        }
+
+    try:
+        cookies = load_cookie_file(cookie_path)
+        valid = cookies_valid(cookies)
+        return {
+            "status": "authenticated" if valid else "expired",
+            "has_cookie_file": True,
+            "cookie_count": len(cookies),
+            "has_valid_session_token": valid,
+            "file_path": str(cookie_path),
+            "message": "Session token present." if valid else "Session token expired or missing.",
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "has_cookie_file": True,
+            "cookie_count": 0,
+            "has_valid_session_token": False,
+            "error": str(e),
+        }
+
+
+@router.post("/system/chatgpt/cookies")
+async def import_chatgpt_cookies(payload: ChatGPTCookiePayload) -> dict[str, Any]:
+    """Imports and validates raw cookies (JSON or Netscape) for ChatGPT Web Bridge."""
+    from pathlib import Path
+    import json
+    from xbot.ai.chatgpt_bridge.cookies import _parse_json, _parse_netscape, cookies_valid
+    from xbot.ai.chatgpt_adapter import reset_chatgpt_instance
+
+    raw = payload.cookies.strip()
+    if not raw:
+        return {"status": "error", "message": "Cookie content cannot be empty."}
+
+    parsed = []
+    try:
+        if raw.startswith("{") or raw.startswith("["):
+            parsed = _parse_json(raw)
+        else:
+            parsed = _parse_netscape(raw)
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to parse cookies: {e}"}
+
+    if not parsed:
+        return {"status": "error", "message": "No valid cookies found in payload."}
+
+    # Save to ~/.chatgpt-bridge/cookies.json
+    state_dir = Path("~/.chatgpt-bridge").expanduser()
+    state_dir.mkdir(parents=True, exist_ok=True)
+    cookie_dest = state_dir / "cookies.json"
+    cookie_dest.write_text(json.dumps(parsed, indent=2), encoding="utf-8")
+
+    # Reset in-memory ChatGPT singleton so it loads new cookies
+    reset_chatgpt_instance()
+
+    valid = cookies_valid(parsed)
+    return {
+        "status": "success",
+        "cookie_count": len(parsed),
+        "has_valid_session_token": valid,
+        "message": f"Successfully imported {len(parsed)} cookies. Session token {'verified' if valid else 'missing'}!",
+    }
+
+
+@router.post("/system/chatgpt/test")
+async def test_chatgpt_live_session() -> dict[str, Any]:
+    """Tests the live session connection to chatgpt.com via the bridge."""
+    import time
+    from xbot.ai.chatgpt_adapter import get_chatgpt_instance, _bridge_lock
+
+    start_time = time.time()
+    try:
+        async with _bridge_lock:
+            bridge = get_chatgpt_instance()
+            await bridge._ensure_started()
+            user_info = await bridge.session.get_user_info()
+            latency_ms = int((time.time() - start_time) * 1000)
+
+            if user_info:
+                return {
+                    "status": "success",
+                    "authenticated": True,
+                    "latency_ms": latency_ms,
+                    "user": user_info,
+                    "message": f"ChatGPT session active for {user_info.get('email') or 'authenticated user'} ({latency_ms}ms)",
+                }
+            else:
+                return {
+                    "status": "error",
+                    "authenticated": False,
+                    "latency_ms": latency_ms,
+                    "message": "Session check returned unauthenticated. Please refresh cookies.",
+                }
+    except Exception as exc:
+        latency_ms = int((time.time() - start_time) * 1000)
+        return {
+            "status": "error",
+            "authenticated": False,
+            "latency_ms": latency_ms,
+            "message": f"Live test failed: {exc}",
+        }

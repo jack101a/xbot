@@ -4,6 +4,8 @@ import React from "react";
 import { Key } from "lucide-react";
 import { SystemConfig } from "@/lib/api";
 
+import { ChatGPTBridgeCard } from "./ChatGPTBridgeCard";
+
 interface DirectApiKeysSectionProps {
   config: Partial<SystemConfig>;
   setConfig: React.Dispatch<React.SetStateAction<Partial<SystemConfig>>>;
@@ -43,6 +45,12 @@ const KEY_FIELDS: KeyFieldDef[] = [
     label: "OpenRouter Key",
     placeholder: "sk-or-...",
   },
+  {
+    key: "NVIDIA_API_KEY",
+    fieldId: "nvidia",
+    label: "NVIDIA GenAI Key (Flux Fallback)",
+    placeholder: "nvapi-...",
+  },
 ];
 
 export function DirectApiKeysSection({
@@ -74,6 +82,8 @@ export function DirectApiKeysSection({
           </div>
         ))}
       </div>
+
+      <ChatGPTBridgeCard />
     </div>
   );
 }

@@ -21,6 +21,7 @@ interface GlobalSettingsModalProps {
 }
 
 const DEFAULT_MODELS = [
+  "chatgpt/auto",
   "deepseek-v4-pro",
   "deepseek-v4-flash-0731",
   "gemini-3.5-flash",

@@ -40,6 +40,9 @@ from xbot.ai.nvidia_image import (
     generate_nvidia_image_async,
     snap_flux_dimension,
 )
+from xbot.ai.chatgpt_adapter import ChatGPTBridgeAdapter
+from xbot.ai.chatgpt_image import generate_and_save_chatgpt_image_async
+from xbot.ai.image_engine import generate_post_image_async
 from xbot.ai.x_researcher import (
     DownloadedMedia,
     TopicResearchReport,
@@ -96,6 +99,9 @@ __all__ = [
     "generate_and_save_nvidia_image_async",
     "NVIDIA_MODELS",
     "snap_flux_dimension",
+    "ChatGPTBridgeAdapter",
+    "generate_and_save_chatgpt_image_async",
+    "generate_post_image_async",
 ]
 
 

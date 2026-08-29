@@ -11,10 +11,10 @@ class Settings(BaseSettings):
     LITELLM_FAST_MODEL: str = "deepseek-v4-flash-0731"
     
     # Model configuration by work type / job
-    # Creative Writing (Heavy Models Only: 2-3 Tries Gemini Flash Latest -> 2-3 Tries DeepSeek Flash 0731. Never fall over to cheap/small models)
-    MODEL_POST_CREATION: str = "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
+    # Creative Writing (Heavy Models: ChatGPT Bridge Primary -> Gemini Flash -> DeepSeek Flash 0731)
+    MODEL_POST_CREATION: str = "chatgpt/auto,litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
     MODEL_REPLY_ANALYSIS: str = "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
-    MODEL_HOOK_OPTIMIZER: str = "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
+    MODEL_HOOK_OPTIMIZER: str = "chatgpt/auto,litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
     MODEL_POLL_GENERATOR: str = "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
     
     # Analysis & Planning (Primary DeepSeek Flash -> Fallback Gemini Flash Lite -> Fallback GPT-OSS-120B)
@@ -87,6 +87,12 @@ class Settings(BaseSettings):
     NVIDIA_API_KEY: str | None = None
     NVIDIA_BASE_URL: str = "https://ai.api.nvidia.com/v1/genai"
     NVIDIA_DEFAULT_IMAGE_MODEL: str = "flux.1-dev"
+
+    # ChatGPT Web Bridge & Image Generation
+    CHATGPT_BRIDGE_ENABLED: bool = True
+    CHATGPT_BRIDGE_HEADLESS: bool = False
+    CHATGPT_BRIDGE_STATE_DIR: str = "~/.chatgpt-bridge"
+    IMAGE_GENERATION_PROVIDER: str = "chatgpt,nvidia"
 
     # Secret key must be 32 URL-safe base64-encoded bytes for Fernet
     SECRET_KEY: str = "supersecretfernetkeyforlocaldev12="
