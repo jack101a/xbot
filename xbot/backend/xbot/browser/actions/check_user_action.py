@@ -140,9 +140,7 @@ class CheckUserLatestTweet(BaseAction):
         logger.info("Navigating to check latest tweet for @%s: %s", clean_handle, profile_url)
 
         try:
-            # domcontentloaded is correct — X never reaches networkidle (background polling)
-            # We condition-wait on the actual tweet element appearing instead
-            response = await page.goto(profile_url, wait_until="domcontentloaded", timeout=20000)
+            response = await page.goto(profile_url, wait_until="commit", timeout=20000)
             if response and response.status >= 400:
                 logger.warning(
                     "Navigation to @%s returned status code %d",
@@ -156,7 +154,7 @@ class CheckUserLatestTweet(BaseAction):
             tweet_elements = []
             for attempt in range(3):
                 try:
-                    await page.wait_for_selector(tweet_sel, timeout=10000)
+                    await page.wait_for_selector(tweet_sel, timeout=7000)
                     tweet_elements = await page.query_selector_all(tweet_sel)
                     if tweet_elements:
                         logger.info("Found %d tweets on @%s (attempt %d)", len(tweet_elements), clean_handle, attempt + 1)
@@ -164,7 +162,8 @@ class CheckUserLatestTweet(BaseAction):
                 except Exception:
                     pass
                 if attempt < 2:
-                    logger.debug("Retry %d/3 waiting for tweets on @%s", attempt + 1, clean_handle)
+                    logger.debug("Retry %d/3 waiting for tweets on @%s with scroll hydration", attempt + 1, clean_handle)
+                    await page.evaluate("window.scrollBy(0, 400)")
                     await sleep_with_jitter(2000)
 
             if not tweet_elements:

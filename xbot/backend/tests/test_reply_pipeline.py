@@ -89,13 +89,18 @@ async def test_execute_kol_sniper_replies_enriched_context():
                 assert target_tweet.get("views") == 250000
 
                 # Verify BrowserJob params
-                assert len(captured_jobs) == 2
+                assert len(captured_jobs) == 3
                 reply_job = captured_jobs[1]
                 assert reply_job.action_type == "reply"
                 assert reply_job.params.get("tweet_id") == "tweet-kol-1"
                 assert reply_job.params.get("tweet_url") == "https://x.com/elonmusk/status/tweet-kol-1"
                 assert "Raptor 3" in reply_job.params.get("text")
                 assert reply_job.params.get("gif_query") is None
+
+                # Verify auto-like job
+                like_job = captured_jobs[2]
+                assert like_job.action_type == "like"
+                assert like_job.params.get("tweet_url") == "https://x.com/elonmusk/status/tweet-kol-1"
 
 
 @pytest.mark.asyncio
@@ -151,10 +156,14 @@ async def test_execute_kol_sniper_replies_pure_gif_and_short_reactions():
                 assert count == 1
                 mock_guard.record_action.assert_called_once()
 
+                assert len(captured_jobs) == 3
                 reply_job = captured_jobs[1]
                 assert reply_job.action_type == "reply"
                 assert reply_job.params.get("text") == "real"
                 assert reply_job.params.get("gif_query") == "popcorn eating"
+                like_job = captured_jobs[2]
+                assert like_job.action_type == "like"
+                assert like_job.params.get("tweet_url") == "https://x.com/sama/status/tweet-sama-1"
 
 
 @pytest.mark.asyncio
@@ -218,11 +227,14 @@ async def test_execute_fast_response_replies_with_persona_and_gif():
                     assert thread.turn_count == 2
                     mock_guard.record_action.assert_called_once()
 
-                    assert len(captured_jobs) == 1
+                    assert len(captured_jobs) == 2
                     reply_job = captured_jobs[0]
                     assert reply_job.action_type == "reply"
                     assert reply_job.priority == 1
                     assert "Rust cold starts" in reply_job.params.get("text")
+                    like_job = captured_jobs[1]
+                    assert like_job.action_type == "like"
+                    assert like_job.params.get("tweet_url") == "https://x.com/tech_lead/status/parent-101"
 
 
 @pytest.mark.asyncio

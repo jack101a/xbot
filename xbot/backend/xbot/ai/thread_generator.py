@@ -29,78 +29,11 @@ from xbot.schemas.thread import ThreadItemCreate
 logger = logging.getLogger(__name__)
 
 
-class GeneratedThreadItem(BaseModel):
-    position: int = Field(..., description="0-indexed tweet position in thread")
-    item_type: Literal["hook", "body", "closer"] = Field(..., description="'hook', 'body', or 'closer'")
-    text: str = Field(..., max_length=280, description="Tweet text strictly <= 260 chars")
-    media_url: str | None = Field(None, description="Optional attached image URL or path")
-
-
-class GeneratedThreadPayload(BaseModel):
-    topic: str
-    hook_score: int = Field(..., ge=1, le=100, description="Estimated viral hook strength (1-100)")
-    archetype: str = Field(..., description="Framework, Contrarian Breakdown, Case Study, or Tactical Guide")
-    tweets: list[GeneratedThreadItem] = Field(..., min_length=2, max_length=8)
-
-
-class GeneratedThreadResponse(BaseModel):
-    topic: str
-    hook_score: int
-    archetype: str
-    tweets: list[str]
-    items: list[ThreadItemCreate]
-    research_report: dict[str, Any] | None = None
-    downloaded_media: list[dict[str, Any]] = Field(default_factory=list)
-
-
-def _build_fallback_thread(
-    topic: str,
-    persona: Persona | None = None,
-    research_report: TopicResearchReport | None = None,
-) -> GeneratedThreadResponse:
-    """Generates a high-quality deterministic fallback thread adhering to Anti-AI typography."""
-    t1 = (
-        f"Most discussions around {topic} miss the single biggest leverage point.\n\n"
-        f"Here is the exact 3-step breakdown I use to cut through the noise and execute: 🧵"
-    )
-    t2 = (
-        "• Define the core operational constraint before reacting\n\n"
-        "• Test public sentiment with direct data, not echo chambers\n\n"
-        "• Eliminate vanity metrics in favor of actual retention"
-    )
-    t3 = (
-        "• Ship raw minimum viable experiments\n\n"
-        "• Gather feedback from real users rather than speculation\n\n"
-        "• Iterate based on verifiable behavioral signals"
-    )
-    t4 = (
-        f"Core takeaway on {topic}:\n\n"
-        "• Identify constraints first\n\n"
-        "• Prioritize empirical data over noise\n\n"
-        "• Optimize for fast iteration\n\n"
-        "Bookmark this thread for quick reference. What is your #1 takeaway?"
-    )
-
-    items = [
-        ThreadItemCreate(position=0, item_type="hook", text=t1),
-        ThreadItemCreate(position=1, item_type="body", text=t2),
-        ThreadItemCreate(position=2, item_type="body", text=t3),
-        ThreadItemCreate(position=3, item_type="closer", text=t4),
-    ]
-    
-    rep_dict = research_report.model_dump() if research_report else None
-    dl_media = [m.model_dump() for m in research_report.downloaded_media] if research_report else []
-
-    return GeneratedThreadResponse(
-        topic=topic,
-        hook_score=92,
-        archetype="Framework",
-        tweets=[t1, t2, t3, t4],
-        items=items,
-        research_report=rep_dict,
-        downloaded_media=dl_media,
-    )
-
+from xbot.ai.thread_models import (
+    GeneratedThreadItem,
+    GeneratedThreadPayload,
+    GeneratedThreadResponse,
+)
 
 async def generate_thread(
     topic: str,
@@ -241,7 +174,8 @@ async def generate_thread(
         raw_items = data.get("tweets", [])
 
         if not raw_items or len(raw_items) < 2:
-            return _build_fallback_thread(topic, persona, research_report)
+            logger.warning("Thread generation failed: Fewer than 2 items produced by AI. Discarding without template fallback.")
+            return None
 
         items: list[ThreadItemCreate] = []
         tweet_texts: list[str] = []
@@ -319,5 +253,5 @@ async def generate_thread(
         )
 
     except Exception as e:
-        logger.error("Error generating AI thread: %s. Using high-signal fallback.", e)
-        return _build_fallback_thread(topic, persona, research_report)
+        logger.error("Error generating AI thread: %s. Discarding without template fallback.", e)
+        return None

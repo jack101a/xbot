@@ -13,6 +13,8 @@ from xbot.models.base import Base
 if TYPE_CHECKING:
     from xbot.models.analytics import AnalyticsSnapshot
     from xbot.models.content import Content
+    from xbot.models.follow_growth import FollowCandidate, FollowRelationship
+    from xbot.models.realgraph import ConversationThread, RealGraphEdge
     from xbot.models.session import Session
 
 
@@ -54,6 +56,18 @@ class Profile(Base):
     )
     content: Mapped[list[Content]] = relationship(
         "Content", back_populates="profile", cascade="all, delete-orphan"
+    )
+    follow_candidates: Mapped[list[FollowCandidate]] = relationship(
+        "FollowCandidate", back_populates="profile", cascade="all, delete-orphan"
+    )
+    follow_relationships: Mapped[list[FollowRelationship]] = relationship(
+        "FollowRelationship", back_populates="profile", cascade="all, delete-orphan"
+    )
+    realgraph_edges: Mapped[list[RealGraphEdge]] = relationship(
+        "RealGraphEdge", back_populates="profile", cascade="all, delete-orphan"
+    )
+    conversation_threads: Mapped[list[ConversationThread]] = relationship(
+        "ConversationThread", back_populates="profile", cascade="all, delete-orphan"
     )
 
 

@@ -27,6 +27,7 @@ class ContentStatus(StrEnum):
     APPROVED = "approved"
     POSTED = "posted"
     FAILED = "failed"
+    DELETED = "deleted"
 
 
 from sqlalchemy.types import TypeDecorator

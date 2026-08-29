@@ -165,7 +165,7 @@ async def test_generate_visual_post_spec_four_pillars(
 
 
 @pytest.mark.asyncio
-async def test_generate_visual_post_spec_ai_fallback(sample_creator_persona: Persona):
+async def test_generate_visual_post_spec_ai_failure_returns_none(sample_creator_persona: Persona):
     mock_client = AsyncMock()
     mock_client.chat.completions.create.side_effect = TimeoutError("Heavy AI model timed out")
 
@@ -176,13 +176,7 @@ async def test_generate_visual_post_spec_ai_fallback(sample_creator_persona: Per
         client=mock_client,
     )
 
-    assert isinstance(spec, VisualPostSpec)
-    assert spec.aspect_ratio == "4:5"
-    assert len(spec.tweet_copy) < 140
-    assert len(spec.image_prompt) > 30
-    assert spec.format_type == "storyboard_4panel"
-    assert spec.target_simcluster in ["Tech/AI", "Urban/Creator", "Cinema/Prestige", "Anime/PopCulture"]
-    assert spec.one_two_punch_strategy
+    assert spec is None
 
 
 @pytest.mark.asyncio

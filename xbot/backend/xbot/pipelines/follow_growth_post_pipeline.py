@@ -127,16 +127,8 @@ async def run_follow_growth_post_for_profile(
             post_published = True
             logger.info("FollowGrowthPost: Successfully published visual promotion on @%s", clean_handle)
 
-            # Record action
-            act = Action(
-                profile_id=profile.id,
-                action_type="post",
-                status=ActionStatus.COMPLETED,
-                content=growth_spec.tweet_copy,
-                result={"image_path": image_path, "archetype": growth_spec.archetype},
-                executed_at=datetime.datetime.utcnow(),
-            )
-            db.add(act)
+            # Record action in guard
+            await guard.record_action(db, profile_slug, "post", target_id=str(new_post_id))
             await db.commit()
         else:
             content_record.status = ContentStatus.FAILED
@@ -217,16 +209,8 @@ async def run_follow_growth_post_for_profile(
                         )
                         db.add(cand)
 
-                        # Record action audit
-                        f_act = Action(
-                            profile_id=profile.id,
-                            action_type="follow",
-                            status=ActionStatus.COMPLETED,
-                            target_author=c_author,
-                            target_url=f"https://x.com/{c_author}",
-                            executed_at=datetime.datetime.utcnow(),
-                        )
-                        db.add(f_act)
+                        # Record action in guard
+                        await guard.record_action(db, profile_slug, "follow", target_id=c_author)
                         await db.commit()
                         await sleep_with_jitter(2000)
 

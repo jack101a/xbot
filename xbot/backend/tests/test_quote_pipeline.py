@@ -32,18 +32,32 @@ async def test_run_quote_pipeline_for_profile():
                         {
                             "id": "viral-1",
                             "text": "Why AI agents will replace traditional SaaS in 24 months.",
+                            "url": "https://x.com/tech_founder/status/viral-1",
                             "author": "tech_founder",
                             "views": "75K",
                         },
                     ],
                 },
+                {
+                    "status": "success",
+                    "context": {
+                        "text": "Why AI agents will replace traditional SaaS in 24 months.",
+                        "top_comments": [{"author": "dev1", "text": "Already seeing this with cursor", "likes": 50}],
+                        "media_alts": [],
+                        "media_urls": [],
+                    },
+                },
                 {"status": "quoted"},
             ]
 
-            with patch("xbot.ai.sniper.generate_sniper_reply", new_callable=AsyncMock) as mock_sniper:
-                mock_sniper_res = MagicMock()
-                mock_sniper_res.reply_text = "Distribution beats models every single time."
-                mock_sniper.return_value = mock_sniper_res
+            with patch("xbot.ai.sniper.generate_quote_take", new_callable=AsyncMock) as mock_quote_gen:
+                from xbot.ai.sniper.verifier import QuoteTakeResult
+                mock_quote_gen.return_value = QuoteTakeResult(
+                    topic_understanding="Discussion on AI agents disrupting SaaS.",
+                    quote_text="Distribution beats models every single time. #AI",
+                    gif_query=None,
+                    reasoning="Strategic contrarian perspective.",
+                )
 
                 res = await run_quote_pipeline_for_profile(mock_db, profile, mock_guard, max_quotes=1)
                 assert res["status"] == "success"

@@ -188,3 +188,91 @@ async def get_f4f_milestone_analytics(
         "active_grace_period_count": active_grace_count,
         "target_communities": ["Indian Tech & Creators", "One Piece & Anime", "Movies & TV", "Consumer Tech", "AI & LLMs"],
     }
+
+
+def check_tweepcred_ratio_guard(
+    followers_count: int,
+    following_count: int,
+    min_ratio: float = 2.0,
+) -> dict[str, Any]:
+    """
+    Guards TweepCred (PageRank Authority Score > 65) by enforcing a minimum
+    Follower-to-Following ratio (default >= 2.0).
+    Prevents the PageRank penalty divisor min(1.0, Followers / Following).
+    """
+    if following_count <= 0:
+        return {
+            "is_safe": True,
+            "ratio": float(followers_count),
+            "recovery_mode": False,
+            "message": "Ratio is healthy.",
+        }
+
+    ratio = round(float(followers_count) / float(following_count), 2)
+    is_safe = ratio >= min_ratio
+
+    return {
+        "is_safe": is_safe,
+        "ratio": ratio,
+        "min_required_ratio": min_ratio,
+        "recovery_mode": not is_safe,
+        "message": (
+            "Ratio is healthy."
+            if is_safe
+            else f"Follower/Following ratio ({ratio:.2f}) below TweepCred safety threshold ({min_ratio:.2f}). Activating Ratio Recovery Mode."
+        ),
+    }
+
+
+async def audit_and_flag_expired_grace_periods(
+    profile_id: uuid.UUID,
+    db: AsyncSession,
+    reference_time: datetime.datetime | None = None,
+) -> list[FollowRelationship]:
+    """
+    Audits active follows and flags relationships whose 4-day grace period has expired
+    without receiving a reciprocal follow-back.
+    """
+    now = reference_time or datetime.datetime.utcnow()
+    stmt = (
+        select(FollowRelationship)
+        .where(FollowRelationship.profile_id == profile_id)
+        .where(FollowRelationship.status == "following")
+        .where(FollowRelationship.grace_period_expires_at <= now)
+    )
+    res = await db.execute(stmt)
+    expired_rels = list(res.scalars().all())
+
+    for rel in expired_rels:
+        rel.status = "grace_period_expired"
+
+    if expired_rels:
+        await db.commit()
+
+    return expired_rels
+
+
+async def record_unfollow_action(
+    profile_id: uuid.UUID,
+    target_handle: str,
+    db: AsyncSession,
+) -> FollowRelationship | None:
+    """
+    Records a safe unfollow action for an expired grace period account.
+    """
+    clean_handle = target_handle.lstrip("@")
+    stmt = (
+        select(FollowRelationship)
+        .where(FollowRelationship.profile_id == profile_id)
+        .where(FollowRelationship.target_handle == clean_handle)
+    )
+    res = await db.execute(stmt)
+    rel = res.scalar_one_or_none()
+
+    if rel:
+        rel.status = "unfollowed"
+        rel.unfollowed_at = datetime.datetime.utcnow()
+        await db.commit()
+        await db.refresh(rel)
+
+    return rel

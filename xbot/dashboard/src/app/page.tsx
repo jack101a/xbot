@@ -12,6 +12,7 @@ import { GrowthEngineTab } from "@/features/growth-engine/GrowthEngineTab";
 import { LiveActivityTab } from "@/features/live-activity/LiveActivityTab";
 import { PersonaMemoryTab } from "@/features/persona/PersonaMemoryTab";
 import { LimitsSchedulerTab } from "@/features/limits-scheduler/LimitsSchedulerTab";
+import { PostPrunerTab } from "@/features/post-pruner/PostPrunerTab";
 import { ConnectAccountModal } from "@/features/settings/ConnectAccountModal";
 import { GlobalSettingsModal } from "@/features/settings/GlobalSettingsModal";
 import { BottomConsole } from "@/components/layout/BottomConsole";
@@ -57,7 +58,7 @@ export default function DashboardPage() {
         return;
       }
 
-      if (isModifier && ["1", "2", "3", "4", "5", "6"].includes(e.key)) {
+      if (isModifier && ["1", "2", "3", "4", "5", "6", "7"].includes(e.key)) {
         e.preventDefault();
         const tabMap: Record<string, TabType> = {
           "1": "overview",
@@ -66,6 +67,7 @@ export default function DashboardPage() {
           "4": "activity",
           "5": "persona",
           "6": "limits",
+          "7": "pruner",
         };
         const targetTab = tabMap[e.key];
         if (targetTab) {
@@ -161,6 +163,10 @@ export default function DashboardPage() {
                   selectedProfile={selectedProfile}
                   onRefresh={loadInitialData}
                 />
+              )}
+
+              {activeTab === "pruner" && (
+                <PostPrunerTab />
               )}
             </>
           )}

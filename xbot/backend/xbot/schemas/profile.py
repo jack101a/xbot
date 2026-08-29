@@ -35,7 +35,14 @@ class ProfileResponse(ProfileBase):
     id: uuid.UUID
     created_at: datetime
     last_session_at: datetime | None
-    followers_count: int | None = None
-    following_count: int | None = None
+    followers_count: int | None = 0
+    following_count: int | None = 0
+    posts_count: int | None = 0
+    impressions_24h: int | None = 0
+    engagements_24h: int | None = 0
+    engagement_rate: float | None = 0.0
+    likes_count: int | None = 0
+    retweets_count: int | None = 0
+    recent_tweets: list[dict[str, Any]] | None = None
 
     model_config = ConfigDict(from_attributes=True)

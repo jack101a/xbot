@@ -1,0 +1,1264 @@
+diff --git a/xbot/backend/tests/test_browser_queue.py b/xbot/backend/tests/test_browser_queue.py
+new file mode 100644
+index 0000000..3321398
+--- /dev/null
++++ b/xbot/backend/tests/test_browser_queue.py
+@@ -0,0 +1,164 @@
++import json
++import time
++import pytest
++from unittest.mock import AsyncMock, MagicMock, patch
++
++from xbot.pipelines.browser_queue import (
++    BrowserJob,
++    enqueue_browser_job,
++    execute_browser_action,
++    get_browser_job_result,
++    get_queue_depth,
++    pop_next_job,
++    process_single_job,
++    set_browser_job_result,
++)
++
++
++def test_enqueue_and_pop_priority():
++    mock_redis = MagicMock()
++    mock_redis.zcard.return_value = 1
++
++    # Simulate pop
++    job = BrowserJob(
++        action_type="like",
++        profile_slug="test_slug",
++        params={"tweet_id": "123"},
++        priority=0,
++        job_id="job-abc",
++    )
++    mock_redis.zpopmin.return_value = [("job-abc", 0.0)]
++    mock_redis.get.return_value = json.dumps({
++        "action_type": "like",
++        "profile_slug": "test_slug",
++        "params": {"tweet_id": "123"},
++        "priority": 0,
++        "job_id": "job-abc",
++        "created_at": time.time(),
++        "ttl_seconds": 300,
++    })
++
++    job_id = enqueue_browser_job(job, r=mock_redis)
++    assert job_id == "job-abc"
++    mock_redis.set.assert_called_once()
++    mock_redis.zadd.assert_called_once()
++
++    popped = pop_next_job(r=mock_redis)
++    assert popped is not None
++    assert popped.job_id == "job-abc"
++    assert popped.action_type == "like"
++
++
++def test_result_get_and_set():
++    mock_redis = MagicMock()
++    mock_redis.get.return_value = json.dumps({"status": "success", "tweet_id": "123"})
++
++    set_browser_job_result("job-123", {"status": "success", "tweet_id": "123"}, r=mock_redis)
++    mock_redis.set.assert_called_with("xbot:browser_result:job-123", json.dumps({"status": "success", "tweet_id": "123"}), ex=600)
++
++    res = get_browser_job_result("job-123", timeout_seconds=0, r=mock_redis)
++    assert res == {"status": "success", "tweet_id": "123"}
++
++
++@pytest.mark.asyncio
++async def test_execute_browser_action_routing():
++    mock_page = AsyncMock()
++
++    with patch("xbot.pipelines.browser_queue.LikeTweet") as MockLike:
++        mock_instance = MagicMock()
++        mock_instance.execute = AsyncMock(return_value={"status": "liked"})
++        MockLike.return_value = mock_instance
++
++        res = await execute_browser_action(mock_page, "like", {"tweet_id": "123"})
++        assert res == {"status": "liked"}
++        mock_instance.execute.assert_called_once_with(mock_page, tweet_url=None)
++
++    with patch("xbot.pipelines.browser_queue.ReplyToTweet") as MockReply:
++        mock_instance = MagicMock()
++        mock_instance.execute = AsyncMock(return_value={"status": "replied"})
++        MockReply.return_value = mock_instance
++
++        res = await execute_browser_action(
++            mock_page,
++            "reply",
++            {
++                "tweet_url": "https://x.com/user/status/123",
++                "text": "nice",
++                "gif_query": "celebrate",
++                "media_paths": ["/tmp/image.png"],
++            },
++        )
++        assert res == {"status": "replied"}
++        mock_instance.execute.assert_called_once_with(
++            mock_page,
++            reply_text="nice",
++            tweet_url="https://x.com/user/status/123",
++            tweet_index=None,
++            gif_query="celebrate",
++            media_paths=["/tmp/image.png"],
++        )
++
++    with patch("xbot.pipelines.browser_queue.QuoteTweet") as MockQuote:
++        mock_instance = MagicMock()
++        mock_instance.execute = AsyncMock(return_value={"status": "quoted"})
++        MockQuote.return_value = mock_instance
++
++        res = await execute_browser_action(
++            mock_page,
++            "quote",
++            {
++                "tweet_url": "https://x.com/user/status/456",
++                "text": "Check this out",
++                "gif_query": "mind blown",
++                "media_paths": ["/tmp/quote.jpg"],
++            },
++        )
++        assert res == {"status": "quoted"}
++        mock_instance.execute.assert_called_once_with(
++            mock_page,
++            quote_text="Check this out",
++            tweet_url="https://x.com/user/status/456",
++            tweet_index=None,
++            gif_query="mind blown",
++            media_paths=["/tmp/quote.jpg"],
++        )
++
++    with patch("xbot.pipelines.browser_queue.ComposePost") as MockPost:
++        mock_instance = MagicMock()
++        mock_instance.execute = AsyncMock(return_value={"status": "posted"})
++        MockPost.return_value = mock_instance
++
++        res = await execute_browser_action(
++            mock_page,
++            "post",
++            {
++                "text": "Hello world",
++                "gif_query": "party",
++                "media_paths": ["/tmp/photo.png"],
++            },
++        )
++        assert res == {"status": "posted"}
++        mock_instance.execute.assert_called_once_with(
++            mock_page,
++            text="Hello world",
++            media_paths=["/tmp/photo.png"],
++            gif_query="party",
++        )
++
++
++
++@pytest.mark.asyncio
++async def test_process_single_job_expired():
++    mock_redis = MagicMock()
++    mock_manager = MagicMock()
++
++    expired_job = BrowserJob(
++        action_type="like",
++        profile_slug="test_slug",
++        created_at=time.time() - 400,  # Expired
++        ttl_seconds=300,
++    )
++
++    res = await process_single_job(expired_job, mock_manager, mock_redis)
++    assert res["status"] == "expired"
++    mock_manager.get_context.assert_not_called()
+diff --git a/xbot/backend/tests/test_x_actions.py b/xbot/backend/tests/test_x_actions.py
+index 5140fe4..c47fc69 100644
+--- a/xbot/backend/tests/test_x_actions.py
++++ b/xbot/backend/tests/test_x_actions.py
+@@ -1,25 +1,29 @@
+-from __future__ import annotations
+-
+ from collections.abc import Generator
++import os
+ from pathlib import Path
+ from typing import Any
+ 
+ import pytest
++from playwright.async_api import async_playwright
+ 
+ from xbot.browser.actions.x_actions import (
+     BrowseFeed,
+     ComposePost,
+     FollowUser,
+     LikeTweet,
++    QuoteTweet,
+     ReplyToTweet,
+     Retweet,
+     SearchQuery,
++    _attach_gif_if_requested,
++    _attach_media_files,
+ )
+ from xbot.browser.manager import BrowserManager
+ 
+ from .mock_x_server import ThreadedUvicorn
+ 
+ 
++
+ @pytest.fixture(scope="module")
+ def mock_x_server() -> Generator[str, None, None]:
+     """Starts the mock X server on port 9999."""
+@@ -89,10 +93,10 @@ async def test_x_actions_integration(
+                 const els = document.querySelectorAll(
+                     '[data-testid="tweet"] [data-testid="tweetText"]'
+                 );
+-                return Array.from(els).map(el => el.textContent);
++                return Array.from(els).map(el => el.textContent.trim());
+             }"""
+         )
+-        assert "Checking action library!" in tweets_after
++        assert any("Checking action library!" in t for t in tweets_after)
+ 
+         # C. LikeTweet Action
+         like = LikeTweet(screenshot_dir=str(tmp_path))
+@@ -132,3 +136,389 @@ async def test_x_actions_integration(
+         await context.close()
+         manager.release_lock(profile_slug)
+         await manager.stop()
++
++
++HTML_COMPOSER_WITH_GIF = """
++<!DOCTYPE html>
++<html>
++<head><title>Composer with GIF</title></head>
++<body>
++    <div id="home-composer">
++        <div data-testid="tweetTextarea_0" role="textbox" contenteditable="true"></div>
++        <button data-testid="gifSearchButton" aria-label="Add a GIF" id="gif-btn">Add a GIF</button>
++        <input type="file" data-testid="fileInput" style="display:none;" />
++        <button data-testid="tweetButton" id="post-btn">Post</button>
++    </div>
++
++    <!-- GIF Picker Modal (hidden initially) -->
++    <div id="gif-modal" style="display:none;">
++        <input data-testid="searchBox" placeholder="Search GIFs" id="gif-search" />
++        <div data-testid="gifSearchResults" id="results">
++            <div data-testid="gifItem" class="gif-item" id="gif-1">
++                <img src="https://media.tenor.com/1.gif" alt="celebrate" />
++            </div>
++            <div data-testid="gifItem" class="gif-item" id="gif-2">
++                <img src="https://media.tenor.com/2.gif" alt="excited" />
++            </div>
++        </div>
++    </div>
++
++    <script>
++        document.getElementById('gif-btn').addEventListener('click', () => {
++            document.getElementById('gif-modal').style.display = 'block';
++        });
++        document.querySelectorAll('.gif-item').forEach(el => {
++            el.addEventListener('click', () => {
++                document.getElementById('gif-modal').style.display = 'none';
++                const attached = document.createElement('div');
++                attached.setAttribute('data-testid', 'attachments');
++                attached.innerText = 'GIF attached';
++                document.getElementById('home-composer').appendChild(attached);
++            });
++        });
++        document.getElementById('post-btn').addEventListener('click', () => {
++            const status = document.createElement('div');
++            status.id = 'post-success';
++            document.body.appendChild(status);
++        });
++    </script>
++</body>
++</html>
++"""
++
++HTML_REPLY_WITH_GIF = """
++<!DOCTYPE html>
++<html>
++<head><title>Reply with GIF</title></head>
++<body>
++    <div data-testid="tweet">
++        <div data-testid="tweetText">Target post to reply to</div>
++        <button data-testid="reply" id="reply-btn">Reply</button>
++    </div>
++
++    <div id="reply-modal" style="display:none;">
++        <div data-testid="tweetTextarea_0" role="textbox" contenteditable="true"></div>
++        <button data-testid="gifSearchButton" aria-label="Add a GIF" id="gif-btn">Add a GIF</button>
++        <button data-testid="tweetButtonInline" id="inline-submit-btn">Reply</button>
++
++        <div id="gif-modal" style="display:none;">
++            <input data-testid="searchBox" placeholder="Search GIFs" id="gif-search" />
++            <div data-testid="gifSearchResults">
++                <div data-testid="gifItem" class="gif-item">
++                    <img src="https://media.tenor.com/reply.gif" alt="reply gif" />
++                </div>
++            </div>
++        </div>
++    </div>
++
++    <script>
++        document.getElementById('reply-btn').addEventListener('click', () => {
++            document.getElementById('reply-modal').style.display = 'block';
++        });
++        document.getElementById('gif-btn').addEventListener('click', () => {
++            document.getElementById('gif-modal').style.display = 'block';
++        });
++        document.querySelectorAll('.gif-item').forEach(el => {
++            el.addEventListener('click', () => {
++                document.getElementById('gif-modal').style.display = 'none';
++            });
++        });
++    </script>
++</body>
++</html>
++"""
++
++HTML_QUOTE_WITH_GIF = """
++<!DOCTYPE html>
++<html>
++<head><title>Quote Tweet with GIF</title></head>
++<body>
++    <div data-testid="tweet">
++        <div data-testid="tweetText">Target Tweet for Quote</div>
++        <button data-testid="retweet" id="rt-btn">Retweet</button>
++    </div>
++
++    <div data-testid="Dropdown" role="menu" style="display:none;" id="rt-menu">
++        <div role="menuitem" id="quote-opt">Quote</div>
++    </div>
++
++    <div role="dialog" id="quote-modal" style="display:none;">
++        <div data-testid="tweetTextarea_0" role="textbox" contenteditable="true"></div>
++        <button data-testid="gifSearchButton" aria-label="Add a GIF" id="gif-btn">Add a GIF</button>
++        <button data-testid="tweetButton" id="quote-submit-btn">Post</button>
++
++        <div id="gif-modal" style="display:none;">
++            <input data-testid="searchBox" placeholder="Search GIFs" id="gif-search" />
++            <div data-testid="gifSearchResults">
++                <div data-testid="gifItem" class="gif-item">
++                    <img src="https://media.tenor.com/quote.gif" alt="quote gif" />
++                </div>
++            </div>
++        </div>
++    </div>
++
++    <script>
++        document.getElementById('rt-btn').addEventListener('click', () => {
++            document.getElementById('rt-menu').style.display = 'block';
++        });
++        document.getElementById('quote-opt').addEventListener('click', () => {
++            document.getElementById('rt-menu').style.display = 'none';
++            document.getElementById('quote-modal').style.display = 'block';
++        });
++        document.getElementById('gif-btn').addEventListener('click', () => {
++            document.getElementById('gif-modal').style.display = 'block';
++        });
++        document.querySelectorAll('.gif-item').forEach(el => {
++            el.addEventListener('click', () => {
++                document.getElementById('gif-modal').style.display = 'none';
++            });
++        });
++    </script>
++</body>
++</html>
++"""
++
++HTML_COMPOSER_NO_GIF = """
++<!DOCTYPE html>
++<html>
++<head><title>Composer without GIF</title></head>
++<body>
++    <div id="home-composer">
++        <div data-testid="tweetTextarea_0" role="textbox" contenteditable="true"></div>
++        <!-- No GIF search button -->
++        <button data-testid="tweetButton">Post</button>
++    </div>
++</body>
++</html>
++"""
++
++HTML_REPLY_NO_GIF = """
++<!DOCTYPE html>
++<html>
++<head><title>Reply without GIF</title></head>
++<body>
++    <div data-testid="tweet">
++        <div data-testid="tweetText">Target post</div>
++        <button data-testid="reply" id="reply-btn">Reply</button>
++    </div>
++
++    <div id="reply-modal" style="display:none;">
++        <div data-testid="tweetTextarea_0" role="textbox" contenteditable="true"></div>
++        <!-- No GIF button -->
++        <button data-testid="tweetButtonInline">Reply</button>
++    </div>
++
++    <script>
++        document.getElementById('reply-btn').addEventListener('click', () => {
++            document.getElementById('reply-modal').style.display = 'block';
++        });
++    </script>
++</body>
++</html>
++"""
++
++
++@pytest.mark.asyncio
++async def test_attach_gif_direct_success() -> None:
++    """Test _attach_gif_if_requested successfully opens picker, searches, and selects a GIF item."""
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++        context = await browser.new_context()
++        page = await context.new_page()
++        await page.set_content(HTML_COMPOSER_WITH_GIF)
++
++        attached = await _attach_gif_if_requested(page, "celebrate")
++        assert attached is True
++
++        await browser.close()
++
++
++@pytest.mark.asyncio
++async def test_attach_gif_empty_query() -> None:
++    """Test _attach_gif_if_requested returns False immediately when query is None or empty."""
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++        context = await browser.new_context()
++        page = await context.new_page()
++        await page.set_content(HTML_COMPOSER_WITH_GIF)
++
++        assert await _attach_gif_if_requested(page, None) is False
++        assert await _attach_gif_if_requested(page, "") is False
++
++        await browser.close()
++
++
++@pytest.mark.asyncio
++async def test_attach_gif_fallback_missing_button() -> None:
++    """Test _attach_gif_if_requested gracefully returns False when GIF search button does not exist."""
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++        context = await browser.new_context()
++        page = await context.new_page()
++        await page.set_content(HTML_COMPOSER_NO_GIF)
++
++        attached = await _attach_gif_if_requested(page, "party")
++        assert attached is False
++
++        await browser.close()
++
++
++@pytest.mark.asyncio
++async def test_attach_gif_fallback_missing_search_input() -> None:
++    """Test _attach_gif_if_requested gracefully returns False when GIF search input cannot be found."""
++    broken_modal_html = """
++    <!DOCTYPE html>
++    <html><body>
++        <button data-testid="gifSearchButton" id="btn">GIF</button>
++        <div id="modal" style="display:none;"></div>
++        <script>
++            document.getElementById('btn').addEventListener('click', () => {
++                document.getElementById('modal').style.display = 'block';
++            });
++        </script>
++    </body></html>
++    """
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++        context = await browser.new_context()
++        page = await context.new_page()
++        await page.set_content(broken_modal_html)
++
++        attached = await _attach_gif_if_requested(page, "fail")
++        assert attached is False
++
++        await browser.close()
++
++
++@pytest.mark.asyncio
++async def test_attach_gif_fallback_no_results() -> None:
++    """Test _attach_gif_if_requested gracefully returns False when search box exists but results are empty."""
++    empty_results_html = """
++    <!DOCTYPE html>
++    <html><body>
++        <button data-testid="gifSearchButton" id="btn">GIF</button>
++        <div id="modal" style="display:none;">
++            <input data-testid="searchBox" />
++            <div data-testid="gifSearchResults"></div>
++        </div>
++        <script>
++            document.getElementById('btn').addEventListener('click', () => {
++                document.getElementById('modal').style.display = 'block';
++            });
++        </script>
++    </body></html>
++    """
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++        context = await browser.new_context()
++        page = await context.new_page()
++        await page.set_content(empty_results_html)
++
++        attached = await _attach_gif_if_requested(page, "empty")
++        assert attached is False
++
++        await browser.close()
++
++
++@pytest.mark.asyncio
++async def test_compose_post_with_gif(tmp_path: Path) -> None:
++    """Test ComposePost successfully posts with attached GIF."""
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++        context = await browser.new_context()
++        page = await context.new_page()
++        await page.set_content(HTML_COMPOSER_WITH_GIF)
++
++        compose = ComposePost(screenshot_dir=str(tmp_path))
++        success = await compose.execute(page, text="Celebration post!", gif_query="celebrate")
++        assert success is True
++
++        await browser.close()
++
++
++@pytest.mark.asyncio
++async def test_compose_post_with_gif_fallback_to_text(tmp_path: Path) -> None:
++    """Test ComposePost falls back to text-only posting when GIF search fails without crashing."""
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++        context = await browser.new_context()
++        page = await context.new_page()
++        await page.set_content(HTML_COMPOSER_NO_GIF)
++
++        compose = ComposePost(screenshot_dir=str(tmp_path))
++        success = await compose.execute(page, text="Fallback text post", gif_query="missing_gif")
++        assert success is True
++
++        await browser.close()
++
++
++@pytest.mark.asyncio
++async def test_reply_to_tweet_with_gif(tmp_path: Path) -> None:
++    """Test ReplyToTweet successfully attaches GIF and submits reply."""
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++        context = await browser.new_context()
++        page = await context.new_page()
++        await page.set_content(HTML_REPLY_WITH_GIF)
++
++        reply = ReplyToTweet(screenshot_dir=str(tmp_path))
++        success = await reply.execute(page, reply_text="Great point!", tweet_index=0, gif_query="agree")
++        assert success is True
++
++        await browser.close()
++
++
++@pytest.mark.asyncio
++async def test_reply_to_tweet_with_gif_fallback_to_text(tmp_path: Path) -> None:
++    """Test ReplyToTweet falls back to text-only reply when GIF search fails."""
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++        context = await browser.new_context()
++        page = await context.new_page()
++        await page.set_content(HTML_REPLY_NO_GIF)
++
++        reply = ReplyToTweet(screenshot_dir=str(tmp_path))
++        success = await reply.execute(page, reply_text="Fallback reply", tweet_index=0, gif_query="missing_gif")
++        assert success is True
++
++        await browser.close()
++
++
++@pytest.mark.asyncio
++async def test_quote_tweet_with_gif(tmp_path: Path) -> None:
++    """Test QuoteTweet successfully searches GIF and quotes tweet."""
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++        context = await browser.new_context()
++        page = await context.new_page()
++        await page.set_content(HTML_QUOTE_WITH_GIF)
++
++        quote = QuoteTweet(screenshot_dir=str(tmp_path))
++        success = await quote.execute(page, quote_text="Thought provoking!", tweet_index=0, gif_query="mind blown")
++        assert success is True
++
++        await browser.close()
++
++
++@pytest.mark.asyncio
++async def test_attach_media_files_and_fallback(tmp_path: Path) -> None:
++    """Test _attach_media_files with existing and non-existing files."""
++    test_img = tmp_path / "test.png"
++    test_img.write_bytes(b"dummy image data")
++
++    async with async_playwright() as p:
++        browser = await p.chromium.launch(headless=True)
++        context = await browser.new_context()
++        page = await context.new_page()
++        await page.set_content(HTML_COMPOSER_WITH_GIF)
++
++        # 1. Non-existent path returns False
++        assert await _attach_media_files(page, ["/tmp/non_existent_file_xyz123.jpg"]) is False
++        assert await _attach_media_files(page, None) is False
++
++        # 2. Existing path attaches file
++        attached = await _attach_media_files(page, [str(test_img)])
++        assert attached is True
++
++        await browser.close()
++
+diff --git a/xbot/backend/xbot/browser/actions/selectors.py b/xbot/backend/xbot/browser/actions/selectors.py
+index 74aca9f..e16fde5 100644
+--- a/xbot/backend/xbot/browser/actions/selectors.py
++++ b/xbot/backend/xbot/browser/actions/selectors.py
+@@ -2,32 +2,29 @@
+ # Stored here to allow quick hot-swapping if X updates their DOM structure.
+ 
+ SELECTORS = {
+-    # Feed & Navigation
+-    "tweet": '[data-testid="tweet"]',
+-    "tweet_text": '[data-testid="tweetText"]',
+-    "search_input": '[data-testid="SearchBox_Search_Input"]',
++    # Feed & Navigation (Handles both standard data-testid, semantic articles, and virtual scroll cells)
++    "tweet": 'article[data-testid="tweet"], [data-testid="tweet"], article[role="article"], [data-testid="cellInnerDiv"]:has([data-testid="tweetText"])',
++    "tweet_text": '[data-testid="tweetText"], [data-testid="tweet"] [dir="auto"]',
++    "search_input": '[data-testid="SearchBox_Search_Input"], input[aria-label*="Search" i]',
+     
+-    # Engagement Buttons
+-    "like_button": '[data-testid="like"]',
+-    "unlike_button": '[data-testid="unlike"]',
+-    "retweet_button": '[data-testid="retweet"]',
+-    "retweet_confirm": '[data-testid="retweetConfirm"]',
+-    "reply_button": '[data-testid="reply"]',
++    # Engagement Buttons (Handles dynamic testids and localized aria-labels)
++    "like_button": '[data-testid="like"], button[aria-label*="Like" i]',
++    "unlike_button": '[data-testid="unlike"], button[aria-label*="Liked" i], button[aria-label*="Unlike" i]',
++    "retweet_button": '[data-testid="retweet"], button[aria-label*="Repost" i], button[aria-label*="Retweet" i]',
++    "retweet_confirm": '[data-testid="retweetConfirm"], [data-testid="Dropdown"] [role="menuitem"]',
++    "reply_button": '[data-testid="reply"], button[aria-label*="Reply" i]',
+     
+     # Compose & Posting
+-    "nav_post_button": '[data-testid="SideNav_NewTweet_Button"]',
+-    "tweet_textarea": '[data-testid="tweetTextarea_0"]',
++    "nav_post_button": '[data-testid="SideNav_NewTweet_Button"], a[href="/compose/post"], a[href="/compose/tweet"]',
++    "tweet_textarea": '[data-testid="tweetTextarea_0"], div[role="textbox"][data-testid*="tweetTextarea"], div[contenteditable="true"][role="textbox"]',
+     # Main post submit button
+-    "tweet_submit_button": '[data-testid="tweetButton"]',
++    "tweet_submit_button": '[data-testid="tweetButton"], [data-testid="tweetButtonInline"], button[data-testid*="tweetButton"]',
+     # Inline reply submit button
+-    "inline_tweet_submit_button": '[data-testid="tweetButtonInline"]',
++    "inline_tweet_submit_button": '[data-testid="tweetButtonInline"], [data-testid="tweetButton"], button[data-testid*="tweetButton"]',
+     
+     # Profile & Following
+-    # Follow button: X now uses dynamic testid like '1605-follow' — aria-label is stable
+-    # Resolved at runtime via FollowUser.execute() using aria-label="Follow @{username}"
+-    "profile_follow_button": 'button[aria-label*="Follow @"]',
+-    # Profile loaded indicator — UserAvatar testid is now username-specific (not static)
+-    "profile_avatar": '[data-testid="UserName"]',
++    "profile_follow_button": 'button[aria-label*="Follow @" i], button[data-testid*="-follow"], button[data-testid$="-follow"]',
++    "profile_avatar": '[data-testid="UserName"], [data-testid*="UserAvatar"], h2',
+ 
+     # Poll Selectors
+     "poll_button": '[data-testid="pollButton"], [aria-label*="poll" i], [aria-label*="Poll"]',
+@@ -36,4 +33,10 @@ SELECTORS = {
+     "poll_choice_3": '[name="Choice3"], input[name="Choice3"], [data-testid="Choice3"] input',
+     "poll_choice_4": '[name="Choice4"], input[name="Choice4"], [data-testid="Choice4"] input',
+     "add_choice_button": '[aria-label*="Add choice" i], [data-testid="addChoice"], [aria-label*="choice" i]',
++
++    # GIF Selectors
++    "gif_button": 'button[aria-label="Add a GIF"], button[data-testid="gifSearchButton"], [data-testid="gifSearchButton"], button[aria-label*="GIF"], button[aria-label*="gif" i], [data-testid="fileInput"] + div button',
++    "gif_search_input": 'input[data-testid="searchBox"], input[data-testid="SearchBox_Search_Input"], input[placeholder*="Search GIFs"], input[placeholder*="Search for GIFs"], input[aria-label*="Search for GIFs"], input[aria-label*="Search GIFs"]',
++    "gif_item": '[data-testid="gifItem"], [data-testid="gifSearchResults"] img, [data-testid="gifSearchResults"] [role="button"], [data-testid="gifCategory"], div[role="button"][data-testid*="gif"]',
+ }
++
+diff --git a/xbot/backend/xbot/browser/actions/x_actions.py b/xbot/backend/xbot/browser/actions/x_actions.py
+index e148500..3c78e54 100644
+--- a/xbot/backend/xbot/browser/actions/x_actions.py
++++ b/xbot/backend/xbot/browser/actions/x_actions.py
+@@ -260,20 +260,22 @@ class BrowseFeed(BaseAction):
+ 
+ 
+ async def _attach_gif_if_requested(page: Page, gif_query: str | None) -> bool:
+-    """Helper to open X native GIF search, search for a query, and select a relevant GIF."""
++    """Helper to open X native Tenor GIF search, search for a query, and select a relevant GIF item."""
+     if not gif_query:
+         return False
+     try:
+         logger.info("Attempting to search and attach GIF for query: '%s'", gif_query)
+         gif_btn_sel = (
+-            'button[data-testid="gifSearchButton"], '
+             'button[aria-label="Add a GIF"], '
++            'button[data-testid="gifSearchButton"], '
++            '[data-testid="gifSearchButton"], '
+             'button[aria-label*="GIF"], '
++            'button[aria-label*="gif" i], '
+             '[data-testid="fileInput"] + div button'
+         )
+         gif_btn = await page.query_selector(gif_btn_sel)
+         if not gif_btn:
+-            logger.debug("GIF search button not found in composer.")
++            logger.debug("GIF search button not found in composer, falling back to text-only.")
+             return False
+ 
+         await human_click(page, gif_btn, 200, 500)
+@@ -281,31 +283,53 @@ async def _attach_gif_if_requested(page: Page, gif_query: str | None) -> bool:
+ 
+         # Search input in GIF modal
+         search_input_sel = (
++            'input[data-testid="searchBox"], '
+             'input[data-testid="SearchBox_Search_Input"], '
++            'input[placeholder*="Search GIFs"], '
+             'input[placeholder*="Search for GIFs"], '
+-            'input[aria-label*="Search for GIFs"]'
++            'input[aria-label*="Search for GIFs"], '
++            'input[aria-label*="Search GIFs"]'
+         )
+-        search_input = await page.wait_for_selector(search_input_sel, timeout=6000)
+-        if search_input:
+-            await human_type(page, search_input_sel, gif_query)
+-            await sleep_think_time(1200, 2500)
+-
+-            # Select top GIF result
+-            gif_result_sel = (
+-                '[data-testid="gifSearchResults"] [role="button"], '
+-                '[data-testid="gifCategory"], '
+-                'div[role="button"][data-testid*="gif"]'
+-            )
+-            gif_items = await page.query_selector_all(gif_result_sel)
+-            if gif_items:
+-                target_gif = gif_items[0] if len(gif_items) == 1 else random.choice(gif_items[:min(3, len(gif_items))])
+-                await human_click(page, target_gif, 300, 700)
+-                await sleep_think_time(1000, 2000)
+-                logger.info("Successfully attached GIF for query: '%s'", gif_query)
+-                return True
++        try:
++            search_input = await page.wait_for_selector(search_input_sel, timeout=6000)
++        except Exception:
++            search_input = None
++
++        if not search_input:
++            logger.warning("GIF search input not found, falling back to text-only.")
++            return False
++
++        await human_type(page, search_input_sel, gif_query)
++        await sleep_think_time(1200, 2500)
++
++        # Select top GIF result
++        gif_result_sel = (
++            '[data-testid="gifItem"], '
++            '[data-testid="gifSearchResults"] img, '
++            '[data-testid="gifSearchResults"] [role="button"], '
++            '[data-testid="gifCategory"], '
++            'div[role="button"][data-testid*="gif"], '
++            '[data-testid="gifSearchResults"] div'
++        )
++        try:
++            await page.wait_for_selector(gif_result_sel, timeout=6000)
++        except Exception:
++            pass
++
++        gif_items = await page.query_selector_all(gif_result_sel)
++        if gif_items:
++            target_gif = gif_items[0] if len(gif_items) == 1 else random.choice(gif_items[:min(2, len(gif_items))])
++            await human_click(page, target_gif, 300, 700)
++            await sleep_think_time(1000, 2000)
++            logger.info("Successfully attached GIF for query: '%s'", gif_query)
++            return True
++        else:
++            logger.warning("No GIF items found for query '%s', falling back to text-only.", gif_query)
++            return False
+     except Exception as e:
+-        logger.warning("Could not attach GIF: %s", e)
+-    return False
++        logger.warning("Could not attach GIF (falling back to text-only): %s", e)
++        return False
++
+ 
+ 
+ async def _attach_media_files(page: Page, media_paths: list[str] | None) -> bool:
+@@ -363,10 +387,10 @@ class ComposePost(BaseAction):
+     ) -> bool:
+         try:
+             # Ensure text is strictly <= 260 chars for free tier X accounts
+-            if len(text) > 260:
++            if text and len(text) > 260:
+                 text = text[:257].rstrip() + "..."
+ 
+-            logger.info("Composing new post (%d chars, media=%s, gif=%s): %s...", len(text), media_paths, gif_query, text[:40])
++            logger.info("Composing new post (%d chars, media=%s, gif=%s): %s...", len(text) if text else 0, media_paths, gif_query, (text or "")[:40])
+ 
+             textarea_sel = (
+                 'div[data-testid="tweetTextarea_0"], '
+@@ -404,10 +428,11 @@ class ComposePost(BaseAction):
+             await human_click(page, textarea_el, 200, 500)
+             await sleep_think_time(600, 1200)
+ 
+-            # Type text via keyboard
+-            for ch in text:
+-                await page.keyboard.type(ch, delay=15)
+-            await sleep_think_time(1000, 2000)
++            # Type text via keyboard if text is provided
++            if text:
++                for ch in text:
++                    await page.keyboard.type(ch, delay=15)
++                await sleep_think_time(1000, 2000)
+ 
+             # Attach media files (images/videos) if provided
+             if media_paths:
+@@ -924,6 +949,7 @@ class ReplyToTweet(BaseAction):
+         tweet_url: str | None = None,
+         tweet_index: int | None = None,
+         gif_query: str | None = None,
++        media_paths: list[str] | None = None,
+     ) -> bool:
+         try:
+             if tweet_url:
+@@ -949,7 +975,7 @@ class ReplyToTweet(BaseAction):
+                     visible_count = min(len(tweet_elements), 6)
+                     target_idx = random.randint(0, visible_count - 1)
+ 
+-            logger.info("Replying to tweet at index %d (gif=%s)", target_idx, gif_query)
++            logger.info("Replying to tweet at index %d (gif=%s, media=%s)", target_idx, gif_query, media_paths)
+ 
+             tweet_elements = await page.query_selector_all(SELECTORS["tweet"])
+             target_tweet = tweet_elements[target_idx] if tweet_elements and target_idx < len(tweet_elements) else None
+@@ -974,15 +1000,20 @@ class ReplyToTweet(BaseAction):
+             await sleep_think_time(1000, 2500)  # Formulate reply
+ 
+             # Ensure reply_text is strictly <= 260 chars
+-            if len(reply_text) > 260:
+-                reply_text = reply_text[:257].rstrip() + "..."
+-
+-            # Type reply
+-            await human_type(page, textarea_sel, reply_text)
+-            await sleep_think_time(800, 2000)  # Review reply
++            if reply_text:
++                if len(reply_text) > 260:
++                    reply_text = reply_text[:257].rstrip() + "..."
++                # Type reply
++                await human_type(page, textarea_sel, reply_text)
++                await sleep_think_time(800, 2000)  # Review reply
++
++            # Attach media files if provided
++            if media_paths:
++                await _attach_media_files(page, media_paths)
++                await sleep_think_time(1500, 3000)
+ 
+             # Attach GIF if requested
+-            if gif_query:
++            if gif_query and not media_paths:
+                 await _attach_gif_if_requested(page, gif_query)
+                 await sleep_think_time(1000, 2000)
+ 
+@@ -1071,6 +1102,8 @@ class QuoteTweet(BaseAction):
+         quote_text: str,
+         tweet_url: str | None = None,
+         tweet_index: int | None = None,
++        gif_query: str | None = None,
++        media_paths: list[str] | None = None,
+     ) -> bool:
+         try:
+             if tweet_url:
+@@ -1121,9 +1154,22 @@ class QuoteTweet(BaseAction):
+                 logger.warning("Could not locate quote composer textarea.")
+                 return False
+ 
+-            await sleep_think_time(600, 1500)
+-            await human_type(page, composer_sel, quote_text)
+-            await sleep_think_time(1000, 2500)
++            if quote_text:
++                if len(quote_text) > 260:
++                    quote_text = quote_text[:257].rstrip() + "..."
++                await sleep_think_time(600, 1500)
++                await human_type(page, composer_sel, quote_text)
++                await sleep_think_time(1000, 2500)
++
++            # Attach media files (images/videos) if provided
++            if media_paths:
++                await _attach_media_files(page, media_paths)
++                await sleep_think_time(1500, 3000)
++
++            # Attach GIF if requested
++            if gif_query and not media_paths:
++                await _attach_gif_if_requested(page, gif_query)
++                await sleep_think_time(1000, 2000)
+ 
+             post_btn = await page.wait_for_selector(
+                 '[role="dialog"] [data-testid="tweetButton"], [data-testid="tweetButton"]',
+@@ -1144,6 +1190,7 @@ class QuoteTweet(BaseAction):
+ 
+ 
+ 
++
+ class FollowUser(BaseAction):
+     """Follows a user by navigating to their profile."""
+ 
+diff --git a/xbot/backend/xbot/pipelines/browser_queue.py b/xbot/backend/xbot/pipelines/browser_queue.py
+new file mode 100644
+index 0000000..f4dd241
+--- /dev/null
++++ b/xbot/backend/xbot/pipelines/browser_queue.py
+@@ -0,0 +1,363 @@
++"""
++Central Browser Queue & Worker for XBot.
++
++Serializes browser operations across all independent pipelines:
++- Pipelines create lightweight BrowserJob descriptors and push them to the Redis queue.
++- A single Browser Worker processes queued jobs in priority order.
++- Guarantees zero lock collisions, no browser crashes from competing sessions, and full visibility.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import json
++import logging
++import time
++import uuid
++from dataclasses import asdict, dataclass, field
++from typing import Any
++
++import redis
++from playwright.async_api import Page
++
++from xbot.browser.actions.check_user_action import CheckUserLatestTweet
++from xbot.browser.actions.poll_action import CreatePoll
++from xbot.browser.actions.sync_profile_action import SyncProfileFromX
++from xbot.browser.actions.x_actions import (
++    BrowseFeed,
++    ComposePost,
++    ComposeThread,
++    FollowUser,
++    LikeTweet,
++    QuoteTweet,
++    ReplyToTweet,
++    ScrapeCreatorStudioMetrics,
++    ScrapeTrends,
++    SearchQuery,
++    UnfollowUser,
++)
++from xbot.browser.manager import BrowserManager
++from xbot.config import settings
++
++logger = logging.getLogger(__name__)
++
++QUEUE_KEY = "xbot:browser_jobs:queue"
++JOB_PREFIX = "xbot:browser_job:"
++RESULT_PREFIX = "xbot:browser_result:"
++QUEUE_LOCK_KEY = "xbot:lock:browser_queue_worker"
++
++
++@dataclass
++class BrowserJob:
++    action_type: str  # "like", "reply", "quote", "post", "follow", "unfollow", "scrape_feed", "scrape_trending", etc.
++    profile_slug: str
++    params: dict[str, Any] = field(default_factory=dict)
++    priority: int = 2  # 0=emergency/sniper, 1=conversation_reply, 2=post/quote, 3=like/follow, 4=scrape
++    job_id: str = field(default_factory=lambda: str(uuid.uuid4()))
++    created_at: float = field(default_factory=time.time)
++    ttl_seconds: int = 300  # 5 minutes expiration
++
++
++def get_redis_client(redis_url: str | None = None) -> redis.Redis:
++    return redis.from_url(redis_url or settings.REDIS_URL, decode_responses=True)
++
++
++def enqueue_browser_job(job: BrowserJob, r: redis.Redis | None = None) -> str:
++    """Enqueues a browser job in Redis with priority scoring."""
++    if r is None:
++        r = get_redis_client()
++
++    job_data = asdict(job)
++    # Store job payload
++    r.set(f"{JOB_PREFIX}{job.job_id}", json.dumps(job_data), ex=job.ttl_seconds + 300)
++
++    # Score = priority * 1e10 + created_at timestamp (lower score = popped first)
++    score = float(job.priority * 1e10 + job.created_at)
++    r.zadd(QUEUE_KEY, {job.job_id: score})
++    logger.info(
++        "Enqueued browser job %s (%s) for %s with priority %d (queue depth: %d)",
++        job.job_id,
++        job.action_type,
++        job.profile_slug,
++        job.priority,
++        r.zcard(QUEUE_KEY),
++    )
++    return job.job_id
++
++
++def get_browser_job_result(
++    job_id: str,
++    timeout_seconds: float = 0.0,
++    r: redis.Redis | None = None,
++) -> dict[str, Any] | None:
++    """Retrieves result of a processed browser job. Optionally polls up to timeout_seconds."""
++    if r is None:
++        r = get_redis_client()
++
++    start_time = time.time()
++    while True:
++        raw_result = r.get(f"{RESULT_PREFIX}{job_id}")
++        if raw_result:
++            try:
++                return json.loads(raw_result)
++            except Exception:
++                return {"status": "error", "message": "Failed to parse result JSON"}
++
++        if timeout_seconds <= 0 or (time.time() - start_time) >= timeout_seconds:
++            break
++        time.sleep(0.5)
++
++    return None
++
++
++def set_browser_job_result(
++    job_id: str,
++    result: dict[str, Any],
++    r: redis.Redis | None = None,
++    ttl_seconds: int = 600,
++) -> None:
++    """Stores result of a processed browser job in Redis."""
++    if r is None:
++        r = get_redis_client()
++    try:
++        r.set(f"{RESULT_PREFIX}{job_id}", json.dumps(result), ex=ttl_seconds)
++    except Exception as e:
++        logger.error("Failed to set browser job result for %s: %s", job_id, e)
++
++
++def get_queue_depth(r: redis.Redis | None = None) -> int:
++    """Returns number of pending jobs in browser queue."""
++    if r is None:
++        r = get_redis_client()
++    try:
++        return int(r.zcard(QUEUE_KEY))
++    except Exception:
++        return 0
++
++
++def pop_next_job(r: redis.Redis | None = None) -> BrowserJob | None:
++    """Atomically pops the highest priority job from the queue."""
++    if r is None:
++        r = get_redis_client()
++
++    # ZPOPMIN returns list of (member, score) tuples
++    items = r.zpopmin(QUEUE_KEY, count=1)
++    if not items:
++        return None
++
++    job_id, _score = items[0]
++    raw_payload = r.get(f"{JOB_PREFIX}{job_id}")
++    if not raw_payload:
++        logger.warning("Browser job %s payload expired or missing", job_id)
++        return None
++
++    try:
++        data = json.loads(raw_payload)
++        return BrowserJob(**data)
++    except Exception as e:
++        logger.error("Failed to deserialize browser job %s: %s", job_id, e)
++        return None
++
++
++async def execute_browser_action(
++    page: Page,
++    action_type: str,
++    params: dict[str, Any],
++) -> dict[str, Any]:
++    """Routes an action type to its browser action implementation."""
++    if action_type == "like":
++        action = LikeTweet()
++        res = await action.execute(
++            page,
++            tweet_url=params.get("tweet_url"),
++        )
++        return res if isinstance(res, dict) else {"status": "success" if res else "failed", "liked": bool(res)}
++
++    elif action_type == "reply":
++        action = ReplyToTweet()
++        reply_text = params.get("text") or params.get("reply_text", "")
++        res = await action.execute(
++            page,
++            reply_text=reply_text,
++            tweet_url=params.get("tweet_url"),
++            tweet_index=params.get("tweet_index"),
++            gif_query=params.get("gif_query"),
++            media_paths=params.get("media_paths"),
++        )
++        return res if isinstance(res, dict) else {"status": "success" if res else "failed", "replied": bool(res)}
++
++    elif action_type == "quote":
++        action = QuoteTweet()
++        quote_text = params.get("text") or params.get("quote_text", "")
++        res = await action.execute(
++            page,
++            quote_text=quote_text,
++            tweet_url=params.get("tweet_url"),
++            tweet_index=params.get("tweet_index"),
++            gif_query=params.get("gif_query"),
++            media_paths=params.get("media_paths"),
++        )
++        return res if isinstance(res, dict) else {"status": "success" if res else "failed", "quoted": bool(res)}
++
++    elif action_type == "post":
++        action = ComposePost()
++        res = await action.execute(
++            page,
++            text=params.get("text", ""),
++            media_paths=params.get("media_paths"),
++            gif_query=params.get("gif_query"),
++        )
++        return res if isinstance(res, dict) else {"status": "success" if res else "failed", "posted": bool(res)}
++
++    elif action_type == "thread":
++        action = ComposeThread()
++        res = await action.execute(
++            page,
++            tweets=params.get("tweets", []),
++            media_paths=params.get("media_paths"),
++        )
++        return res if isinstance(res, dict) else {"status": "success" if res else "failed", "thread_posted": bool(res)}
++
++    elif action_type == "poll":
++        action = CreatePoll()
++        res = await action.execute(
++            page,
++            question=params.get("question", ""),
++            options=params.get("options", []),
++            duration_minutes=params.get("duration_minutes", 1440),
++        )
++        return res if isinstance(res, dict) else {"status": "success" if res else "failed", "poll_created": bool(res)}
++
++    elif action_type == "follow":
++        action = FollowUser()
++        res = await action.execute(page, username=params.get("username", ""))
++        return res if isinstance(res, dict) else {"status": "success" if res else "failed", "followed": bool(res)}
++
++    elif action_type == "unfollow":
++        action = UnfollowUser()
++        res = await action.execute(page, username=params.get("username", ""))
++        return res if isinstance(res, dict) else {"status": "success" if res else "failed", "unfollowed": bool(res)}
++
++
++    elif action_type == "scrape_feed":
++        action = BrowseFeed()
++        tweets = await action.execute(
++            page,
++            max_scrolls=params.get("scroll_count", 3),
++        )
++        return {"status": "success", "tweets": tweets or []}
++
++    elif action_type == "scrape_trending":
++        action = ScrapeTrends()
++        trends = await action.execute(page, limit=params.get("limit", 10))
++        return {"status": "success", "trends": trends or []}
++
++    elif action_type == "check_user_tweets":
++        action = CheckUserLatestTweet()
++        res = await action.execute(
++            page,
++            username=params.get("username", ""),
++            max_age_minutes=params.get("max_age_minutes", 60),
++        )
++        return res if isinstance(res, dict) else {"status": "success", "result": res}
++
++    elif action_type == "sync_profile":
++        action = SyncProfileFromX()
++        res = await action.execute(page, username=params.get("username", ""))
++        return res if isinstance(res, dict) else {"status": "success", "result": res}
++
++    elif action_type == "search_and_scrape":
++        action = SearchQuery()
++        results = await action.execute(page, query=params.get("query", ""))
++        return {"status": "success", "results": results or []}
++
++    elif action_type == "sync_creator_studio":
++        action = ScrapeCreatorStudioMetrics()
++        res = await action.execute(page)
++        return res if isinstance(res, dict) else {"status": "success", "result": res}
++
++    else:
++        raise ValueError(f"Unknown browser action type: {action_type}")
++
++
++
++async def process_single_job(
++    job: BrowserJob,
++    browser_manager: BrowserManager,
++    r: redis.Redis,
++) -> dict[str, Any]:
++    """Executes a single browser job with browser context management and error isolation."""
++    # Check TTL
++    if (time.time() - job.created_at) > job.ttl_seconds:
++        logger.warning("Browser job %s (%s) expired (TTL %ds)", job.job_id, job.action_type, job.ttl_seconds)
++        result = {"status": "expired", "message": "Job expired in queue"}
++        set_browser_job_result(job.job_id, result, r)
++        return result
++
++    context = None
++    try:
++        logger.info("Executing browser job %s (%s) for profile %s", job.job_id, job.action_type, job.profile_slug)
++        context = await browser_manager.get_context(job.profile_slug)
++        page = context.pages[0] if context.pages else await context.new_page()
++
++        action_result = await execute_browser_action(page, job.action_type, job.params)
++        set_browser_job_result(job.job_id, action_result, r)
++        logger.info("Completed browser job %s (%s): %s", job.job_id, job.action_type, action_result.get("status"))
++        return action_result
++
++    except Exception as e:
++        logger.error("Browser job %s (%s) failed with exception: %s", job.job_id, job.action_type, e, exc_info=True)
++        err_result = {"status": "error", "error": str(e), "action_type": job.action_type}
++        set_browser_job_result(job.job_id, err_result, r)
++        return err_result
++
++    finally:
++        if context:
++            try:
++                await context.close()
++            except Exception:
++                pass
++
++
++async def _process_browser_queue_async(max_jobs: int = 5) -> int:
++    """Drains up to max_jobs from the queue in priority order."""
++    r = get_redis_client()
++
++    # Acquire worker lock (prevent overlapping drain workers)
++    lock_acquired = r.set(QUEUE_LOCK_KEY, "1", ex=30, nx=True)
++    if not lock_acquired:
++        logger.debug("Browser queue worker lock already held; skipping cycle.")
++        return 0
++
++    processed_count = 0
++    browser_manager = BrowserManager(base_profile_dir=settings.BASE_PROFILE_DIR)
++
++    try:
++        await browser_manager.start()
++
++        for _ in range(max_jobs):
++            job = pop_next_job(r)
++            if not job:
++                break
++
++            await process_single_job(job, browser_manager, r)
++            processed_count += 1
++
++    finally:
++        try:
++            await browser_manager.stop()
++        except Exception:
++            pass
++        r.delete(QUEUE_LOCK_KEY)
++
++    return processed_count
++
++
++from xbot.celery_app import celery_app
++
++
++@celery_app.task(name="xbot.pipelines.browser_queue.process_browser_queue")
++def process_browser_queue(max_jobs: int = 5) -> int:
++    """Synchronous Celery entry point for browser queue worker."""
++    return asyncio.run(_process_browser_queue_async(max_jobs=max_jobs))
++

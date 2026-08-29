@@ -1,0 +1,721 @@
+diff --git a/xbot/backend/tests/test_visual_engine.py b/xbot/backend/tests/test_visual_engine.py
+new file mode 100644
+index 0000000..5592f82
+--- /dev/null
++++ b/xbot/backend/tests/test_visual_engine.py
+@@ -0,0 +1,325 @@
++from __future__ import annotations
++
++import json
++from unittest.mock import AsyncMock, patch
++import pytest
++from pydantic import ValidationError
++
++from xbot.ai.visual_engine import (
++    VisualPostSpec,
++    generate_visual_post_spec,
++    infer_format_type,
++    infer_simcluster,
++    VISUAL_FORMAT_TEMPLATES,
++    _build_visual_system_prompt,
++    _build_visual_user_prompt,
++)
++from xbot.persona.loader import (
++    Goals,
++    Identity,
++    Interests,
++    Persona,
++    Personality,
++    Rules,
++    WritingStyle,
++)
++
++
++@pytest.fixture
++def sample_creator_persona() -> Persona:
++    return Persona(
++        id="kaya_creator",
++        display_name="Kaya",
++        x_handle="@jackds1234",
++        identity=Identity(background="Digital creator and cultural observer based in Mumbai"),
++        personality=Personality(
++            traits=["witty", "self-aware", "observant"],
++            values=["authenticity", "creativity"],
++            communication_style="Conversational and sharp",
++        ),
++        interests=Interests(
++            primary=["creator reality", "cinema", "consumer tech"],
++            secondary=["memes", "film photography"],
++            will_not_discuss=["bjp", "modi"],
++        ),
++        writing_style=WritingStyle(
++            tone="Witty and personal",
++            typical_length="concise",
++            formatting=["clean_sentence_casing"],
++            examples=[
++                "My biggest creator struggle is spending 4 hours editing B-roll only for a blurry selfie to go viral. ✨",
++                "Christopher Nolan will build a locomotive before touching CGI. 🍿",
++            ],
++        ),
++        goals=Goals(
++            content_pillars=["creator humor", "cinema", "tech irony"],
++            short_term=[],
++            long_term=[],
++        ),
++        rules=Rules(always=["be authentic"], never=["no politics"]),
++    )
++
++
++def test_visual_post_spec_schema_and_defaults():
++    spec = VisualPostSpec(
++        tweet_copy="The exact moment you realize the client sent their logo in a Microsoft Word document.",
++        image_prompt="4-panel comic in 4:5 aspect ratio (1080x1350), high contrast dark theme #0D1117, panel 1: confident dev...",
++        format_type="storyboard_4panel",
++        target_simcluster="Tech/AI",
++        one_two_punch_strategy="Setup tensions around client feedback; image delivers visual punchline of Word doc panic.",
++    )
++    assert spec.aspect_ratio == "4:5"
++    assert len(spec.tweet_copy) < 140
++    assert spec.format_type == "storyboard_4panel"
++    assert spec.target_simcluster == "Tech/AI"
++    assert "one_two_punch_strategy" in spec.model_dump()
++
++
++def test_visual_post_spec_tweet_copy_length_validation():
++    # If tweet copy exceeds 140 chars, validator automatically remediates/trims or raises ValidationError
++    long_copy = "A" * 150
++    spec = VisualPostSpec(
++        tweet_copy=long_copy,
++        image_prompt="A 4:5 portrait photo of a desk setup with 35mm film grain, warm lighting, natural shadows.",
++        format_type="urban_lifestyle",
++        target_simcluster="Urban/Creator",
++        one_two_punch_strategy="Setup creator workspace tension.",
++    )
++    assert len(spec.tweet_copy) < 140
++
++
++def test_visual_post_spec_aspect_ratio_values():
++    # 4:5 is standard mobile portrait takeover (~74% viewport); 1:1 is also valid
++    spec_4_5 = VisualPostSpec(
++        tweet_copy="When your model runs locally vs in production.",
++        image_prompt="Side by side 4:5 portrait comparison...",
++        aspect_ratio="4:5",
++        format_type="side_by_side",
++        target_simcluster="Tech/AI",
++        one_two_punch_strategy="Left expectation vs right production reality.",
++    )
++    assert spec_4_5.aspect_ratio == "4:5"
++
++    spec_1_1 = VisualPostSpec(
++        tweet_copy="Square meme format test.",
++        image_prompt="Square format 1:1 meme...",
++        aspect_ratio="1:1",
++        format_type="storyboard_4panel",
++        target_simcluster="Anime/PopCulture",
++        one_two_punch_strategy="Square meme test.",
++    )
++    assert spec_1_1.aspect_ratio == "1:1"
++
++    with pytest.raises(ValidationError):
++        VisualPostSpec(
++            tweet_copy="Invalid aspect ratio post.",
++            image_prompt="Some prompt...",
++            aspect_ratio="16:9",  # Only 4:5 and 1:1 allowed
++            format_type="storyboard_4panel",
++            target_simcluster="Tech/AI",
++            one_two_punch_strategy="Strategy.",
++        )
++
++
++@pytest.mark.parametrize("format_type,expected_simcluster", [
++    ("storyboard_4panel", "Tech/AI"),
++    ("side_by_side", "Tech/AI"),
++    ("urban_lifestyle", "Urban/Creator"),
++    ("dark_infographic", "Tech/AI"),
++])
++@pytest.mark.asyncio
++async def test_generate_visual_post_spec_four_pillars(
++    format_type: str,
++    expected_simcluster: str,
++    sample_creator_persona: Persona,
++):
++    mock_client = AsyncMock()
++    mock_payload = {
++        "tweet_copy": f"Setup tension hook for format {format_type}.",
++        "image_prompt": f"Detailed prompt for {format_type} in 4:5 portrait (1080x1350), dark mode #0D1117, high contrast lighting.",
++        "aspect_ratio": "4:5",
++        "format_type": format_type,
++        "target_simcluster": expected_simcluster,
++        "one_two_punch_strategy": f"Tension setup hook with visual payoff in {format_type}.",
++    }
++    mock_response = AsyncMock()
++    mock_response.choices = [
++        AsyncMock(message=AsyncMock(content=json.dumps(mock_payload)))
++    ]
++    mock_client.chat.completions.create.return_value = mock_response
++
++    spec = await generate_visual_post_spec(
++        topic=f"Exploring {format_type} trends in modern workflows",
++        format_type=format_type,
++        persona=sample_creator_persona,
++        client=mock_client,
++    )
++
++    assert isinstance(spec, VisualPostSpec)
++    assert spec.format_type == format_type
++    assert spec.aspect_ratio == "4:5"
++    assert len(spec.tweet_copy) < 140
++    assert len(spec.image_prompt) > 20
++    assert spec.target_simcluster == expected_simcluster
++    assert spec.one_two_punch_strategy
++
++
++@pytest.mark.asyncio
++async def test_generate_visual_post_spec_ai_fallback(sample_creator_persona: Persona):
++    mock_client = AsyncMock()
++    mock_client.chat.completions.create.side_effect = TimeoutError("Heavy AI model timed out")
++
++    spec = await generate_visual_post_spec(
++        topic="Debugging in production on a Friday at 5 PM",
++        format_type="storyboard_4panel",
++        persona=sample_creator_persona,
++        client=mock_client,
++    )
++
++    assert isinstance(spec, VisualPostSpec)
++    assert spec.aspect_ratio == "4:5"
++    assert len(spec.tweet_copy) < 140
++    assert len(spec.image_prompt) > 30
++    assert spec.format_type == "storyboard_4panel"
++    assert spec.target_simcluster in ["Tech/AI", "Urban/Creator", "Cinema/Prestige", "Anime/PopCulture"]
++    assert spec.one_two_punch_strategy
++
++
++@pytest.mark.asyncio
++async def test_generate_visual_post_spec_format_inference_when_none():
++    mock_client = AsyncMock()
++    # Mock returning valid json inferred from topic
++    mock_payload = {
++        "tweet_copy": "Why system design cheat sheets look so peaceful until latency spikes.",
++        "image_prompt": "High-contrast dark-mode infographic (#0D1117) in 4:5 portrait (1080x1350) with neon cyan accents.",
++        "aspect_ratio": "4:5",
++        "format_type": "dark_infographic",
++        "target_simcluster": "Tech/AI",
++        "one_two_punch_strategy": "Setup calm system design vs chaotic production failure.",
++    }
++    mock_response = AsyncMock()
++    mock_response.choices = [
++        AsyncMock(message=AsyncMock(content=json.dumps(mock_payload)))
++    ]
++    mock_client.chat.completions.create.return_value = mock_response
++
++    spec = await generate_visual_post_spec(
++        topic="Distributed caching system architecture cheatsheet",
++        format_type=None,
++        persona=None,
++        client=mock_client,
++    )
++
++    assert spec.format_type == "dark_infographic"
++    assert spec.aspect_ratio == "4:5"
++    assert len(spec.tweet_copy) < 140
++
++
++def test_infer_format_type_keywords():
++    assert infer_format_type("PostgreSQL vs MongoDB indexing shootout") == "side_by_side"
++    assert infer_format_type("System design cheatsheet and framework for microservices") == "dark_infographic"
++    assert infer_format_type("Street photography vlog behind the scenes in Mumbai") == "urban_lifestyle"
++    assert infer_format_type("4-step comic of deploying on Friday") == "storyboard_4panel"
++
++
++def test_infer_simcluster_keywords():
++    assert infer_simcluster("New AI GPU benchmarks", "dark_infographic") == "Tech/AI"
++    assert infer_simcluster("Oppenheimer 70mm IMAX cinematography breakdown", "side_by_side") == "Cinema/Prestige"
++    assert infer_simcluster("Daily cafe vlog editing routine", "urban_lifestyle") == "Urban/Creator"
++    assert infer_simcluster("Anime seasonal tier list", "storyboard_4panel") == "Anime/PopCulture"
++
++
++@pytest.mark.asyncio
++async def test_generate_visual_post_spec_enforces_max_140_chars():
++    mock_client = AsyncMock()
++    # Simulate an AI returning an overly verbose 200-char hook
++    overly_long_text = "This is an extremely long tweet copy returned by the language model that definitely exceeds the one hundred and forty character limit mandated for the One-Two Punch tension hook architecture on mobile viewports."
++    assert len(overly_long_text) > 140
++
++    mock_payload = {
++        "tweet_copy": overly_long_text,
++        "image_prompt": "A 4:5 portrait photo of a creator editing video on a laptop at midnight with ambient lighting.",
++        "aspect_ratio": "4:5",
++        "format_type": "urban_lifestyle",
++        "target_simcluster": "Urban/Creator",
++        "one_two_punch_strategy": "Tension hook around late night editing.",
++    }
++    mock_response = AsyncMock()
++    mock_response.choices = [
++        AsyncMock(message=AsyncMock(content=json.dumps(mock_payload)))
++    ]
++    mock_client.chat.completions.create.return_value = mock_response
++
++    spec = await generate_visual_post_spec(
++        topic="Late night creator editing grind",
++        format_type="urban_lifestyle",
++        client=mock_client,
++    )
++
++    assert len(spec.tweet_copy) < 140
++    assert spec.aspect_ratio == "4:5"
++
++
++@pytest.mark.asyncio
++async def test_generate_visual_post_spec_markdown_json_cleaning():
++    mock_client = AsyncMock()
++    raw_markdown = """```json
++    {
++      "tweet_copy": "That 1% battery panic during a live stream.",
++      "image_prompt": "4-panel meme comic in 4:5 portrait (1080x1350) showing battery dropping.",
++      "aspect_ratio": "4:5",
++      "format_type": "storyboard_4panel",
++      "target_simcluster": "Urban/Creator",
++      "one_two_punch_strategy": "Tension setup on battery drop; visual panic escalation."
++    }
++    ```"""
++    mock_response = AsyncMock()
++    mock_response.choices = [
++        AsyncMock(message=AsyncMock(content=raw_markdown))
++    ]
++    mock_client.chat.completions.create.return_value = mock_response
++
++    spec = await generate_visual_post_spec(
++        topic="Streaming on low battery",
++        client=mock_client,
++    )
++
++    assert spec.tweet_copy == "That 1% battery panic during a live stream."
++    assert spec.format_type == "storyboard_4panel"
++
++
++@pytest.mark.asyncio
++async def test_generate_visual_post_spec_default_client_resolution():
++    mock_client = AsyncMock()
++    mock_payload = {
++        "tweet_copy": "Default client resolution hook.",
++        "image_prompt": "A 4:5 portrait image prompt.",
++        "aspect_ratio": "4:5",
++        "format_type": "urban_lifestyle",
++        "target_simcluster": "Urban/Creator",
++        "one_two_punch_strategy": "Default client test.",
++    }
++    mock_response = AsyncMock()
++    mock_response.choices = [AsyncMock(message=AsyncMock(content=json.dumps(mock_payload)))]
++    mock_client.chat.completions.create.return_value = mock_response
++
++    with patch("xbot.ai.visual_engine.get_ai_client", return_value=mock_client):
++        spec = await generate_visual_post_spec(
++            topic="Testing default client",
++        )
++        assert spec.tweet_copy == "Default client resolution hook."
++
++
++def test_visual_prompt_builders(sample_creator_persona: Persona):
++    sys_prompt = _build_visual_system_prompt(persona=sample_creator_persona, format_type="dark_infographic")
++    assert "Kaya" in sys_prompt
++    assert "One-Two Punch" in sys_prompt
++    assert "4:5" in sys_prompt
++
++    user_prompt = _build_visual_user_prompt(
++        topic="Microservices vs Monoliths in 2026",
++        format_type="side_by_side",
++        persona=sample_creator_persona,
++    )
++    assert "Microservices vs Monoliths in 2026" in user_prompt
++    assert "side_by_side" in user_prompt
+diff --git a/xbot/backend/xbot/ai/__init__.py b/xbot/backend/xbot/ai/__init__.py
+index 94e2b81..d7fd5f3 100644
+--- a/xbot/backend/xbot/ai/__init__.py
++++ b/xbot/backend/xbot/ai/__init__.py
+@@ -15,6 +15,7 @@ from xbot.ai.sniper import SniperReplyResult, SniperResult, generate_sniper_repl
+ from xbot.ai.strategy import StrategyReviewer
+ from xbot.ai.trend_generator import TrendEvaluation, generate_trend_take
+ from xbot.ai.trend_radar import TrendItem, fetch_rss_trends
++from xbot.ai.visual_engine import VisualPostSpec, generate_visual_post_spec
+ 
+ __all__ = [
+     "AssembledContext",
+@@ -40,5 +41,7 @@ __all__ = [
+     "fetch_rss_trends",
+     "TrendEvaluation",
+     "generate_trend_take",
++    "VisualPostSpec",
++    "generate_visual_post_spec",
+ ]
+ 
+diff --git a/xbot/backend/xbot/ai/visual_engine.py b/xbot/backend/xbot/ai/visual_engine.py
+new file mode 100644
+index 0000000..d4fdf0e
+--- /dev/null
++++ b/xbot/backend/xbot/ai/visual_engine.py
+@@ -0,0 +1,364 @@
++from __future__ import annotations
++
++import json
++import logging
++import re
++from typing import Any, Literal
++from pydantic import BaseModel, Field, field_validator
++
++from xbot.ai.anti_ai_gatekeeper import ANTI_AI_TYPOGRAPHY_DIRECTIVE, AntiAIGatekeeper
++from xbot.ai.client import get_ai_client
++from xbot.config import settings
++from xbot.persona.loader import Persona
++
++logger = logging.getLogger(__name__)
++
++# Valid format types & SimClusters
++FORMAT_TYPES = Literal["storyboard_4panel", "side_by_side", "urban_lifestyle", "dark_infographic"]
++SIMCLUSTERS = Literal["Tech/AI", "Cinema/Prestige", "Urban/Creator", "Anime/PopCulture"]
++
++VISUAL_FORMAT_TEMPLATES: dict[str, dict[str, str]] = {
++    "storyboard_4panel": {
++        "name": "4-Panel Storyboard / Progression Comic",
++        "description": "Sequential 4-panel visual comic or scenario progression in 4:5 portrait (1080x1350). High contrast, clean panel borders, escalating tension in panels 1-3 with humorous or insightful resolution in panel 4.",
++        "default_simcluster": "Tech/AI",
++        "prompt_template": (
++            "A detailed 4-panel comic storyboard grid in 4:5 vertical portrait aspect ratio (1080x1350). "
++            "Panel 1: [Setup], Panel 2: [Escalation], Panel 3: [Peak Tension], Panel 4: [Visual Punchline/Payoff]. "
++            "High-contrast dark-mode palette (#0D1117 background), crisp clean panel dividers, expressive cinematic lighting, "
++            "digital illustration style with refined linework, zero distorted AI text or artifacts. --ar 4:5"
++        ),
++    },
++    "side_by_side": {
++        "name": "Side-by-Side Comparison / Expectation vs Reality",
++        "description": "2-panel vertical split comparison in 4:5 portrait (1080x1350). Left/Top: Expectation / Ideal / Legacy. Right/Bottom: Reality / Actual / Modern. Stark visual contrast and bold minimalist typography.",
++        "default_simcluster": "Tech/AI",
++        "prompt_template": (
++            "A split side-by-side visual comparison in 4:5 vertical portrait aspect ratio (1080x1350). "
++            "Left side: [Expectation / Legacy / Theory], soft serene lighting. "
++            "Right side: [Reality / Modern / Production], dramatic high-contrast moody lighting. "
++            "Bold minimalist typography labels, sharp render, ultra-detailed textures, zero blurry AI distortions. --ar 4:5"
++        ),
++    },
++    "urban_lifestyle": {
++        "name": "Candid Urban Creator Realism / 35mm Film",
++        "description": "Authentic raw 35mm film photography in 4:5 portrait (1080x1350). South Asian creator aesthetic, candid realism, Kodak Portra 400 warm palette, natural ambient lighting, subtle film grain, anti-plastic authenticity.",
++        "default_simcluster": "Urban/Creator",
++        "prompt_template": (
++            "Candid 35mm film photograph in 4:5 vertical portrait aspect ratio (1080x1350), shot on Leica M6 with 35mm f/1.4 lens on Kodak Portra 400 film. "
++            "A stylish young South Asian creator in an urban studio cafe in Mumbai surrounded by camera gear and laptop, caught in a genuine candid expression. "
++            "Soft natural golden-hour ambient lighting, rich warm color grading, organic film grain, authentic skin textures with subtle imperfections, no glossy AI plastic smoothing. --ar 4:5"
++        ),
++    },
++    "dark_infographic": {
++        "name": "High-Contrast Dark-Mode Cheat Sheet & System Architecture",
++        "description": "Sleek high-contrast dark-mode infographic / cheatsheet in 4:5 portrait (1080x1350). Background #0D1117, neon cyan (#58A6FF) and electric amber (#F2994A) accents, monospace terminal aesthetic, modular architecture diagram.",
++        "default_simcluster": "Tech/AI",
++        "prompt_template": (
++            "A clean, high-contrast dark-mode technical infographic and system diagram in 4:5 vertical portrait aspect ratio (1080x1350). "
++            "Deep dark slate background (#0D1117), crisp vector diagrams with neon cyan (#58A6FF) and warm amber (#F2994A) signal paths. "
++            "Modular architecture boxes, clean monospace typography, structured layout with high legibility on mobile screens, ultra-sharp vector graphics, zero visual clutter. --ar 4:5"
++        ),
++    },
++}
++
++
++class VisualPostSpec(BaseModel):
++    tweet_copy: str = Field(..., description="Setup tension hook strictly under 140 characters")
++    image_prompt: str = Field(..., description="Detailed visual prompt specifying 4:5 portrait aspect ratio, lighting, dark mode, high contrast")
++    aspect_ratio: Literal["4:5", "1:1"] = Field(default="4:5", description="Aspect ratio (4:5 for mobile screen takeover or 1:1 square)")
++    format_type: str = Field(..., description="Visual format type: storyboard_4panel, side_by_side, urban_lifestyle, dark_infographic")
++    target_simcluster: str = Field(..., description="Target SimCluster: Tech/AI, Cinema/Prestige, Urban/Creator, Anime/PopCulture")
++    one_two_punch_strategy: str = Field(..., description="Cognitive separation strategy where copy sets up tension and image delivers punchline")
++
++    @field_validator("tweet_copy")
++    @classmethod
++    def validate_tweet_copy(cls, v: str) -> str:
++        clean = " ".join(v.strip().split())
++        if len(clean) >= 140:
++            # Truncate cleanly at word boundary or sentence boundary under 140 chars
++            truncated = clean[:136]
++            last_space = truncated.rfind(" ")
++            if last_space > 80:
++                clean = truncated[:last_space] + "..."
++            else:
++                clean = truncated + "..."
++        return clean
++
++    @field_validator("aspect_ratio")
++    @classmethod
++    def validate_aspect_ratio(cls, v: str) -> str:
++        if v not in ("4:5", "1:1"):
++            raise ValueError(f"Aspect ratio must be '4:5' or '1:1', got '{v}'")
++        return v
++
++
++def infer_format_type(topic: str) -> str:
++    """
++    Infers the optimal visual format type based on topic keywords.
++    """
++    t_lower = topic.lower()
++
++    # 1. Side by side comparisons
++    if any(kw in t_lower for kw in ["vs", "versus", "comparison", "compared", "difference", "expectation vs reality", "before and after"]):
++        return "side_by_side"
++
++    # 2. Dark infographics & cheatsheets
++    if any(kw in t_lower for kw in ["cheatsheet", "cheat sheet", "infographic", "system design", "architecture", "framework", "roadmap", "benchmark", "guide", "diagram"]):
++        return "dark_infographic"
++
++    # 3. Urban lifestyle / 35mm creator realism
++    if any(kw in t_lower for kw in ["creator", "lifestyle", "cafe", "vlog", "street photography", "mumbai", "behind the scenes", "bts", "desk setup", "coffee"]):
++        return "urban_lifestyle"
++
++    # 4. 4-panel storyboard comic
++    if any(kw in t_lower for kw in ["comic", "story", "panel", "step", "friday", "deploy", "realize", "moment", "struggle", "escalation"]):
++        return "storyboard_4panel"
++
++    return "storyboard_4panel"
++
++
++def infer_simcluster(topic: str, format_type: str) -> str:
++    """
++    Infers the target SimCluster for algorithmic distribution based on topic and format.
++    """
++    t_lower = topic.lower()
++
++    if any(kw in t_lower for kw in ["cinema", "film", "movie", "nolan", "imax", "director", "hollywood", "bollywood", "cinematography", "trailer"]):
++        return "Cinema/Prestige"
++
++    if any(kw in t_lower for kw in ["anime", "manga", "gaming", "vtuber", "otaku", "tier list", "waifu"]):
++        return "Anime/PopCulture"
++
++    if any(kw in t_lower for kw in ["creator", "vlog", "lifestyle", "mumbai", "editing", "camera", "youtube", "grind", "b-roll"]):
++        return "Urban/Creator"
++
++    if any(kw in t_lower for kw in ["ai", "tech", "python", "code", "dev", "gpu", "llm", "backend", "system", "postgres", "cloud", "software", "api"]):
++        return "Tech/AI"
++
++    # Default fallback based on format template
++    template_info = VISUAL_FORMAT_TEMPLATES.get(format_type)
++    if template_info and "default_simcluster" in template_info:
++        return template_info["default_simcluster"]
++
++    return "Tech/AI"
++
++
++def generate_fallback_visual_spec(
++    topic: str,
++    format_type: str | None = None,
++    persona: Persona | None = None,
++) -> VisualPostSpec:
++    """
++    Generates a high-quality deterministic VisualPostSpec when AI models are unavailable or timed out.
++    """
++    resolved_format = format_type or infer_format_type(topic)
++    if resolved_format not in VISUAL_FORMAT_TEMPLATES:
++        resolved_format = "storyboard_4panel"
++
++    resolved_simcluster = infer_simcluster(topic, resolved_format)
++    template = VISUAL_FORMAT_TEMPLATES[resolved_format]
++
++    # Persona-aware tone injection
++    creator_name = persona.display_name if persona else "Creator"
++
++    if resolved_format == "storyboard_4panel":
++        tweet_copy = f"The 4 stages of realizing {topic[:70]}."
++        image_prompt = (
++            f"A 4-panel storyboard comic in 4:5 vertical portrait aspect ratio (1080x1350). "
++            f"Subject: \"{topic}\". Panel 1: Optimistic start. Panel 2: Subtle complication. "
++            f"Panel 3: Escalating panic. Panel 4: Hilarious resigned acceptance. "
++            f"Dark mode aesthetic (#0D1117 background), vibrant lighting, expressive character, no distorted AI text. --ar 4:5"
++        )
++        strategy = "Tweet copy sets up the universal 4-stage dilemma; 4-panel comic image delivers the visual punchline."
++
++    elif resolved_format == "side_by_side":
++        tweet_copy = f"Expectation vs reality when dealing with {topic[:65]}."
++        image_prompt = (
++            f"A high-contrast side-by-side comparison split in 4:5 vertical portrait aspect ratio (1080x1350). "
++            f"Topic: \"{topic}\". Left panel: Ideal textbook theory with calm lighting. "
++            f"Right panel: Chaotic practical reality with high-contrast dramatic shadows. "
++            f"Minimalist clean labels, crisp render. --ar 4:5"
++        )
++        strategy = "Tweet copy presents a classic expectation hook; side-by-side visual delivers the contrast payoff."
++
++    elif resolved_format == "urban_lifestyle":
++        tweet_copy = f"Behind the scenes of {topic[:75]}."
++        image_prompt = (
++            f"Candid 35mm film photograph in 4:5 vertical portrait aspect ratio (1080x1350) on Kodak Portra 400. "
++            f"A stylish South Asian creator working on \"{topic}\" at a wooden desk in an atmospheric urban cafe. "
++            f"Warm golden lighting, soft film grain, authentic textures, no plastic AI smoothing. --ar 4:5"
++        )
++        strategy = "Tweet copy frames authentic creator behind-the-scenes; 35mm photography delivers aesthetic dwell value."
++
++    else:  # dark_infographic
++        tweet_copy = f"System breakdown: {topic[:80]}."
++        image_prompt = (
++            f"High-contrast dark-mode technical infographic in 4:5 vertical portrait aspect ratio (1080x1350). "
++            f"Topic: \"{topic}\". Deep dark background (#0D1117), neon cyan (#58A6FF) and amber (#F2994A) vector diagrams, "
++            f"monospace terminal boxes, clean modular flow with high mobile legibility. --ar 4:5"
++        )
++        strategy = "Tweet copy introduces the core framework; dark infographic delivers high-utility bookmarkable visual value."
++
++    return VisualPostSpec(
++        tweet_copy=tweet_copy[:139],
++        image_prompt=image_prompt,
++        aspect_ratio="4:5",
++        format_type=resolved_format,
++        target_simcluster=resolved_simcluster,
++        one_two_punch_strategy=strategy,
++    )
++
++
++def _build_visual_system_prompt(persona: Persona | None = None, format_type: str | None = None) -> str:
++    persona_context = ""
++    if persona:
++        persona_context = (
++            f"Creator Persona: {persona.display_name} (@{persona.x_handle.lstrip('@')})\n"
++            f"Tone & Voice: {persona.personality.communication_style}\n"
++            f"Values: {', '.join(persona.personality.values)}\n"
++            f"Interests: {', '.join(persona.interests.primary)}\n\n"
++        )
++
++    return (
++        "You are an expert Visual Post & Meme Virality Director for X (Twitter).\n"
++        "Your task is to design high-engagement visual post specifications utilizing the 'One-Two Punch' strategy:\n"
++        "1. Tweet Copy (Setup / Tension Hook): Strictly UNDER 140 characters (< 140 chars). Builds curiosity, tension, irony, or a relatable dilemma. Do NOT give away the punchline in text.\n"
++        "2. Image Prompt (Visual Payoff / Punchline): Detailed visual generation prompt in 4:5 vertical portrait aspect ratio (1080x1350) for mobile viewport takeover (~74% mobile screen).\n"
++        "   - Include lighting, color palette, camera/lens specs, high contrast, dark mode theme (#0D1117) where applicable, and zero distorted AI text.\n"
++        "3. Aspect Ratio: Default to '4:5' (or '1:1').\n"
++        "4. Format Types: 'storyboard_4panel', 'side_by_side', 'urban_lifestyle', 'dark_infographic'.\n"
++        "5. Target SimClusters: 'Tech/AI', 'Cinema/Prestige', 'Urban/Creator', 'Anime/PopCulture'.\n\n"
++        f"{persona_context}"
++        f"{ANTI_AI_TYPOGRAPHY_DIRECTIVE}\n\n"
++        "Return ONLY a JSON object matching this schema:\n"
++        "{\n"
++        '  "tweet_copy": "Setup tension hook strictly under 140 chars",\n'
++        '  "image_prompt": "Detailed image generation prompt specifying 4:5 aspect ratio (1080x1350), lighting, composition, colors, zero AI artifacts",\n'
++        '  "aspect_ratio": "4:5",\n'
++        '  "format_type": "storyboard_4panel" | "side_by_side" | "urban_lifestyle" | "dark_infographic",\n'
++        '  "target_simcluster": "Tech/AI" | "Cinema/Prestige" | "Urban/Creator" | "Anime/PopCulture",\n'
++        '  "one_two_punch_strategy": "Explanation of how tweet copy sets up tension and image delivers visual punchline"\n'
++        "}"
++    )
++
++
++def _build_visual_user_prompt(
++    topic: str,
++    format_type: str | None = None,
++    persona: Persona | None = None,
++) -> str:
++    lines = [f"## Topic / Visual Premise\n\"{topic}\""]
++
++    if format_type and format_type in VISUAL_FORMAT_TEMPLATES:
++        t_info = VISUAL_FORMAT_TEMPLATES[format_type]
++        lines.append(
++            f"## Desired Visual Format: {t_info['name']} ({format_type})\n"
++            f"- Description: {t_info['description']}\n"
++            f"- Base Style Reference: {t_info['prompt_template']}"
++        )
++    else:
++        lines.append(
++            "## Visual Format Direction\n"
++            "Select the most viral format type among: storyboard_4panel, side_by_side, urban_lifestyle, dark_infographic."
++        )
++
++    lines.append(
++        "## Key Directives:\n"
++        "- Tweet copy MUST be strictly < 140 characters.\n"
++        "- Default aspect ratio to 4:5 for maximum mobile screen takeover.\n"
++        "- The image prompt must deliver the visual payoff that makes the tweet copy click."
++    )
++
++    return "\n\n".join(lines)
++
++
++async def generate_visual_post_spec(
++    topic: str,
++    format_type: str | None = None,
++    persona: Persona | None = None,
++    client: Any | None = None,
++) -> VisualPostSpec:
++    """
++    Generates a 4:5 Visual Post Specification with One-Two Punch captioning
++    and AI routing fallback (Gemini Flash / DeepSeek cascade).
++    """
++    if client is None:
++        client = get_ai_client()
++
++    gatekeeper = AntiAIGatekeeper()
++    resolved_format = format_type or infer_format_type(topic)
++    resolved_simcluster = infer_simcluster(topic, resolved_format)
++
++    system_prompt = _build_visual_system_prompt(persona=persona, format_type=resolved_format)
++    user_prompt = _build_visual_user_prompt(topic=topic, format_type=resolved_format, persona=persona)
++
++    model_cascade = getattr(
++        settings, "MODEL_POST_CREATION", "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
++    )
++
++    try:
++        logger.info("Generating visual post spec for topic: '%s' (format: %s)", topic[:50], resolved_format)
++        response = await client.chat.completions.create(
++            model=model_cascade,
++            messages=[
++                {"role": "system", "content": system_prompt},
++                {"role": "user", "content": user_prompt},
++            ],
++            temperature=0.75,
++            max_tokens=650,
++        )
++
++        content_str = response.choices[0].message.content or ""
++        clean_json = content_str.strip()
++        if "```" in clean_json:
++            clean_json = re.sub(r"^```(?:json)?", "", clean_json).rstrip("`").strip()
++
++        data = json.loads(clean_json)
++
++        raw_tweet_copy = data.get("tweet_copy", "").strip()
++        remediated_copy = gatekeeper.remediate_minor_issues(raw_tweet_copy)
++
++        # Enforce < 140 chars strictly
++        if len(remediated_copy) >= 140:
++            truncated = remediated_copy[:136]
++            last_space = truncated.rfind(" ")
++            if last_space > 80:
++                remediated_copy = truncated[:last_space] + "..."
++            else:
++                remediated_copy = truncated + "..."
++
++        image_prompt = data.get("image_prompt", "").strip()
++        if not image_prompt:
++            image_prompt = VISUAL_FORMAT_TEMPLATES.get(resolved_format, {}).get("prompt_template", "")
++
++        aspect_ratio = data.get("aspect_ratio", "4:5")
++        if aspect_ratio not in ("4:5", "1:1"):
++            aspect_ratio = "4:5"
++
++        out_format = data.get("format_type", resolved_format)
++        if out_format not in VISUAL_FORMAT_TEMPLATES:
++            out_format = resolved_format
++
++        out_simcluster = data.get("target_simcluster", resolved_simcluster)
++        if out_simcluster not in ["Tech/AI", "Cinema/Prestige", "Urban/Creator", "Anime/PopCulture"]:
++            out_simcluster = resolved_simcluster
++
++        strategy = data.get("one_two_punch_strategy", "Setup tension in tweet copy; deliver visual punchline in 4:5 image.")
++
++        return VisualPostSpec(
++            tweet_copy=remediated_copy,
++            image_prompt=image_prompt,
++            aspect_ratio=aspect_ratio,
++            format_type=out_format,
++            target_simcluster=out_simcluster,
++            one_two_punch_strategy=strategy,
++        )
++
++    except Exception as e:
++        logger.warning("Visual post spec AI generation failed for topic '%s': %s. Using deterministic template fallback.", topic[:50], e)
++        return generate_fallback_visual_spec(
++            topic=topic,
++            format_type=format_type,
++            persona=persona,
++        )

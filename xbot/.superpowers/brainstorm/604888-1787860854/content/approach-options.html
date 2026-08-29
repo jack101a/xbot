@@ -1,0 +1,138 @@
+<h2>UI/UX Architecture: 3 Approaches</h2>
+<p class="subtitle">Based on your power-user needs, which structural layout model fits your mental workflow best?</p>
+
+<div class="options">
+  <!-- Option A -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>The Command Center</h3>
+      <p>IDE-inspired layout for maximum density and parallel workflows.</p>
+      
+      <div class="mockup" style="margin-top: 15px; border: 1px solid #ccc; background: #fafafa; border-radius: 4px; padding: 2px;">
+        <div style="display: flex; height: 120px; gap: 4px;">
+          <!-- Collapsed Sidebar -->
+          <div style="width: 30px; background: #e5e5e5; border-right: 1px solid #d4d4d4; display: flex; flex-direction: column; align-items: center; padding-top: 10px; gap: 10px;">
+            <div style="width: 14px; height: 14px; background: #a3a3a3; border-radius: 4px;"></div>
+            <div style="width: 14px; height: 14px; background: #a3a3a3; border-radius: 4px;"></div>
+            <div style="width: 14px; height: 14px; background: #a3a3a3; border-radius: 4px;"></div>
+          </div>
+          
+          <!-- Split Pane Content -->
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 4px; padding: 4px;">
+            <div style="height: 20px; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center;">
+              <span style="font-size: 8px; font-family: monospace; color: #666;">cmd+k to search/jump...</span>
+            </div>
+            
+            <div style="flex: 1; display: flex; gap: 4px;">
+              <!-- Left panel (Stats/List) -->
+              <div style="flex: 1; border: 1px solid #e5e5e5; border-radius: 3px; background: white; padding: 4px;">
+                <div style="height: 6px; width: 40%; background: #ccc; margin-bottom: 4px; border-radius: 2px;"></div>
+                <div style="height: 4px; width: 100%; background: #f0f0f0; margin-bottom: 2px;"></div>
+                <div style="height: 4px; width: 100%; background: #f0f0f0; margin-bottom: 2px;"></div>
+                <div style="height: 4px; width: 100%; background: #f0f0f0;"></div>
+              </div>
+              
+              <!-- Right panel (Composer/Action) -->
+              <div style="flex: 1; border: 1px solid #e5e5e5; border-radius: 3px; background: white; padding: 4px;">
+                <div style="height: 6px; width: 30%; background: #ccc; margin-bottom: 4px; border-radius: 2px;"></div>
+                <div style="height: 25px; width: 100%; border: 1px solid #e5e5e5; border-radius: 2px; margin-bottom: 4px;"></div>
+                <div style="height: 10px; width: 30%; background: #2563eb; border-radius: 2px; float: right;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="pros-cons" style="margin-top: 15px; font-size: 12px;">
+        <div class="pros">
+          <ul style="margin: 0; padding-left: 15px;">
+            <li>Zero wasted space</li>
+            <li>Keyboard-first navigation</li>
+            <li>Split panes for side-by-side work</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>The Multi-Column Workspace</h3>
+      <p>TweetDeck/Linear inspired layout. Great for wrangling complex sub-features.</p>
+      
+      <div class="mockup" style="margin-top: 15px; border: 1px solid #ccc; background: #fafafa; border-radius: 4px; padding: 2px;">
+        <div style="display: flex; height: 120px; gap: 4px;">
+          <!-- Primary Nav -->
+          <div style="width: 40px; background: #e5e5e5; border-right: 1px solid #d4d4d4; padding: 10px 4px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="height: 6px; width: 100%; background: #a3a3a3; border-radius: 2px;"></div>
+            <div style="height: 6px; width: 80%; background: #a3a3a3; border-radius: 2px;"></div>
+          </div>
+          
+          <!-- Secondary Nav (Contextual) -->
+          <div style="width: 60px; background: #f5f5f5; border-right: 1px solid #e5e5e5; padding: 6px; display: flex; flex-direction: column; gap: 4px;">
+            <div style="font-size: 7px; font-weight: bold; color: #666; margin-bottom: 2px;">GROWTH</div>
+            <div style="height: 8px; width: 100%; background: #2563eb; border-radius: 2px;"></div>
+            <div style="height: 8px; width: 100%; background: #e5e5e5; border-radius: 2px;"></div>
+            <div style="height: 8px; width: 100%; background: #e5e5e5; border-radius: 2px;"></div>
+          </div>
+          
+          <!-- Main Content -->
+          <div style="flex: 1; background: white; border: 1px solid #e5e5e5; border-radius: 3px; padding: 8px;">
+            <div style="height: 8px; width: 40%; background: #ccc; margin-bottom: 8px; border-radius: 2px;"></div>
+            <div style="height: 40px; width: 100%; border: 1px solid #e5e5e5; border-radius: 2px; margin-bottom: 4px;"></div>
+            <div style="height: 12px; width: 25%; background: #2563eb; border-radius: 2px; float: right;"></div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="pros-cons" style="margin-top: 15px; font-size: 12px;">
+        <div class="pros">
+          <ul style="margin: 0; padding-left: 15px;">
+            <li>Tames complex nested features</li>
+            <li>Incredibly fast to switch contexts</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>The Focused Hub</h3>
+      <p>Notion-style minimalism. Reduces visual noise by showing only what's needed.</p>
+      
+      <div class="mockup" style="margin-top: 15px; border: 1px solid #ccc; background: #fafafa; border-radius: 4px; padding: 2px;">
+        <div style="display: flex; flex-direction: column; height: 120px; align-items: center; padding-top: 10px;">
+          <!-- Top Nav -->
+          <div style="width: 90%; height: 20px; border-bottom: 1px solid #e5e5e5; display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
+            <div style="height: 6px; width: 10%; background: #2563eb; border-radius: 2px;"></div>
+            <div style="height: 6px; width: 10%; background: #a3a3a3; border-radius: 2px;"></div>
+            <div style="height: 6px; width: 10%; background: #a3a3a3; border-radius: 2px;"></div>
+          </div>
+          
+          <!-- Centered Column -->
+          <div style="width: 70%; background: white; border: 1px solid #e5e5e5; border-radius: 4px; padding: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+            <div style="height: 8px; width: 30%; background: #ccc; margin-bottom: 8px; border-radius: 2px;"></div>
+            <div style="height: 20px; width: 100%; border: 1px solid #e5e5e5; border-radius: 2px; margin-bottom: 4px;"></div>
+            <div style="height: 8px; width: 100%; background: #f0f0f0; border-radius: 2px; margin-bottom: 2px;"></div>
+            <div style="height: 8px; width: 80%; background: #f0f0f0; border-radius: 2px;"></div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="pros-cons" style="margin-top: 15px; font-size: 12px;">
+        <div class="pros">
+          <ul style="margin: 0; padding-left: 15px;">
+            <li>Highest focus on the current task</li>
+            <li>Zero clutter</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

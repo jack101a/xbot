@@ -154,6 +154,10 @@ async def health_check() -> dict[str, Any]:
     }
 
 
+@app.get("/")
+async def root() -> dict[str, str]:
+    return {"message": "Welcome to XBot API Server"}
+
 # Mount data directory for serving generated & downloaded media
 data_dir = Path(__file__).resolve().parent.parent.parent / "data"
 data_dir.mkdir(parents=True, exist_ok=True)
@@ -162,8 +166,4 @@ app.mount("/data", StaticFiles(directory=str(data_dir)), name="data_static")
 # Mount lightweight static dashboard SPA directly
 static_dashboard_dir = Path(__file__).resolve().parent.parent.parent / "dashboard" / "out"
 if static_dashboard_dir.exists():
-    app.mount("/", StaticFiles(directory=str(static_dashboard_dir), html=True), name="static_dashboard")
-else:
-    @app.get("/")
-    async def root() -> dict[str, str]:
-        return {"message": "Welcome to XBot API Server"}
+    app.mount("/dashboard", StaticFiles(directory=str(static_dashboard_dir), html=True), name="static_dashboard")

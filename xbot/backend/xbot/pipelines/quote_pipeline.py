@@ -104,15 +104,45 @@ async def run_quote_pipeline_for_profile(
         except Exception as p_err:
             logger.debug("Could not load persona for %s: %s", profile_slug, p_err)
 
-        # Synthesize a contextual sharp quote take
+        from xbot.safety.topic_blacklist import topic_blacklist_filter
+        is_blocked, block_reason = topic_blacklist_filter.is_blocked(tweet_text, persona)
+        if is_blocked:
+            logger.info("QuotePipeline: Skipped tweet %s due to topic blacklist: %s", tweet_id, block_reason)
+            continue
+
+        # 1. Scrape full live tweet context (images, alts, and top 10 comments)
+        if tweet_url:
+            try:
+                context_job = BrowserJob(
+                    action_type="scrape_tweet_context",
+                    profile_slug=profile_slug,
+                    params={"tweet_url": tweet_url},
+                    priority=2,
+                )
+                ctx_job_id = enqueue_browser_job(context_job)
+                ctx_res = await asyncio.to_thread(get_browser_job_result, ctx_job_id, 30.0)
+                if ctx_res and ctx_res.get("status") == "success":
+                    live_ctx = ctx_res.get("context", {})
+                    if live_ctx:
+                        tw["top_comments"] = live_ctx.get("top_comments", [])
+                        tw["media_alts"] = live_ctx.get("media_alts", [])
+                        tw["media_urls"] = live_ctx.get("media_urls", [])
+                        if live_ctx.get("text"):
+                            tw["text"] = live_ctx["text"]
+            except Exception as ctx_err:
+                logger.debug("Live tweet context scrape error in quote pipeline: %s", ctx_err)
+
+        # 2. Synthesize a contextual sharp quote take grounded in the room & images
+        gif_query = None
         try:
-            from xbot.ai.sniper import generate_sniper_reply
-            quote_res_obj = await generate_sniper_reply(
+            from xbot.ai.sniper import generate_quote_take
+            quote_res_obj = await generate_quote_take(
                 persona=persona,
                 target_tweet=tw,
             )
-            raw_quote = quote_res_obj.reply_text.strip()
-            if not raw_quote or raw_quote.lower() in ("spot on", "great post"):
+            raw_quote = quote_res_obj.quote_text.strip()
+            gif_query = quote_res_obj.gif_query
+            if not raw_quote or len(raw_quote) < 8 or any(c in raw_quote.lower() for c in ["spot on", "great post", "adding to the discussion", "sharp perspective"]):
                 logger.warning("Quote synthesis returned empty or generic text for tweet %s, skipping.", tweet_id)
                 continue
         except Exception as syn_err:
@@ -123,7 +153,6 @@ async def run_quote_pipeline_for_profile(
         val_res = gatekeeper.validate(raw_quote)
         if not val_res.is_valid:
             raw_quote = gatekeeper.remediate_minor_issues(raw_quote)
-
 
         # Format via dynamic formatting engine
         formatted_quote = format_content(
@@ -137,7 +166,12 @@ async def run_quote_pipeline_for_profile(
         quote_job = BrowserJob(
             action_type="quote",
             profile_slug=profile_slug,
-            params={"tweet_id": tweet_id, "tweet_url": tweet_url, "text": formatted_quote},
+            params={
+                "tweet_id": tweet_id,
+                "tweet_url": tweet_url,
+                "text": formatted_quote,
+                "gif_query": gif_query,
+            },
             priority=2,
         )
         quote_job_id = enqueue_browser_job(quote_job)
@@ -146,6 +180,14 @@ async def run_quote_pipeline_for_profile(
         if quote_res and quote_res.get("status") in ("success", "quoted"):
             await guard.record_action(db, profile_slug, "quote", target_id=tweet_id)
             quotes_count += 1
+            if tweet_url:
+                like_job = BrowserJob(
+                    action_type="like",
+                    profile_slug=profile_slug,
+                    params={"tweet_url": tweet_url},
+                    priority=3,
+                )
+                enqueue_browser_job(like_job)
 
     return {
         "status": "success",

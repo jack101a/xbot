@@ -16,7 +16,7 @@ from xbot.ai.planner import PlannedAction, SessionPlan, plan_session
 from xbot.ai.poll_generator import GeneratedPoll, generate_poll
 from xbot.ai.post_session import PostSessionProcessor
 from xbot.ai.post_synthesizer import SynthesizedPostResult, synthesize_creator_post
-from xbot.ai.sniper import SniperReplyResult, SniperResult, generate_sniper_reply
+from xbot.ai.sniper import SniperResult, generate_sniper_reply
 from xbot.ai.strategy import StrategyReviewer
 from xbot.ai.growth_scorer import (
     OpportunityScore,

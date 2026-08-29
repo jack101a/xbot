@@ -22,6 +22,8 @@ class AnalyticsSnapshot(Base):
     followers: Mapped[int] = mapped_column(Integer, default=0)
     following: Mapped[int] = mapped_column(Integer, default=0)
     total_tweets: Mapped[int] = mapped_column(Integer, default=0)
+    verified_followers: Mapped[int] = mapped_column(Integer, default=0)
+    verified_impressions_90d: Mapped[int] = mapped_column(Integer, default=0)
     impressions_24h: Mapped[int] = mapped_column(Integer, default=0)
     engagements_24h: Mapped[int] = mapped_column(Integer, default=0)
     engagement_rate: Mapped[float] = mapped_column(Float, default=0.0)

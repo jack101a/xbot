@@ -93,14 +93,18 @@ class BrowserManager:
             self.playwright = None
             logger.info("Playwright engine stopped.")
 
-    def acquire_lock(self, profile_slug: str, timeout_seconds: int = 1800) -> bool:
+    def acquire_lock(self, profile_slug: str, timeout_seconds: int = 180) -> bool:
         """
         Acquires a lock in Redis to prevent multiple workers
-        from running the same profile.
+        from running the same profile simultaneously.
         """
         lock_key = f"lock:browser:{profile_slug}"
-        result = self._redis_client.set(lock_key, "1", ex=timeout_seconds, nx=True)
-        return bool(result)
+        for _ in range(3):
+            if self._redis_client.set(lock_key, "1", ex=timeout_seconds, nx=True):
+                return True
+            import time
+            time.sleep(1.0)
+        return False
 
     def release_lock(self, profile_slug: str) -> None:
         """
@@ -144,6 +148,15 @@ class BrowserManager:
         user_data_dir = self.base_profile_dir / profile_slug / "browser_data"
         user_data_dir.mkdir(parents=True, exist_ok=True)
 
+        # Clean up stale Chromium Singleton locks if present
+        for stale_name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+            stale_p = user_data_dir / stale_name
+            if stale_p.exists() or stale_p.is_symlink():
+                try:
+                    stale_p.unlink()
+                except Exception:
+                    pass
+
         proxy_config: ProxySettings | None = None
         if proxy_url:
             proxy_config = {"server": proxy_url}
@@ -151,6 +164,7 @@ class BrowserManager:
         context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=True,
+            bypass_csp=True,
             user_agent=ua,
             viewport={"width": vp_w, "height": vp_h},
             locale=locale,
@@ -166,12 +180,12 @@ class BrowserManager:
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
-                "--disable-gpu",
                 "--disable-dev-shm-usage",
+                "--disable-web-security",
+                "--enable-webgl",
+                "--ignore-certificate-errors",
                 # Declare window size so headless size matches the viewport
                 f"--window-size={vp_w},{vp_h + 88}",  # +88 accounts for browser chrome
-                # Suppress the 'HeadlessChrome' string in some internal APIs
-                "--disable-features=IsolateOrigins,site-per-process",
             ],
         )
 
@@ -235,3 +249,41 @@ class BrowserManager:
 
         logger.info("Created browser context for profile slug: %s", profile_slug)
         return context
+
+    async def get_tab_pool(self, profile_slug: str, context: BrowserContext | None = None):
+        """Retrieves the dedicated TabPool for a profile."""
+        from xbot.browser.tab_pool import tab_pool_manager
+        if context is None:
+            context = await self.get_context(profile_slug)
+        return await tab_pool_manager.get_pool(profile_slug, context)
+
+    async def get_home_page(self, profile_slug: str):
+        """Retrieves Tab 1 (Main Home Feed Anchor) permanently on x.com/home."""
+        pool = await self.get_tab_pool(profile_slug)
+        return await pool.get_home_page()
+
+    async def get_research_page(self, profile_slug: str):
+        """Retrieves Tab 2 (Dedicated Trend & Media Harvester)."""
+        pool = await self.get_tab_pool(profile_slug)
+        return await pool.get_research_page()
+
+    def acquire_worker(self, profile_slug: str, name: str = "worker"):
+        """Async context manager to acquire an ephemeral worker tab (Tab 3 or 4)."""
+        from xbot.browser.tab_pool import tab_pool_manager
+        class _WorkerContextManager:
+            def __init__(self, manager: BrowserManager, slug: str, w_name: str):
+                self.mgr = manager
+                self.slug = slug
+                self.w_name = w_name
+                self._cm = None
+
+            async def __aenter__(self):
+                pool = await self.mgr.get_tab_pool(self.slug)
+                self._cm = pool.acquire_worker(name=self.w_name)
+                return await self._cm.__aenter__()
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                if self._cm:
+                    return await self._cm.__aexit__(exc_type, exc_val, exc_tb)
+
+        return _WorkerContextManager(self, profile_slug, name)

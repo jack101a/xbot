@@ -23,30 +23,12 @@ from xbot.persona import load_config, load_persona, load_learned_state
 logger = logging.getLogger(__name__)
 
 
-class GeneratedContent(BaseModel):
-    primary_text: str = Field(..., description="The main tweet or reply text generated")
-    alternatives: list[str] = Field(default_factory=list, description="Exactly 2 alternative versions for A/B testing")
-    suggested_hashtags: list[str] = Field(default_factory=list, description="Suggested hashtags")
-
-
-class ContentGenerationResponse(BaseModel):
-    content: GeneratedContent
-
-
-def calculate_similarity(a: str, b: str) -> float:
-    """Calculates similarity ratio between two strings using difflib."""
-    return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio()
-
-
-def clean_text_for_json(text: str) -> str:
-    """Clean markdown json wrap."""
-    text = text.strip()
-    if text.startswith("```json"):
-        text = text[7:]
-    if text.endswith("```"):
-        text = text[:-3]
-    return text.strip()
-
+from xbot.ai.content_models import (
+    GeneratedContent,
+    ContentGenerationResponse,
+    calculate_similarity,
+    clean_text_for_json,
+)
 
 class ContentGenerator:
     """
@@ -287,68 +269,8 @@ class ContentGenerator:
         topic: str = "",
         draft_tweet: str | None = None,
     ) -> HookOptimizationResult:
-        """
-        Generates a high-impact tweet matching the persona's voice and optimizes its opening hook
-        for maximal dwell time and feed retention using the 4-archetype viral hook framework.
-        """
-        client = self.client if self.client is not None else get_ai_client()
-
-        # 1. Generate initial draft if not provided
-        if draft_tweet is None or not draft_tweet.strip():
-            display_name = getattr(persona, "display_name", "Autonomous Creator")
-            x_handle = getattr(persona, "x_handle", "creator")
-            background = getattr(getattr(persona, "identity", None), "background", "")
-            tone = getattr(getattr(persona, "writing_style", None), "tone", "sharp, authentic")
-            examples = getattr(getattr(persona, "writing_style", None), "examples", [])
-            formatting = getattr(getattr(persona, "writing_style", None), "formatting", [])
-            always_rules = getattr(getattr(persona, "rules", None), "always", [])
-            never_rules = getattr(getattr(persona, "rules", None), "never", [])
-
-            sys_parts = [
-                f"You are {display_name} (@{x_handle}). You are composing a post for your X account.",
-                "Write in your authentic character voice.",
-            ]
-            if background:
-                sys_parts.append(f"Background: {background}")
-            if tone:
-                sys_parts.append(f"Tone: {tone}")
-            if formatting:
-                sys_parts.append("Formatting:\n" + "\n".join(f"- {fmt}" for fmt in formatting))
-            if examples:
-                sys_parts.append("Examples:\n" + "\n".join(f"- \"{ex}\"" for ex in examples[:2]))
-            if always_rules:
-                sys_parts.append("Always Rules:\n" + "\n".join(f"- {r}" for r in always_rules))
-            if never_rules:
-                sys_parts.append("Never Rules:\n" + "\n".join(f"- {r}" for r in never_rules))
-
-            sys_prompt = "\n".join(sys_parts)
-            usr_prompt = (
-                f"Write an insightful, scroll-stopping tweet about: {topic}"
-                if topic
-                else "Write an insightful, scroll-stopping tweet in your core niche."
-            )
-
-            model = getattr(settings, "MODEL_POST_CREATION", "litellm/gpt-oss-120b")
-            try:
-                comp = await client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": sys_prompt},
-                        {"role": "user", "content": usr_prompt},
-                    ],
-                )
-                draft_tweet = getattr(comp.choices[0].message, "content", "").strip()
-            except Exception as e:
-                logger.warning("Draft tweet generation failed, using fallback: %s", e)
-                draft_tweet = f"Critical insights on {topic}." if topic else "Critical systems insights."
-
-        # 2. Run viral hook optimization & dwell formatting
-        return await optimize_post_hook(
-            persona=persona,
-            draft_content=draft_tweet,
-            topic=topic,
-            client=client,
-        )
+        from xbot.ai.generator_draft import generate_tweet_draft_and_optimize
+        return await generate_tweet_draft_and_optimize(self, persona, topic, draft_tweet)
 
     async def generate_poll(
         self,

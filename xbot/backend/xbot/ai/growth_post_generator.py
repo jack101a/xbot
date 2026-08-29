@@ -118,62 +118,40 @@ Ensure it has a natural connection CTA to inspire comments from active mutuals.
             cta_type=data.get("cta_type", "drop_hello"),
         )
     except Exception as e:
-        logger.warning("Growth post AI generation failed: %s. Using high-signal template fallback.", e)
-        return generate_fallback_growth_post(persona=persona, archetype=chosen_archetype)
-
-
-def generate_fallback_growth_post(
-    persona: Persona | None = None,
-    archetype: str | None = None,
-) -> GrowthPostResult:
-    """Deterministic high-quality fallback growth post."""
-    chosen_archetype = archetype or random.choice(GROWTH_ARCHETYPES)
-    fallbacks = {
-        "GLOBAL_MUTUALS_CONNECT": (
-            "We are global partners, creators, and mutuals. Stronger together when we support each other 🤝\n\nDrop your handle below — let's connect and build 🔥",
-            "A sleek 3D metallic gold and cyan checkmark emblem on dark slate background (#0D1117) with floating light particles, 4:5 portrait aspect ratio.",
-            "drop_handle",
-        ),
-        "CREATOR_MILESTONE_CELEBRATION": (
-            "Growth means evolving. Every milestone opens a new chance to reach our goals 🚀\n\nKeep building. Drop 'Active' if you're showing up today 💯",
-            "A high-contrast 3D golden milestone trophy on a dark reflective glass podium with volumetric rim lighting, 4:5 aspect ratio.",
-            "active_check",
-        ),
-        "RESILIENCE_MINDSET": (
-            "Pressure creates diamonds. Patience turns effort into excellence ✨\n\nKeep climbing, your peak is waiting. Say Hi below if you're grinding today 💎",
-            "A glowing diamond prism with iridescent cyan and purple refractions on dark studio background (#0D1117), 4:5 aspect ratio.",
-            "say_hi",
-        ),
-        "ACTIVE_BOOST_CONNECT": (
-            "Never afraid of failure — keep trying. Connecting with active creators and mutuals today 🌟\n\nDrop 'Hello' below to connect and boost each other 🤝",
-            "A modern futuristic creator workspace with neon blue ambient lighting and dual displays, 4:5 aspect ratio.",
-            "drop_hello",
-        ),
-    }
-
-    copy, img_prompt, cta = fallbacks.get(chosen_archetype, fallbacks["GLOBAL_MUTUALS_CONNECT"])
-    return GrowthPostResult(
-        tweet_copy=copy,
-        image_prompt=img_prompt,
-        aspect_ratio="4:5",
-        archetype=chosen_archetype,
-        cta_type=cta,
-    )
+        logger.error("Growth post AI generation failed: %s. Discarding without template fallback.", e)
+        return None
 
 
 async def generate_growth_post_with_image(
     persona: Persona | None = None,
     output_dir: str | None = None,
     client: Any | None = None,
-) -> tuple[GrowthPostResult, str]:
+) -> tuple[GrowthPostResult | None, str | None]:
     """
     Generates growth copy and immediately renders a 4:5 image via NVIDIA GenAI.
     Returns (GrowthPostResult, local_image_file_path).
     """
     post_spec = await generate_growth_post_spec(persona=persona, client=client)
-    image_path = await generate_and_save_nvidia_image_async(
-        prompt=post_spec.image_prompt,
-        aspect_ratio="4:5",
-        output_dir=output_dir,
-    )
+    if not post_spec:
+        return None, None
+
+    try:
+        image_path = await generate_and_save_nvidia_image_async(
+            prompt=post_spec.image_prompt,
+            aspect_ratio="4:5",
+            output_dir=output_dir,
+        )
+    except Exception as img_err:
+        logger.warning("Primary image prompt generation failed (%s). Retrying with clean verified theme.", img_err)
+        verified_prompt = random.choice(GROWTH_IMAGE_THEMES)
+        post_spec.image_prompt = verified_prompt
+        try:
+            image_path = await generate_and_save_nvidia_image_async(
+                prompt=verified_prompt,
+                aspect_ratio="4:5",
+                output_dir=output_dir,
+            )
+        except Exception:
+            image_path = None
+
     return post_spec, image_path

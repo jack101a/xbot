@@ -26,6 +26,14 @@ from xbot.persona.loader import (
 )
 
 
+@pytest.fixture(autouse=True)
+def mock_live_fact_grounding():
+    """Mock live fact grounder across unit tests for fast and deterministic execution."""
+    with patch("xbot.ai.fact_grounder.ground_context_with_live_facts", new_callable=AsyncMock) as mock_ground:
+        mock_ground.return_value = ""
+        yield mock_ground
+
+
 @pytest.fixture
 def sample_persona() -> Persona:
     return Persona(

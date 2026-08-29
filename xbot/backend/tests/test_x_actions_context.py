@@ -256,9 +256,7 @@ async def test_scrape_target_tweet_context_viral_metrics_and_dedup(tmp_path: Pat
         await page.set_content(MILLIONS_METRICS_HTML)
 
         action = ReplyToTweet(screenshot_dir=str(tmp_path))
-        result = await action.scrape_target_tweet_context(
-            page, target_idx=0, tweet_url="https://x.com/tech_giant/status/999"
-        )
+        result = await action.scrape_target_tweet_context(page, target_idx=0)
 
         assert result["author"] == "tech_giant"
         assert result["views"] == 2_400_000

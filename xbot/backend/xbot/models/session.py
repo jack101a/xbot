@@ -36,6 +36,7 @@ class ActionType(StrEnum):
     UNFOLLOW_NON_FOLLOWERS = "unfollow_non_followers"
     FOLLOW_ENGAGERS = "follow_engagers"
     POLL = "poll"
+    DELETE = "delete"
 
 
 class ActionStatus(StrEnum):
@@ -43,6 +44,7 @@ class ActionStatus(StrEnum):
     EXECUTING = "executing"
     COMPLETED = "completed"
     SUCCESS = "completed"
+    STAGED = "staged"
     FAILED = "failed"
     SKIPPED = "skipped"
 

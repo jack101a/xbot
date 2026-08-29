@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { api, Profile, SystemHealth, RateLimit, Session } from '@/lib/api';
 
-export type TabType = "overview" | "campaigns" | "growth" | "activity" | "persona" | "limits";
+export type TabType = "overview" | "campaigns" | "growth" | "activity" | "persona" | "limits" | "pruner";
 
 interface AppState {
   // Data State

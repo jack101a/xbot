@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from xbot.ai.growth_post_generator import (
     GROWTH_ARCHETYPES,
-    generate_fallback_growth_post,
     generate_growth_post_spec,
     generate_growth_post_with_image,
 )
@@ -36,15 +35,13 @@ async def _reset_db():
         await conn.run_sync(Base.metadata.create_all)
 
 
-def test_generate_fallback_growth_post():
-    """Verifies deterministic fallback generation across all archetypes."""
-    for arch in GROWTH_ARCHETYPES:
-        spec = generate_fallback_growth_post(archetype=arch)
-        assert spec.archetype == arch
-        assert len(spec.tweet_copy) > 10
-        assert len(spec.image_prompt) > 10
-        assert spec.aspect_ratio == "4:5"
-        assert spec.cta_type in ["drop_handle", "drop_hello", "say_hi", "active_check"]
+@pytest.mark.asyncio
+async def test_generate_growth_post_failure_returns_none():
+    """Verifies that growth post generation returns None on API error instead of boilerplate."""
+    mock_client = AsyncMock()
+    mock_client.chat.completions.create.side_effect = Exception("API connection dropped")
+    spec = await generate_growth_post_spec(client=mock_client)
+    assert spec is None
 
 
 @pytest.mark.asyncio
@@ -109,7 +106,14 @@ async def test_run_follow_growth_post_for_profile_flow():
         with patch("xbot.pipelines.follow_growth_post_pipeline.generate_growth_post_with_image") as mock_gen_img, \
              patch("xbot.pipelines.follow_growth_post_pipeline.ComposePost.execute", new_callable=AsyncMock) as mock_compose:
 
-            spec = generate_fallback_growth_post(archetype="GLOBAL_MUTUALS_CONNECT")
+            from xbot.ai.growth_post_generator import GrowthPostResult
+            spec = GrowthPostResult(
+                tweet_copy="We are global creators building in public. Drop your handle below to connect! 🤝🔥",
+                image_prompt="3D golden checkmark on dark slate background",
+                aspect_ratio="4:5",
+                archetype="GLOBAL_MUTUALS_CONNECT",
+                cta_type="drop_handle",
+            )
             mock_gen_img.return_value = (spec, "/home/ubuntu/projects/xbot/data/media/mock_growth.png")
             mock_compose.return_value = True
 

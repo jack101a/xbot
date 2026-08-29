@@ -171,7 +171,13 @@ def map_card_to_persona(card: Dict[str, Any], existing_id: str = "custom-persona
 
     # 5. Interests
     likes = card.get("likes", {}) if isinstance(card.get("likes"), dict) else {}
-    content_pillars = list(card.get("social_media_identity", {}).get("content_pillars", {}).keys())
+    raw_pillars = card.get("social_media_identity", {}).get("content_pillars", {})
+    if isinstance(raw_pillars, dict):
+        content_pillars = list(raw_pillars.values())
+    elif isinstance(raw_pillars, list):
+        content_pillars = raw_pillars
+    else:
+        content_pillars = []
     primary_interests = likes.get("daily_likes", []) + content_pillars + card.get("interests", {}).get("primary", [])
     if not primary_interests:
         primary_interests = ["Lifestyle", "Tech", "Culture", "Fashion", "Daily thoughts"]

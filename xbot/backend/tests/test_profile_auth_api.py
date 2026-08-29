@@ -67,8 +67,9 @@ def temp_profile_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def create_test_profile(slug: str = "test_user", handle: str = "@test_user") -> dict:
+    unique_slug = f"{slug}_{uuid.uuid4().hex[:8]}"
     profile_data = {
-        "profile_slug": slug,
+        "profile_slug": unique_slug,
         "x_handle": handle,
         "display_name": "Test User",
         "status": "active",
@@ -113,9 +114,10 @@ def test_get_auth_status_missing_session(temp_profile_dir: Path) -> None:
 def test_get_auth_status_authenticated(temp_profile_dir: Path) -> None:
     profile = create_test_profile(slug="auth_valid_user", handle="@valid")
     profile_id = profile["id"]
+    profile_slug = profile["profile_slug"]
 
     # Write a valid storage_state.json in profile directory
-    p_dir = temp_profile_dir / "auth_valid_user"
+    p_dir = temp_profile_dir / profile_slug
     p_dir.mkdir(parents=True, exist_ok=True)
     state = format_storage_state(auth_token="valid_auth_123", ct0="valid_ct0_456")
     (p_dir / "storage_state.json").write_text(json.dumps(state), encoding="utf-8")
@@ -168,6 +170,7 @@ def test_import_cookies_missing_required_fields(temp_profile_dir: Path) -> None:
 def test_import_cookies_direct_fields_success(temp_profile_dir: Path) -> None:
     profile = create_test_profile(slug="cookie_direct_user", handle="@direct")
     profile_id = profile["id"]
+    profile_slug = profile["profile_slug"]
 
     payload = {
         "auth_token": "direct_token_12345",
@@ -186,7 +189,7 @@ def test_import_cookies_direct_fields_success(temp_profile_dir: Path) -> None:
     assert data["auth_status"]["status"] == "authenticated"
 
     # Verify file was written to disk
-    state_file = temp_profile_dir / "cookie_direct_user" / "storage_state.json"
+    state_file = temp_profile_dir / profile_slug / "storage_state.json"
     assert state_file.exists()
     disk_content = json.loads(state_file.read_text(encoding="utf-8"))
     assert "cookies" in disk_content
@@ -199,6 +202,7 @@ def test_import_cookies_direct_fields_success(temp_profile_dir: Path) -> None:
 def test_import_cookies_raw_header_string_success(temp_profile_dir: Path) -> None:
     profile = create_test_profile(slug="cookie_raw_user", handle="@raw")
     profile_id = profile["id"]
+    profile_slug = profile["profile_slug"]
 
     raw_header = "Cookie: auth_token=raw_tok_999; ct0=raw_ct0_888; twid=u%3D99999"
     payload = {"raw_cookies": raw_header}
@@ -211,7 +215,7 @@ def test_import_cookies_raw_header_string_success(temp_profile_dir: Path) -> Non
     assert data["auth_status"]["status"] == "authenticated"
 
     # Verify storage_state.json on disk
-    state_file = temp_profile_dir / "cookie_raw_user" / "storage_state.json"
+    state_file = temp_profile_dir / profile_slug / "storage_state.json"
     assert state_file.exists()
     disk_content = json.loads(state_file.read_text(encoding="utf-8"))
     tokens = {c["name"]: c["value"] for c in disk_content["cookies"]}
@@ -247,6 +251,7 @@ def test_sync_from_x_lock_busy(temp_profile_dir: Path) -> None:
 def test_sync_from_x_success(temp_profile_dir: Path) -> None:
     profile = create_test_profile(slug="sync_success_user", handle="@syncuser")
     profile_id = profile["id"]
+    profile_slug = profile["profile_slug"]
 
     mock_sync_result = {
         "status": "authenticated",
@@ -293,8 +298,8 @@ def test_sync_from_x_success(temp_profile_dir: Path) -> None:
         assert data["profile"]["following_count"] == 340
 
         # Verify BrowserManager lock was acquired and released
-        mock_bm.acquire_lock.assert_called_once_with("sync_success_user", timeout_seconds=120)
-        mock_bm.release_lock.assert_called_once_with("sync_success_user")
+        mock_bm.acquire_lock.assert_called_once_with(profile_slug, timeout_seconds=120)
+        mock_bm.release_lock.assert_called_once_with(profile_slug)
         mock_bm.stop.assert_called_once()
         mock_context.close.assert_called_once()
 

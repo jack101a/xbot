@@ -1,11 +1,40 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
-
 from typing import Any
-from pydantic import BaseModel, ConfigDict, Field
 from ruamel.yaml import YAML
+
+from .models import (
+    AccountRelationship,
+    Config,
+    ContentStrategyConfig,
+    CredentialsConfig,
+    EngagementStrategyConfig,
+    EngagementTargets,
+    FocusConfig,
+    Goals,
+    Identity,
+    Interests,
+    LearnedCharacteristics,
+    LearnedDislikes,
+    LearnedHabits,
+    LearnedInterests,
+    LearnedLikes,
+    LearnedPersonality,
+    LearnedState,
+    LimitsConfig,
+    Persona,
+    Personality,
+    Relationships,
+    Rules,
+    ScheduleConfig,
+    Strategy,
+    TargetKOL,
+    KOLChannel,
+    WritingStyle,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -14,205 +43,10 @@ yaml = YAML(typ="safe")
 yaml.default_flow_style = False
 
 
-class Identity(BaseModel):
-    age: int | None = None
-    location: str | None = None
-    occupation: str | None = None
-    education: str | None = None
-    background: str
-
-
-class Personality(BaseModel):
-    traits: list[str] = Field(default_factory=list)
-    values: list[str] = Field(default_factory=list)
-    communication_style: str
-
-
-class Interests(BaseModel):
-    primary: list[str] = Field(default_factory=list)
-    secondary: list[str] = Field(default_factory=list)
-    will_not_discuss: list[str] = Field(default_factory=list)
-
-
-class WritingStyle(BaseModel):
-    tone: str
-    typical_length: str
-    formatting: list[str] = Field(default_factory=list)
-    examples: list[str] = Field(default_factory=list)
-
-
-class Goals(BaseModel):
-    short_term: list[str] = Field(default_factory=list)
-    long_term: list[str] = Field(default_factory=list)
-    content_pillars: list[str] = Field(default_factory=list)
-
-
-class Rules(BaseModel):
-    always: list[str] = Field(default_factory=list)
-    never: list[str] = Field(default_factory=list)
-
-
-class TargetKOL(BaseModel):
-    handle: str = Field(..., description="Target X handle without leading @")
-    category: str = Field("general", description="Niche or industry category")
-    priority: str = Field("medium", description="Priority tier: high, medium, low")
-    preferred_angle: str = Field(
-        "insight", description="Preferred response angle: contrarian, framework, witty, data, insight"
-    )
-
-
-class Persona(BaseModel):
-    id: str
-    display_name: str
-    x_handle: str
-    identity: Identity
-    personality: Personality
-    interests: Interests
-    writing_style: WritingStyle
-    goals: Goals
-    rules: Rules
-    target_kols: list[TargetKOL] = Field(default_factory=list)
-    system_prompt: str | None = None
-    tone_prompt: str | None = None
-    raw_character_card: Any = None
-
-    model_config = ConfigDict(extra="allow")
-
-
-class ScheduleConfig(BaseModel):
-    timezone: str = "America/New_York"
-    active_hours: str = "08:00-22:00"
-    min_sessions_per_day: int = 3
-    max_sessions_per_day: int = 5
-    interval_minutes: int = 45
-
-
-class LimitsConfig(BaseModel):
-    max_likes_per_day: int = 50
-    max_replies_per_day: int = 15
-    max_posts_per_day: int = 5
-    max_follows_per_day: int = 10
-    warmup_enabled: bool = False
-    cooldown_seconds: int = 15
-    safety_mode: str = "normal"
-
-    model_config = ConfigDict(extra="allow")
-
-
-class CredentialsConfig(BaseModel):
-    password_encrypted: str | None = None
-    email: str | None = None
-    two_factor_secret_encrypted: str | None = None
-
-
-class Config(BaseModel):
-    schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
-    limits: LimitsConfig = Field(default_factory=LimitsConfig)
-    proxy_url: str | None = None
-    credentials: CredentialsConfig | None = None
-    mock_mode: bool = False
-    require_post_approval: bool = False
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class FocusConfig(BaseModel):
-    primary: str
-    secondary: str | None = None
-
-
-class ContentStrategyConfig(BaseModel):
-    posting_frequency: str
-    best_times: list[str] = Field(default_factory=list)
-    top_performing_topics: list[str] = Field(default_factory=list)
-    underperforming_topics: list[str] = Field(default_factory=list)
-
-
-class EngagementTargets(BaseModel):
-    likes: str
-    replies: str
-    follows: str
-
-
-class EngagementStrategyConfig(BaseModel):
-    daily_targets: EngagementTargets
-    priority_accounts: list[str] = Field(default_factory=list)
-
-
-class Strategy(BaseModel):
-    last_updated: str
-    review_period: str = "weekly"
-    current_focus: FocusConfig
-    content_strategy: ContentStrategyConfig
-    engagement_strategy: EngagementStrategyConfig
-    growth_observations: list[str] = Field(default_factory=list)
-    adjustments: list[str] = Field(default_factory=list)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class AccountRelationship(BaseModel):
-    display_name: str
-    first_seen: str
-    relationship: str
-    sentiment: str = "neutral"
-    interaction_count: int = 0
-    last_interaction: str | None = None
-    notes: str | None = None
-
-
-class Relationships(BaseModel):
-    accounts: dict[str, AccountRelationship] = Field(default_factory=dict)
-
-    model_config = ConfigDict(extra="ignore")
-
-
-
-class LearnedCharacteristics(BaseModel):
-    behavioral_adaptations: list[str] = Field(default_factory=list)
-
-
-class LearnedPersonality(BaseModel):
-    evolving_nuances: list[str] = Field(default_factory=list)
-
-
-class LearnedHabits(BaseModel):
-    learned_writing_patterns: list[str] = Field(default_factory=list)
-    engagement_tactics: list[str] = Field(default_factory=list)
-
-
-class LearnedInterests(BaseModel):
-    emerging_topics: list[str] = Field(default_factory=list)
-    decaying_topics: list[str] = Field(default_factory=list)
-
-
-class LearnedLikes(BaseModel):
-    content_preferences: list[str] = Field(default_factory=list)
-    author_archetypes: list[str] = Field(default_factory=list)
-
-
-class LearnedDislikes(BaseModel):
-    learned_taboos: list[str] = Field(default_factory=list)
-
-
-class LearnedState(BaseModel):
-    last_reflected_at: str | None = None
-    reflection_count: int = 0
-    characteristics: LearnedCharacteristics = Field(default_factory=LearnedCharacteristics)
-    personality: LearnedPersonality = Field(default_factory=LearnedPersonality)
-    habits: LearnedHabits = Field(default_factory=LearnedHabits)
-    interests: LearnedInterests = Field(default_factory=LearnedInterests)
-    likes: LearnedLikes = Field(default_factory=LearnedLikes)
-    dislikes: LearnedDislikes = Field(default_factory=LearnedDislikes)
-
-    model_config = ConfigDict(extra="ignore")
-
-
 def load_persona(profile_dir: Path | str) -> Persona:
     """Loads persona.yaml from the given profile directory, slug, or direct file path."""
     p = Path(profile_dir)
     if not p.exists():
-        # Check standard base profile directory
         candidate = Path("/home/ubuntu/projects/xbot/data/profiles") / p
         if candidate.exists():
             p = candidate
@@ -220,7 +54,7 @@ def load_persona(profile_dir: Path | str) -> Persona:
             candidate_file = Path("/home/ubuntu/projects/xbot/data/profiles") / p / "persona.yaml"
             if candidate_file.exists():
                 p = candidate_file
-                
+
     if p.is_file() or str(p).endswith(".yaml") or str(p).endswith(".yml"):
         path = p
     else:
@@ -236,7 +70,6 @@ def load_config(profile_dir: Path) -> Config:
     """Loads config.yaml from the given profile directory."""
     path = profile_dir / "config.yaml"
     if not path.exists():
-        # Fall back to default config if it doesn't exist
         return Config()
     with path.open(encoding="utf-8") as f:
         data = yaml.load(f)
@@ -308,3 +141,74 @@ def save_learned_state(profile_dir: Path, state: LearnedState) -> None:
     path = profile_dir / "learned_state.yaml"
     with path.open("w", encoding="utf-8") as f:
         yaml.dump(state.model_dump(), f)
+
+
+def save_persona(profile_dir: Path | str, persona: Persona) -> None:
+    """Saves persona.yaml to the given profile directory."""
+    p = Path(profile_dir)
+    path = p if (p.is_file() or str(p).endswith(".yaml")) else p / "persona.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        yaml.dump(persona.model_dump(), f)
+
+
+def load_character_card(profile_dir: Path | str) -> dict[str, Any]:
+    """Loads character_card.json if present."""
+    p = Path(profile_dir)
+    card_path = p if str(p).endswith(".json") else p / "character_card.json"
+    if not card_path.exists():
+        return {}
+    with card_path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_character_card(profile_dir: Path | str, card_data: dict[str, Any]) -> None:
+    """Saves character_card.json to the profile directory."""
+    p = Path(profile_dir)
+    card_path = p if str(p).endswith(".json") else p / "character_card.json"
+    card_path.parent.mkdir(parents=True, exist_ok=True)
+    with card_path.open("w", encoding="utf-8") as f:
+        json.dump(card_data, f, indent=2)
+
+
+__all__ = [
+    "AccountRelationship",
+    "Config",
+    "ContentStrategyConfig",
+    "CredentialsConfig",
+    "EngagementStrategyConfig",
+    "EngagementTargets",
+    "FocusConfig",
+    "Goals",
+    "Identity",
+    "Interests",
+    "LearnedCharacteristics",
+    "LearnedDislikes",
+    "LearnedHabits",
+    "LearnedInterests",
+    "LearnedLikes",
+    "LearnedPersonality",
+    "LearnedState",
+    "LimitsConfig",
+    "Persona",
+    "Personality",
+    "Relationships",
+    "Rules",
+    "ScheduleConfig",
+    "Strategy",
+    "TargetKOL",
+    "WritingStyle",
+    "load_character_card",
+    "load_config",
+    "load_learned_state",
+    "load_persona",
+    "load_relationships",
+    "load_strategy",
+    "save_character_card",
+    "save_config",
+    "save_learned_state",
+    "save_persona",
+    "save_relationships",
+    "save_strategy",
+    "yaml",
+]

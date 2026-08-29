@@ -292,8 +292,8 @@ async def test_generate_poll_options_truncation_on_json_fallback(sample_persona:
 
 
 @pytest.mark.asyncio
-async def test_generate_poll_api_exception_safe_fallback(sample_persona: Persona) -> None:
-    """Tests that network or API exceptions return a high-quality default fallback poll."""
+async def test_generate_poll_api_exception_returns_none(sample_persona: Persona) -> None:
+    """Tests that network or API exceptions return None to avoid posting boilerplate fallback."""
     mock_client = AsyncMock()
     mock_client.beta.chat.completions.parse.side_effect = ConnectionError("Network down")
     mock_client.chat.completions.create.side_effect = ConnectionError("Network down")
@@ -304,18 +304,12 @@ async def test_generate_poll_api_exception_safe_fallback(sample_persona: Persona
         client=mock_client,
     )
 
-    assert isinstance(result, GeneratedPoll)
-    assert "Distributed Databases" in result.question or "Distributed Databases" in result.context_hook
-    assert 2 <= len(result.options) <= 4
-    for opt in result.options:
-        assert len(opt) <= 25
-    assert result.duration_days >= 1
-    assert "fallback" in result.reasoning.lower() or "network down" in result.reasoning.lower()
+    assert result is None
 
 
 @pytest.mark.asyncio
-async def test_generate_poll_invalid_json_safe_fallback(sample_persona: Persona) -> None:
-    """Tests that unparseable JSON response returns a safe fallback poll."""
+async def test_generate_poll_invalid_json_returns_none(sample_persona: Persona) -> None:
+    """Tests that unparseable JSON response returns None to discard cleanly."""
     mock_client = AsyncMock()
     mock_client.beta.chat.completions.parse.side_effect = RuntimeError("Parse failed")
 
@@ -328,11 +322,7 @@ async def test_generate_poll_invalid_json_safe_fallback(sample_persona: Persona)
         client=mock_client,
     )
 
-    assert isinstance(result, GeneratedPoll)
-    assert 2 <= len(result.options) <= 4
-    for opt in result.options:
-        assert len(opt) <= 25
-    assert result.duration_days == 1
+    assert result is None
 
 
 @pytest.mark.asyncio

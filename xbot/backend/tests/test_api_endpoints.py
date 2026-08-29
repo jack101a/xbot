@@ -61,6 +61,7 @@ def setup_database() -> Generator[None, None, None]:
 
 async def create_tables() -> None:
     async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
 
 

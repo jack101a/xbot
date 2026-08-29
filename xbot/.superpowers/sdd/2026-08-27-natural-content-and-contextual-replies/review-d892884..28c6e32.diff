@@ -1,0 +1,861 @@
+diff --git a/xbot/backend/tests/test_trend_generator_pipeline.py b/xbot/backend/tests/test_trend_generator_pipeline.py
+new file mode 100644
+index 0000000..3705f87
+--- /dev/null
++++ b/xbot/backend/tests/test_trend_generator_pipeline.py
+@@ -0,0 +1,354 @@
++import datetime
++import uuid
++import pytest
++from unittest.mock import AsyncMock, MagicMock, patch
++
++from xbot.ai.poll_generator import GeneratedPoll
++from xbot.ai.visual_engine import VisualPostSpec
++from xbot.ai.thread_generator import GeneratedThreadResponse
++from xbot.schemas.thread import ThreadItemCreate
++from xbot.models.content import Content, ContentStatus, ContentType, ThreadItem
++from xbot.models.pipeline import ResearchedTopic
++from xbot.models.profile import Profile, ProfileStatus
++from xbot.pipelines.trend_generator_pipeline import (
++    determine_creation_format,
++    generate_content_for_topic,
++    run_trend_generator_for_profile,
++)
++
++
++def test_determine_creation_format_matrix():
++    # 1. Visual candidates (memes, infographics, cheatsheets, comics, lifestyle)
++    topic_meme = ResearchedTopic(
++        id=uuid.uuid4(),
++        profile_id=uuid.uuid4(),
++        topic="Late night debugging meme on Friday",
++        summary="A relatable comic about pushing to prod at 5pm.",
++        scraped_posts=[],
++    )
++    assert determine_creation_format(topic_meme) == "visual"
++
++    topic_infographic = ResearchedTopic(
++        id=uuid.uuid4(),
++        profile_id=uuid.uuid4(),
++        topic="System design cheatsheet for distributed cache",
++        summary="Technical diagram showing cache invalidation.",
++        scraped_posts=[],
++    )
++    assert determine_creation_format(topic_infographic) == "visual"
++
++    # 2. Thread candidate (deep research: >= 8 scraped posts and long topic)
++    topic_thread = ResearchedTopic(
++        id=uuid.uuid4(),
++        profile_id=uuid.uuid4(),
++        topic="Open Source LLM Performance Across 10 Benchmarks and Reasoning Parities",
++        summary="Comprehensive breakdown of open weights models.",
++        scraped_posts=[{"text": f"Post {i}", "author": f"user{i}"} for i in range(9)],
++    )
++    assert determine_creation_format(topic_thread) == "thread"
++
++    # 3. Poll candidate (polarizing dilemmas, comparisons, choices)
++    topic_poll_vs = ResearchedTopic(
++        id=uuid.uuid4(),
++        profile_id=uuid.uuid4(),
++        topic="PostgreSQL vs MongoDB for high write workloads",
++        summary="Debate on relational vs document stores.",
++        scraped_posts=[{"text": "PG is better", "author": "dev1"}],
++    )
++    assert determine_creation_format(topic_poll_vs) == "poll"
++
++    topic_poll_which = ResearchedTopic(
++        id=uuid.uuid4(),
++        profile_id=uuid.uuid4(),
++        topic="Which caching layer do you prefer in 2026?",
++        summary="Community preference debate.",
++        scraped_posts=[],
++    )
++    assert determine_creation_format(topic_poll_which) == "poll"
++
++    # 4. Standalone take candidate (fast news, sharp takes)
++    topic_take = ResearchedTopic(
++        id=uuid.uuid4(),
++        profile_id=uuid.uuid4(),
++        topic="New GPU architecture breakthrough announced",
++        summary="Quick analysis on throughput gains.",
++        scraped_posts=[{"text": "Exciting silicon news", "author": "tech"}],
++    )
++    assert determine_creation_format(topic_take) == "post"
++
++
++@pytest.mark.asyncio
++async def test_generate_content_for_topic_visual_meme():
++    mock_db = AsyncMock()
++    mock_db.add = MagicMock()
++    mock_db.flush = AsyncMock()
++    mock_db.commit = AsyncMock()
++
++    profile = Profile(
++        id=uuid.uuid4(),
++        profile_slug="test_slug",
++        x_handle="@test_creator",
++        display_name="Test Creator",
++        status=ProfileStatus.ACTIVE,
++    )
++
++    topic = ResearchedTopic(
++        id=uuid.uuid4(),
++        profile_id=profile.id,
++        topic="Late night debugging meme on Friday",
++        summary="The 4 stages of realizing the bug is in production.",
++        scraped_posts=[{"author": "dev", "text": "Why do we deploy on Friday?"}],
++        media_paths=["/path/to/meme.png"],
++        processed=False,
++    )
++
++    mock_guard = MagicMock()
++    mock_spec = VisualPostSpec(
++        tweet_copy="The exact moment you realize the bug is in production.",
++        image_prompt="4-panel comic in 4:5 vertical portrait aspect ratio (1080x1350) showing panic escalation.",
++        aspect_ratio="4:5",
++        format_type="storyboard_4panel",
++        target_simcluster="Tech/AI",
++        one_two_punch_strategy="Tweet copy sets up tension; 4-panel comic delivers visual punchline.",
++    )
++
++    with patch("xbot.pipelines.trend_generator_pipeline.generate_visual_post_spec", AsyncMock(return_value=mock_spec)) as mock_vis_gen:
++        res = await generate_content_for_topic(mock_db, profile, topic, mock_guard)
++
++        assert res["status"] == "success"
++        assert res["creation_format"] == "visual"
++        assert topic.processed is True
++        mock_vis_gen.assert_called_once()
++
++        mock_db.add.assert_called_once()
++        added_content: Content = mock_db.add.call_args[0][0]
++        assert isinstance(added_content, Content)
++        assert added_content.status == ContentStatus.APPROVED
++        assert added_content.content_type in (ContentType.ORIGINAL, ContentType.POST, "original")
++        assert len(added_content.body) < 140
++        assert "exact moment you realize" in added_content.body
++        assert added_content.ai_metadata["aspect_ratio"] == "4:5"
++        assert added_content.ai_metadata["format_type"] == "storyboard_4panel"
++        assert added_content.ai_metadata["visual_post_spec"]["format_type"] == "storyboard_4panel"
++        assert added_content.ai_metadata["media_paths"] == ["/path/to/meme.png"]
++
++
++@pytest.mark.asyncio
++async def test_generate_content_for_topic_deep_dive_thread_with_media():
++    mock_db = AsyncMock()
++    mock_db.add = MagicMock()
++    mock_db.flush = AsyncMock()
++    mock_db.commit = AsyncMock()
++
++    profile = Profile(
++        id=uuid.uuid4(),
++        profile_slug="test_slug",
++        x_handle="@test_creator",
++        display_name="Test Creator",
++        status=ProfileStatus.ACTIVE,
++    )
++
++    topic = ResearchedTopic(
++        id=uuid.uuid4(),
++        profile_id=profile.id,
++        topic="Open Source LLM Performance Across 10 Benchmarks and Reasoning Parities",
++        summary="Deep analysis on distilled reasoning architectures.",
++        scraped_posts=[{"author": f"researcher_{i}", "text": f"Insight {i}"} for i in range(10)],
++        media_paths=["/path/to/benchmark_chart.png", "/path/to/loss_curve.png"],
++        processed=False,
++    )
++
++    mock_guard = MagicMock()
++
++    mock_thread_resp = GeneratedThreadResponse(
++        topic=topic.topic,
++        hook_score=94,
++        archetype="Framework",
++        tweets=[
++            "Open source models have crossed reasoning parity 🧵 1/4",
++            "Here is the breakdown of inference latency • 2/4",
++            "Cost per million tokens drops 10x • 3/4",
++            "Key takeaway: distill before fine-tuning • 4/4",
++        ],
++        items=[
++            ThreadItemCreate(position=0, item_type="hook", text="Open source models have crossed reasoning parity 🧵 1/4"),
++            ThreadItemCreate(position=1, item_type="body", text="Here is the breakdown of inference latency • 2/4"),
++            ThreadItemCreate(position=2, item_type="body", text="Cost per million tokens drops 10x • 3/4"),
++            ThreadItemCreate(position=3, item_type="closer", text="Key takeaway: distill before fine-tuning • 4/4"),
++        ],
++    )
++
++    with patch("xbot.pipelines.trend_generator_pipeline.generate_thread", AsyncMock(return_value=mock_thread_resp)) as mock_thread_gen:
++        res = await generate_content_for_topic(mock_db, profile, topic, mock_guard)
++
++        assert res["status"] == "success"
++        assert res["creation_format"] == "thread"
++        assert res["content_type"] == "thread"
++        assert topic.processed is True
++        mock_thread_gen.assert_called_once()
++
++        # Check added objects: 1 Content + 4 ThreadItem records = 5 calls
++        assert mock_db.add.call_count == 5
++        added_content: Content = mock_db.add.call_args_list[0][0][0]
++        assert isinstance(added_content, Content)
++        assert added_content.content_type == ContentType.THREAD
++        assert added_content.status == ContentStatus.APPROVED
++
++        # Verify ThreadItem records
++        thread_items = [call[0][0] for call in mock_db.add.call_args_list[1:]]
++        assert len(thread_items) == 4
++        assert thread_items[0].position == 0
++        assert thread_items[0].item_type == "hook"
++        assert thread_items[0].media_url == "/path/to/benchmark_chart.png"
++        assert thread_items[1].item_type == "body"
++        assert thread_items[1].media_url is None
++        assert thread_items[3].item_type == "closer"
++
++
++@pytest.mark.asyncio
++async def test_generate_content_for_topic_interactive_poll():
++    mock_db = AsyncMock()
++    mock_db.add = MagicMock()
++    mock_db.flush = AsyncMock()
++    mock_db.commit = AsyncMock()
++
++    profile = Profile(
++        id=uuid.uuid4(),
++        profile_slug="test_slug",
++        x_handle="@test_creator",
++        display_name="Test Creator",
++        status=ProfileStatus.ACTIVE,
++    )
++
++    topic = ResearchedTopic(
++        id=uuid.uuid4(),
++        profile_id=profile.id,
++        topic="PostgreSQL vs MySQL: Which database handles high write concurrency better?",
++        summary="Community debate on lock contention vs MVCC overhead.",
++        scraped_posts=[{"author": "dba", "text": "Postgres MVCC has vacuum overhead."}],
++        processed=False,
++    )
++
++    mock_guard = MagicMock()
++
++    mock_poll = GeneratedPoll(
++        question="Which database handles heavy write concurrency better in production?",
++        options=["PostgreSQL MVCC", "MySQL InnoDB", "SQLite (WAL mode)", "CockroachDB"],
++        duration_days=1,
++        context_hook="Lock contention vs vacuum overhead.",
++        reasoning="Sparks passionate database architecture debates.",
++    )
++
++    with patch("xbot.pipelines.trend_generator_pipeline.generate_poll", AsyncMock(return_value=mock_poll)) as mock_poll_gen:
++        res = await generate_content_for_topic(mock_db, profile, topic, mock_guard)
++
++        assert res["status"] == "success"
++        assert res["creation_format"] == "poll"
++        assert res["content_type"] == "poll"
++        assert topic.processed is True
++        mock_poll_gen.assert_called_once()
++
++        mock_db.add.assert_called_once()
++        added_content: Content = mock_db.add.call_args[0][0]
++        assert isinstance(added_content, Content)
++        assert added_content.content_type == ContentType.POLL
++        assert added_content.status == ContentStatus.APPROVED
++        assert "Which database handles heavy write concurrency" in added_content.body
++        assert added_content.ai_metadata["poll_options"] == ["PostgreSQL MVCC", "MySQL InnoDB", "SQLite (WAL mode)", "CockroachDB"]
++        assert added_content.ai_metadata["duration_days"] == 1
++        assert added_content.ai_metadata["poll"]["question"] == mock_poll.question
++
++
++@pytest.mark.asyncio
++async def test_generate_content_for_topic_standalone_hot_take():
++    mock_db = AsyncMock()
++    mock_db.add = MagicMock()
++    mock_db.flush = AsyncMock()
++    mock_db.commit = AsyncMock()
++
++    profile = Profile(
++        id=uuid.uuid4(),
++        profile_slug="test_slug",
++        x_handle="@test_creator",
++        display_name="Test Creator",
++        status=ProfileStatus.ACTIVE,
++    )
++
++    topic = ResearchedTopic(
++        id=uuid.uuid4(),
++        profile_id=profile.id,
++        topic="Open Source LLM Performance",
++        summary="Deep analysis on distilled reasoning architectures.",
++        scraped_posts=[{"author": "researcher", "text": "Distillation changes inference economics."}],
++        media_paths=["/path/to/chart.png"],
++        processed=False,
++    )
++
++    mock_guard = MagicMock()
++
++    mock_synth_result = MagicMock(
++        content="Open source models have officially crossed the reasoning parity threshold.",
++        post_type="post",
++    )
++
++    with patch("xbot.pipelines.trend_generator_pipeline.synthesize_creator_post", AsyncMock(return_value=mock_synth_result)) as mock_synth, \
++         patch("xbot.pipelines.trend_generator_pipeline.optimize_post_for_virality") as mock_opt:
++        mock_opt.return_value = MagicMock(
++            full_optimized_text="Open source models have officially crossed the reasoning parity threshold.",
++            extracted_link="https://arxiv.org/abs/2608.12345",
++            open_loop_hook="Open source models just crossed the parity threshold.",
++        )
++
++        res = await generate_content_for_topic(mock_db, profile, topic, mock_guard)
++        assert res["status"] == "success"
++        assert res["creation_format"] == "post"
++        assert topic.processed is True
++        mock_synth.assert_called_once()
++        mock_db.add.assert_called_once()
++        mock_db.commit.assert_called_once()
++
++        added_content: Content = mock_db.add.call_args[0][0]
++        assert isinstance(added_content, Content)
++        assert added_content.status == ContentStatus.APPROVED
++        assert added_content.content_type in (ContentType.ORIGINAL, ContentType.POST, "original")
++        assert "Open source models" in added_content.body
++        assert added_content.ai_metadata["extracted_link"] == "https://arxiv.org/abs/2608.12345"
++        assert "https://arxiv.org/abs/2608.12345" in added_content.ai_metadata["first_reply_text"]
++
++
++@pytest.mark.asyncio
++async def test_run_trend_generator_for_profile_processes_pending():
++    mock_db = AsyncMock()
++    profile = Profile(
++        id=uuid.uuid4(),
++        profile_slug="test_slug",
++        status=ProfileStatus.ACTIVE,
++    )
++
++    topic1 = ResearchedTopic(
++        id=uuid.uuid4(),
++        profile_id=profile.id,
++        topic="AI Dev Tools",
++        processed=False,
++    )
++    topic2 = ResearchedTopic(
++        id=uuid.uuid4(),
++        profile_id=profile.id,
++        topic="Cloud Native DBs",
++        processed=False,
++    )
++
++    mock_db.execute.return_value = MagicMock(scalars=lambda: MagicMock(all=lambda: [topic1, topic2]))
++    mock_guard = MagicMock()
++
++    with patch("xbot.pipelines.trend_generator_pipeline.generate_content_for_topic") as mock_gen_topic:
++        mock_gen_topic.side_effect = [
++            {"status": "success", "content_id": str(uuid.uuid4()), "topic": "AI Dev Tools"},
++            {"status": "success", "content_id": str(uuid.uuid4()), "topic": "Cloud Native DBs"},
++        ]
++
++        res = await run_trend_generator_for_profile(mock_db, profile, mock_guard, max_items=2)
++        assert res["status"] == "success"
++        assert res["items_generated"] == 2
++        assert len(res["details"]) == 2
++        assert mock_gen_topic.call_count == 2
+diff --git a/xbot/backend/xbot/models/content.py b/xbot/backend/xbot/models/content.py
+index 9f8d406..e3b7f41 100644
+--- a/xbot/backend/xbot/models/content.py
++++ b/xbot/backend/xbot/models/content.py
+@@ -14,6 +14,7 @@ if TYPE_CHECKING:
+ 
+ class ContentType(StrEnum):
+     ORIGINAL = "original"
++    POST = "original"
+     TWEET = "original"
+     REPLY = "reply"
+     QUOTE = "quote"
+@@ -112,3 +113,30 @@ class Content(Base):
+ 
+     # Relationships
+     profile: Mapped["Profile"] = relationship("Profile", back_populates="content")
++    thread_items: Mapped[list["ThreadItem"]] = relationship(
++        "ThreadItem",
++        back_populates="content",
++        cascade="all, delete-orphan",
++        order_by="ThreadItem.position",
++        lazy="selectin",
++    )
++
++
++class ThreadItem(Base):
++    __tablename__ = "thread_items"
++
++    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
++    content_id: Mapped[uuid.UUID] = mapped_column(
++        Uuid, ForeignKey("content.id", ondelete="CASCADE"), index=True
++    )
++    position: Mapped[int] = mapped_column(default=0, index=True)  # 0, 1, 2, ...
++    item_type: Mapped[str] = mapped_column(String(30), default="body")  # "hook", "body", "closer"
++    text: Mapped[str] = mapped_column(Text)
++    media_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
++    tweet_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
++    performance: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
++    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
++
++    # Relationships
++    content: Mapped["Content"] = relationship("Content", back_populates="thread_items")
++
+diff --git a/xbot/backend/xbot/pipelines/trend_generator_pipeline.py b/xbot/backend/xbot/pipelines/trend_generator_pipeline.py
+new file mode 100644
+index 0000000..0341214
+--- /dev/null
++++ b/xbot/backend/xbot/pipelines/trend_generator_pipeline.py
+@@ -0,0 +1,452 @@
++"""
++Trend Generator Pipeline for XBot Pro.
++
++Runs every 20 minutes (24/7 autonomous generation):
++1. Consumes unprocessed ResearchedTopic records generated by the Trend Researcher.
++2. Dynamic 4-Way Creation Decision Matrix:
++   - 4:5 Vertical Meme / Visual Infographic (VisualEngine)
++   - Rich Deep-Dive Thread with Viral Media (generate_thread)
++   - Interactive Community Poll (generate_poll / CreatePoll)
++   - Punchy Standalone Hot Take (synthesize_creator_post)
++3. Stages content as APPROVED directly in the Content table for autonomous publishing.
++4. Marks ResearchedTopic as processed and logs in PipelineRun.
++"""
++
++from __future__ import annotations
++
++import asyncio
++import datetime
++import logging
++from pathlib import Path
++from typing import Any
++
++from sqlalchemy import select
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from xbot.ai.anti_ai_gatekeeper import AntiAIGatekeeper, strip_surrounding_quotes
++from xbot.ai.formatting_engine import format_content
++from xbot.ai.hook_optimizer import optimize_post_for_virality
++from xbot.ai.poll_generator import generate_poll
++from xbot.ai.post_synthesizer import synthesize_creator_post
++from xbot.ai.thread_generator import generate_thread
++from xbot.ai.visual_engine import generate_visual_post_spec
++from xbot.config import settings
++from xbot.database import AsyncSessionLocal
++from xbot.models.content import Content, ContentStatus, ContentType, ThreadItem
++from xbot.models.pipeline import PipelineRun, ResearchedTopic
++from xbot.models.profile import Profile, ProfileStatus
++from xbot.persona import load_persona
++from xbot.persona.loader import (
++    Goals,
++    Identity,
++    Interests,
++    Persona,
++    Personality,
++    Rules,
++    WritingStyle,
++)
++from xbot.pipelines.central_guard import CentralGuard
++
++logger = logging.getLogger(__name__)
++
++
++def _get_persona_for_profile(profile_slug: str) -> Persona | None:
++    """Loads Persona for a given profile slug if available."""
++    try:
++        cfg_path = Path(settings.BASE_PROFILE_DIR) / profile_slug
++        if (cfg_path / "persona.yaml").exists():
++            return load_persona(cfg_path)
++    except Exception:
++        pass
++    return None
++
++
++def _get_default_persona(profile: Profile | None = None) -> Persona:
++    """Provides a safe default Persona instance if not configured on disk."""
++    name = profile.display_name if profile and profile.display_name else "Creator"
++    handle = profile.x_handle if profile and profile.x_handle else "@creator"
++    slug = profile.profile_slug if profile and profile.profile_slug else "default"
++    return Persona(
++        id=slug,
++        display_name=name,
++        x_handle=handle,
++        identity=Identity(background="Digital creator and cultural observer", occupation="Content Creator"),
++        personality=Personality(
++            traits=["witty", "analytical", "observant"],
++            values=["authenticity", "creativity"],
++            communication_style="Sharp, authentic, insightful",
++        ),
++        interests=Interests(
++            primary=["technology", "culture", "creative workflows"],
++            secondary=["memes", "productivity"],
++        ),
++        writing_style=WritingStyle(
++            tone="Sharp, witty, authentic",
++            typical_length="concise",
++            formatting=[],
++            examples=[],
++        ),
++        goals=Goals(content_pillars=["tech", "culture"], short_term=[], long_term=[]),
++        rules=Rules(always=["be authentic"], never=["no spam"]),
++    )
++
++
++def determine_creation_format(topic: ResearchedTopic, persona: Persona | None = None) -> str:
++    """
++    Evaluates topic depth, category, media, and keyword semantics to route to
++    one of the 4 creation modalities:
++    1. 'thread': Deep research (>= 8 posts & long topic, or explicit deep-dive keywords)
++    2. 'visual': High visual/humor/lifestyle/infographic appeal
++    3. 'poll': Polarizing A/B dilemmas, comparisons, community choices
++    4. 'post': Fast news, sharp takes, hot observations (default)
++    """
++    t_text = (topic.topic or "").lower()
++    s_text = (topic.summary or "").lower()
++    combined = f"{t_text} {s_text}"
++    scraped = topic.scraped_posts or []
++
++    # Visual keywords (memes, infographics, cheatsheets, comics, lifestyle)
++    visual_keywords = [
++        "meme", "comic", "storyboard", "infographic", "cheatsheet", "cheat sheet",
++        "system design", "system architecture", "architecture diagram", "architecture cheatsheet",
++        "vlog", "lifestyle", "candid", "photo", "photography",
++        "cinema", "nolan", "imax", "relatable", "humor", "funny", "stages of",
++        "moment you", "when you", "expectation vs reality", "side by side", "behind the scenes",
++        "bts", "diagram", "illustration", "setup", "4-panel", "4:5",
++    ]
++
++    # Poll keywords (polarizing dilemmas, comparisons, community choices)
++    poll_keywords = [
++        " vs ", " vs. ", "versus", " or ", "which ", "choose", "poll", "debate",
++        "prefer", "which is better", "what's better", "whats better", "pick one",
++        "dilemma", "would you rather", "ranking",
++    ]
++
++    # 1. Thread candidate (deep research)
++    if (len(scraped) >= 8 and len(topic.topic) > 30) or any(
++        kw in combined for kw in ["deep dive", "in-depth breakdown", "mega thread", "complete guide", "masterclass", "full breakdown"]
++    ):
++        return "thread"
++
++    # 2. Visual candidate
++    if topic.source == "visual" or any(kw in combined for kw in visual_keywords):
++        return "visual"
++
++    # 3. Poll candidate
++    if any(kw in combined for kw in poll_keywords):
++        return "poll"
++
++    # 4. Default: Standalone hot take
++    return "post"
++
++
++def _detect_reaction_gif_query(text: str, topic: str) -> str | None:
++    """Infers an optional reaction GIF search query for punchy standalone takes."""
++    combined = f"{text} {topic}".lower()
++    if any(kw in combined for kw in ["dead", "💀", "crying", "unhinged", "wild", "insane", "facepalm", "smh", "plot twist"]):
++        return "mind blown"
++    if any(kw in combined for kw in ["cinema", "pure cinema", "masterpiece", "movie", "nolan"]):
++        return "pure cinema"
++    if any(kw in combined for kw in ["agree", "facts", "100%", "real", "nodding"]):
++        return "nodding yes"
++    if any(kw in combined for kw in ["drama", "tea", "roast", "feud", "beef"]):
++        return "popcorn eating"
++    return None
++
++
++async def generate_content_for_topic(
++    db: AsyncSession,
++    profile: Profile,
++    topic: ResearchedTopic,
++    guard: CentralGuard,
++) -> dict[str, Any]:
++    """Synthesizes and stages a post/thread/poll/visual spec for a researched topic."""
++    profile_slug = profile.profile_slug
++    gatekeeper = AntiAIGatekeeper()
++    persona = _get_persona_for_profile(profile_slug) or _get_default_persona(profile)
++
++    # Build context from scraped posts
++    scraped_snippets = []
++    for p in (topic.scraped_posts or [])[:5]:
++        text = p.get("text", "")
++        if text:
++            scraped_snippets.append(f"- @{p.get('author', 'user')}: {text[:140]}")
++    context_str = "\n".join(scraped_snippets) if scraped_snippets else (topic.summary or topic.topic)
++
++    has_media = bool(topic.media_paths)
++    media_to_attach = topic.media_paths[:4] if topic.media_paths else []
++
++    creation_format = determine_creation_format(topic, persona)
++    logger.info("TrendGenerator: Routing topic '%s' to format '%s'", topic.topic, creation_format)
++
++    if creation_format == "visual":
++        # 1. 4:5 Vertical Meme / Visual Infographic (VisualEngine)
++        visual_spec = await generate_visual_post_spec(
++            topic=topic.topic,
++            persona=persona,
++        )
++
++        raw_hook = strip_surrounding_quotes(visual_spec.tweet_copy)
++        val_res = gatekeeper.validate(raw_hook)
++        if not val_res.is_valid:
++            raw_hook = gatekeeper.remediate_minor_issues(raw_hook)
++
++        formatted_hook = format_content(
++            raw_text=raw_hook,
++            profile_slug=profile_slug,
++            content_type="post",
++            has_media=True,
++            topic=topic.topic,
++        )
++        final_hook = strip_surrounding_quotes(formatted_hook)
++
++        content_record = Content(
++            profile_id=profile.id,
++            content_type=ContentType.ORIGINAL,  # Staged as ContentType.POST / ORIGINAL
++            status=ContentStatus.APPROVED,
++            body=final_hook,
++            ai_metadata={
++                "topic": topic.topic,
++                "archetype": "VISUAL",
++                "visual_post_spec": visual_spec.model_dump(),
++                "format_type": visual_spec.format_type,
++                "aspect_ratio": "4:5",
++                "target_simcluster": visual_spec.target_simcluster,
++                "one_two_punch_strategy": visual_spec.one_two_punch_strategy,
++                "image_prompt": visual_spec.image_prompt,
++                "researched_topic_id": str(topic.id),
++                "media_paths": media_to_attach,
++            },
++        )
++        db.add(content_record)
++
++    elif creation_format == "thread":
++        # 2. Rich Deep-Dive Thread (generate_thread)
++        thread_res = await generate_thread(
++            topic=topic.topic,
++            persona=persona,
++            num_tweets=4,
++            deep_research=False,
++            profile_slug=profile_slug,
++        )
++
++        first_tweet = thread_res.tweets[0] if thread_res.tweets else topic.topic
++        content_record = Content(
++            profile_id=profile.id,
++            content_type=ContentType.THREAD,
++            status=ContentStatus.APPROVED,
++            body=first_tweet,
++            ai_metadata={
++                "topic": topic.topic,
++                "archetype": "THREAD",
++                "researched_topic_id": str(topic.id),
++                "media_paths": media_to_attach,
++                "tweets": thread_res.tweets,
++            },
++        )
++        db.add(content_record)
++        await db.flush()
++
++        for idx, tweet_text in enumerate(thread_res.tweets):
++            cleaned_tweet = format_content(tweet_text, profile_slug=profile_slug, content_type="thread")
++            t_item = ThreadItem(
++                content_id=content_record.id,
++                position=idx,
++                item_type="hook" if idx == 0 else ("closer" if idx == len(thread_res.tweets) - 1 else "body"),
++                text=cleaned_tweet,
++                media_url=media_to_attach[0] if (idx == 0 and media_to_attach) else None,
++            )
++            db.add(t_item)
++
++    elif creation_format == "poll":
++        # 3. Interactive Community Poll (generate_poll)
++        poll = await generate_poll(
++            persona=persona,
++            topic=topic.topic,
++        )
++
++        poll_body = f"{poll.question}\n" + "\n".join(f"🔘 {opt}" for opt in poll.options)
++        content_record = Content(
++            profile_id=profile.id,
++            content_type=ContentType.POLL,
++            status=ContentStatus.APPROVED,
++            body=poll_body,
++            ai_metadata={
++                "topic": topic.topic,
++                "archetype": "POLL",
++                "poll": poll.model_dump() if hasattr(poll, "model_dump") else {
++                    "question": poll.question,
++                    "options": poll.options,
++                    "duration_days": poll.duration_days,
++                    "context_hook": poll.context_hook,
++                    "reasoning": poll.reasoning,
++                },
++                "poll_options": poll.options,
++                "duration_days": poll.duration_days,
++                "context_hook": poll.context_hook,
++                "reasoning": poll.reasoning,
++                "researched_topic_id": str(topic.id),
++            },
++        )
++        db.add(content_record)
++
++    else:
++        # 4. Punchy Standalone Hot Take (synthesize_creator_post)
++        synth_res = await synthesize_creator_post(
++            topic=topic.topic,
++            persona=persona,
++            image_url=media_to_attach[0] if media_to_attach else None,
++            post_type="post",
++        )
++        raw_post = synth_res.content if synth_res and synth_res.content else topic.topic
++
++        val_res = gatekeeper.validate(raw_post)
++        if not val_res.is_valid:
++            raw_post = gatekeeper.remediate_minor_issues(raw_post)
++
++        formatted_post = format_content(
++            raw_text=raw_post,
++            profile_slug=profile_slug,
++            content_type="post",
++            has_media=has_media,
++            topic=topic.topic,
++        )
++
++        opt_res = await optimize_post_for_virality(formatted_post)
++        final_post_text = strip_surrounding_quotes(opt_res.full_optimized_text or formatted_post)
++        extracted_link = opt_res.extracted_link
++        first_reply_text = f"Link / source breakdown: {extracted_link}" if extracted_link else None
++        gif_query = _detect_reaction_gif_query(final_post_text, topic.topic)
++
++        content_record = Content(
++            profile_id=profile.id,
++            content_type=ContentType.ORIGINAL,  # Staged as ContentType.POST / ORIGINAL
++            status=ContentStatus.APPROVED,
++            body=final_post_text,
++            ai_metadata={
++                "topic": topic.topic,
++                "archetype": "ORIGINAL",
++                "extracted_link": extracted_link,
++                "first_reply_text": first_reply_text,
++                "gif_query": gif_query,
++                "researched_topic_id": str(topic.id),
++                "media_paths": media_to_attach,
++            },
++        )
++        db.add(content_record)
++
++    # Mark topic processed
++    topic.processed = True
++    await db.commit()
++
++    logger.info(
++        "TrendGenerator: Successfully generated and staged %s (%s) for topic '%s'",
++        content_record.content_type,
++        creation_format,
++        topic.topic,
++    )
++    return {
++        "status": "success",
++        "content_id": str(content_record.id),
++        "content_type": content_record.content_type.value if hasattr(content_record.content_type, "value") else str(content_record.content_type),
++        "creation_format": creation_format,
++        "topic": topic.topic,
++    }
++
++
++async def run_trend_generator_for_profile(
++    db: AsyncSession,
++    profile: Profile,
++    guard: CentralGuard,
++    max_items: int = 2,
++) -> dict[str, Any]:
++    """Generates content from pending researched topics for a profile."""
++    stmt = (
++        select(ResearchedTopic)
++        .where(
++            ResearchedTopic.profile_id == profile.id,
++            ResearchedTopic.processed.is_(False),
++        )
++        .order_by(ResearchedTopic.created_at.desc())
++        .limit(max_items)
++    )
++    pending_topics = (await db.execute(stmt)).scalars().all()
++    if not pending_topics:
++        return {"status": "success", "items_generated": 0, "message": "No pending researched topics"}
++
++    generated_count = 0
++    generated_details: list[dict[str, Any]] = []
++
++    for topic in pending_topics:
++        try:
++            res = await generate_content_for_topic(db, profile, topic, guard)
++            if res.get("status") == "success":
++                generated_count += 1
++                generated_details.append(res)
++        except Exception as e:
++            logger.error("TrendGenerator: Error generating for topic '%s': %s", topic.topic, e, exc_info=True)
++
++    return {
++        "status": "success",
++        "items_generated": generated_count,
++        "details": generated_details,
++    }
++
++
++async def _run_trend_generator_async() -> dict[str, Any]:
++    guard = CentralGuard()
++    started_at = datetime.datetime.utcnow()
++    total_generated = 0
++    results_by_profile: dict[str, Any] = {}
++
++    async with AsyncSessionLocal() as db:
++        stmt = select(Profile).where(Profile.status == ProfileStatus.ACTIVE)
++        profiles = (await db.execute(stmt)).scalars().all()
++
++        for profile in profiles:
++            try:
++                res = await run_trend_generator_for_profile(db, profile, guard)
++                results_by_profile[profile.profile_slug] = res
++                total_generated += res.get("items_generated", 0)
++
++                run_log = PipelineRun(
++                    pipeline_name="trend_generator",
++                    profile_id=profile.id,
++                    status=res.get("status", "success"),
++                    actions_count=res.get("items_generated", 0),
++                    details=res,
++                    started_at=started_at,
++                    completed_at=datetime.datetime.utcnow(),
++                )
++                db.add(run_log)
++                await db.commit()
++
++            except Exception as e:
++                logger.error("TrendGenerator: Error for profile %s: %s", profile.profile_slug, e, exc_info=True)
++                run_log = PipelineRun(
++                    pipeline_name="trend_generator",
++                    profile_id=profile.id,
++                    status="failed",
++                    actions_count=0,
++                    error_message=str(e),
++                    started_at=started_at,
++                    completed_at=datetime.datetime.utcnow(),
++                )
++                db.add(run_log)
++                await db.commit()
++
++    return {
++        "pipeline": "trend_generator",
++        "total_generated": total_generated,
++        "profiles": results_by_profile,
++        "duration_seconds": (datetime.datetime.utcnow() - started_at).total_seconds(),
++    }
++
++
++from xbot.celery_app import celery_app
++
++
++@celery_app.task(name="xbot.pipelines.trend_generator_pipeline.run_trend_generator")
++def run_trend_generator() -> dict[str, Any]:
++    """Celery task entry point for Trend Generator Pipeline."""
++    return asyncio.run(_run_trend_generator_async())

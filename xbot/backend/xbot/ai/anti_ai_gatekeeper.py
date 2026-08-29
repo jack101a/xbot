@@ -201,20 +201,37 @@ class AntiAIGatekeeper:
     def remediate_minor_issues(self, text: str) -> str:
         """
         Auto-corrects non-destructive typographical quirks:
+        - Strips surrounding quotation marks ("...", '...', “...”).
         - Replaces smart quotes / curly apostrophes with standard clean characters.
         - Converts emoji bullets to clean standard dashes.
         - Cleans duplicate whitespace.
         """
-        remediated = text
+        remediated = strip_surrounding_quotes(text)
         # Clean quotes & apostrophes
         remediated = remediated.replace("’", "'").replace("“", '"').replace("”", '"')
+        # Strip outer quotes again if any remain after replacement
+        remediated = strip_surrounding_quotes(remediated)
         # Replace emoji bullets at line starts with clean hyphens
         remediated = self.EMOJI_BULLET_PATTERN.sub("- ", remediated)
         # Clean double spaces
         remediated = re.sub(r"[ \t]+", " ", remediated)
         # Ensure single space after bullet hyphens
         remediated = re.sub(r"^-\s*", "- ", remediated, flags=re.MULTILINE)
-        return remediated.strip()
+        return strip_surrounding_quotes(remediated.strip())
+
+
+def strip_surrounding_quotes(text: str) -> str:
+    """
+    Strips leading and trailing quotes (single, double, curly/smart quotes)
+    frequently wrapped around LLM generated tweets.
+    """
+    cleaned = text.strip()
+    quote_chars = '"\'“”‘’`'
+    while len(cleaned) >= 2 and cleaned[0] in quote_chars and cleaned[-1] in quote_chars:
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
+
+
 
 
 ANTI_AI_TYPOGRAPHY_DIRECTIVE = """
@@ -232,7 +249,7 @@ You write with the natural variety, cadence, and spontaneity of an authentic hum
 
 2. EMOJIS & HASHTAGS:
    - Include 1-2 authentic, natural emojis (e.g. 🍿, ☕, 💀, 💅, 🧵, 👀, 🤌, 🎬) that fit the personality and provide visual stop-the-scroll appeal.
-   - Include 1-2 authentic research-grounded hashtags (e.g. #Bollywood, #AppleEvent, #KritiSanon) that match the researched topic.
+   - Include 0-2 authentic research-grounded hashtags matching the specific researched trend (e.g. #Claude, #AppleEvent, #OnePiece).
    - NEVER dump 3+ spam hashtags or use emojis as bullet headers (no 🚀, 💡, 🔥 at line starts).
 
 3. WHITESPACE & PACING:

@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useAppStore, TabType } from "@/store/useAppStore";
-import { LayoutDashboard, Sparkles, Zap, Menu, X, Activity, Brain, Sliders, Settings, Sun, Moon } from "lucide-react";
+import { LayoutDashboard, Sparkles, Zap, Menu, X, Activity, Brain, Sliders, Settings, Sun, Moon, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 
 export function MobileNavigation() {
@@ -19,6 +19,7 @@ export function MobileNavigation() {
   const secondaryTabs: { id: TabType; label: string; icon: any }[] = [
     { id: "persona", label: "Persona & Knowledge", icon: Brain },
     { id: "limits", label: "System & Safety", icon: Sliders },
+    { id: "pruner", label: "Post Pruner", icon: Trash2 },
   ];
 
   return (

@@ -140,11 +140,11 @@ def build_nvidia_payload(
             payload["prompt"] = prompt[:800]
 
     elif endpoint == "black-forest-labs/flux.1-dev":
+        payload["mode"] = "base"
+        payload["steps"] = min(steps, 50)
+        payload["cfg_scale"] = cfg_scale
         payload["width"] = snap_flux_dimension(width)
         payload["height"] = snap_flux_dimension(height)
-        payload["mode"] = "base"
-        payload["cfg_scale"] = cfg_scale
-        payload["steps"] = steps
 
     else:
         # Stable Diffusion 3 / Standard aspect_ratio endpoint
@@ -285,7 +285,8 @@ async def generate_and_save_nvidia_image_async(
     target_dir.mkdir(parents=True, exist_ok=True)
 
     if not filename:
-        filename = f"nvidia_{model_name.replace('/', '_')}_{int(time.time())}_{uuid.uuid4().hex[:6]}.png"
+        resolved_tag = str(model_name or getattr(settings, "NVIDIA_DEFAULT_IMAGE_MODEL", "flux.2-klein-4b") or "flux.2-klein-4b").replace("/", "_")
+        filename = f"nvidia_{resolved_tag}_{int(time.time())}_{uuid.uuid4().hex[:6]}.png"
     elif not filename.endswith(".png"):
         filename = f"{filename}.png"
 

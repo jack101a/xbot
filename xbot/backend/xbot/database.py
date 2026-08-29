@@ -21,3 +21,12 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     async with AsyncSessionLocal() as session:
         yield session
+
+
+async def init_db() -> None:
+    """Initializes all database tables from Base metadata."""
+    from xbot.models.base import Base
+    import xbot.models  # Ensure all models are registered
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+

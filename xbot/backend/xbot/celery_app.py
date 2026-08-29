@@ -72,8 +72,34 @@ celery_app.conf.beat_schedule = {
         "task": "xbot.pipelines.follow_growth_post_pipeline.run_follow_growth_post",
         "schedule": 3600.0,
     },
+    # 11. Sniper Check Targets (120 seconds)
+    "sniper-check-targets-every-120-seconds": {
+        "task": "xbot.tasks.sniper_check_targets",
+        "schedule": 120.0,
+    },
+    # 12. Check Trend Radar (1800 seconds)
+    "check-trend-radar-every-1800-seconds": {
+        "task": "xbot.tasks.check_trend_radar",
+        "schedule": 1800.0,
+    },
 }
 
-# Auto-discover tasks across xbot packages
+# Auto-discover and import tasks across all xbot packages
+celery_app.conf.imports = [
+    "xbot.tasks.sniper_tasks",
+    "xbot.tasks.publish_tasks",
+    "xbot.tasks.trend_tasks",
+    "xbot.tasks.creator_sync_tasks",
+    "xbot.tasks.circadian_tasks",
+    "xbot.tasks.sentinel_tasks",
+    "xbot.pipelines.browser_queue",
+    "xbot.pipelines.like_pipeline",
+    "xbot.pipelines.reply_pipeline",
+    "xbot.pipelines.quote_pipeline",
+    "xbot.pipelines.follow_pipeline",
+    "xbot.pipelines.trend_researcher_pipeline",
+    "xbot.pipelines.trend_generator_pipeline",
+    "xbot.pipelines.follow_growth_post_pipeline",
+]
 celery_app.autodiscover_tasks(["xbot", "xbot.tasks", "xbot.pipelines"])
 
