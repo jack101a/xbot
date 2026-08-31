@@ -97,6 +97,7 @@ async def generate_trend_take(
                     {"role": "user", "content": user_prompt},
                 ],
                 response_format=_TrendAnalysisResponse,
+                action_type="trend_analysis",
             )
             parsed = getattr(completion.choices[0].message, "parsed", None)
             if isinstance(parsed, _TrendAnalysisResponse):
@@ -126,6 +127,7 @@ async def generate_trend_take(
                         {"role": "user", "content": user_prompt},
                     ],
                     response_format={"type": "json_object"},
+                    action_type="trend_analysis",
                 )
             except Exception:
                 completion = await ai_client.chat.completions.create(
@@ -134,6 +136,7 @@ async def generate_trend_take(
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
+                    action_type="trend_analysis",
                 )
 
             raw_content = getattr(completion.choices[0].message, "content", None)

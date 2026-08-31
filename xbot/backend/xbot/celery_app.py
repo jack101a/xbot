@@ -42,10 +42,10 @@ celery_app.conf.beat_schedule = {
         "task": "xbot.pipelines.quote_pipeline.run_quote_pipeline",
         "schedule": 900.0,
     },
-    # 5. Independent Follow & Reciprocity Pipeline (10 min)
-    "follow-pipeline-every-10m": {
+    # 5. Independent Follow & Reciprocity Pipeline (1 hour)
+    "follow-pipeline-every-1h": {
         "task": "xbot.pipelines.follow_pipeline.run_follow_pipeline",
-        "schedule": 600.0,
+        "schedule": 3600.0,
     },
     # 6. Trend Researcher Pipeline (25 min - 24/7)
     "trend-researcher-every-25m": {
@@ -67,20 +67,30 @@ celery_app.conf.beat_schedule = {
         "task": "xbot.tasks.sync_all_profiles_creator_studio",
         "schedule": 43200.0,
     },
-    # 10. Hourly Visual Follow Growth Promotion Pipeline (1 hour)
-    "follow-growth-post-every-hour": {
+    # 10. Follow Growth Milestone & Visual Promotion Pipeline (1 hour)
+    "follow-growth-post-every-1h": {
         "task": "xbot.pipelines.follow_growth_post_pipeline.run_follow_growth_post",
         "schedule": 3600.0,
     },
-    # 11. Sniper Check Targets (120 seconds)
+    # 11. Autonomous Notification & Follow-Back Engagement Pipeline (30 min)
+    "notification-engagement-every-30m": {
+        "task": "xbot.pipelines.notification_engagement_pipeline.run_notification_engagement",
+        "schedule": 1800.0,
+    },
+    # 12. Sniper Check Targets (120 seconds)
     "sniper-check-targets-every-120-seconds": {
         "task": "xbot.tasks.sniper_check_targets",
         "schedule": 120.0,
     },
-    # 12. Check Trend Radar (1800 seconds)
+    # 13. Check Trend Radar (1800 seconds)
     "check-trend-radar-every-1800-seconds": {
         "task": "xbot.tasks.check_trend_radar",
         "schedule": 1800.0,
+    },
+    # 14. Check Profile Circadian Schedules (60 seconds)
+    "check-schedules-every-60-seconds": {
+        "task": "xbot.tasks.check_schedules",
+        "schedule": 60.0,
     },
 }
 
@@ -100,6 +110,7 @@ celery_app.conf.imports = [
     "xbot.pipelines.trend_researcher_pipeline",
     "xbot.pipelines.trend_generator_pipeline",
     "xbot.pipelines.follow_growth_post_pipeline",
+    "xbot.pipelines.notification_engagement_pipeline",
 ]
 celery_app.autodiscover_tasks(["xbot", "xbot.tasks", "xbot.pipelines"])
 

@@ -52,17 +52,29 @@ class ComposePost(BaseAction):
 
             # 2. If not visible, ensure we navigate to home or click compose button
             if not is_visible:
-                side_nav_btn = await page.query_selector('[data-testid="SideNav_NewTweet_Button"], a[href="/compose/post"], a[aria-label="Post"][role="link"]')
-                if side_nav_btn:
-                    await human_click(page, side_nav_btn, 300, 700)
-                    await sleep_think_time(800, 1500)
-                else:
+                if "x.com" not in getattr(page, "url", ""):
                     logger.info("Navigating to https://x.com/home to open composer...")
-                    await page.goto("https://x.com/home", wait_until="commit", timeout=25000)
+                    await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=30000)
+                    await sleep_think_time(3000, 5000)
+
+                # Check for X reload/retry banner
+                try_again_btn = await page.query_selector('button:has-text("Try again"), div[role="button"]:has-text("Try again"), span:has-text("Try again")')
+                if try_again_btn:
+                    logger.info("Detected 'Try again' prompt on X. Clicking retry button...")
+                    await human_click(page, try_again_btn, 200, 500)
+                    await sleep_think_time(3000, 5000)
+
+                side_nav_btn = await page.query_selector('[data-testid="SideNav_NewTweet_Button"], a[href="/compose/post"], a[aria-label="Post"][role="link"]')
+                if side_nav_btn and await side_nav_btn.is_visible():
+                    await human_click(page, side_nav_btn, 300, 700)
+                    await sleep_think_time(1500, 2500)
+                else:
+                    logger.info("Navigating to https://x.com/compose/post to open composer...")
+                    await page.goto("https://x.com/compose/post", wait_until="domcontentloaded", timeout=30000)
                     await sleep_think_time(2000, 3500)
 
             # 3. Wait for composer textarea
-            textarea_el = await page.wait_for_selector(textarea_sel, timeout=15000)
+            textarea_el = await page.wait_for_selector(textarea_sel, timeout=30000)
             if not textarea_el:
                 raise RuntimeError("Could not locate tweet composer textarea")
 
@@ -70,10 +82,10 @@ class ComposePost(BaseAction):
             await human_click(page, textarea_el, 200, 500)
             await sleep_think_time(600, 1200)
 
-            # Type text via keyboard if text is provided
+            # Type text via human_type if text is provided
             if text:
-                for ch in text:
-                    await page.keyboard.type(ch, delay=15)
+                from xbot.browser.timing import human_type
+                await human_type(page, textarea_sel, text)
                 await sleep_think_time(1000, 2000)
 
             # Attach media files (images/videos) if provided

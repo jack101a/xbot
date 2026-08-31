@@ -21,21 +21,26 @@ interface GlobalSettingsModalProps {
 }
 
 const DEFAULT_MODELS = [
-  "chatgpt/auto",
-  "deepseek-v4-pro",
-  "deepseek-v4-flash-0731",
-  "gemini-3.5-flash",
   "gemini-3.1-flash-lite",
-  "gemini-3.5-flash-lite",
+  "gemini-flash-latest",
+  "gemini-3.5-flash",
+  "gemini-3.6-flash",
+  "gemini-3.7-flash",
+  "gemini-flash-latest-lite",
+  "deepseek-v4-flash-0731",
+  "deepseek-v4-pro-0813",
   "gpt-oss-120b",
+  "nemotron-3-ultra-550b-a55b",
+  "gemma-4-31b",
+  "gemma-4-26b",
   "glm-5.2",
-  "kimi-k2.6",
+  "kimi-k3",
+  "minimaxai/minimax-m3",
   "mistral-large",
   "mistral-medium",
   "mistral-small",
   "qwen-3.5",
-  "gemma-4-31b",
-  "gemma-4-26b",
+  "chatgpt/auto",
 ];
 
 export function GlobalSettingsModal({

@@ -80,10 +80,10 @@ class ChatGPT:
         await self._track(result.get("conversation_id"))
         return result
 
-    async def generate_image(self, prompt: str, timeout_s: int = 180, output_dir: str | None = None) -> dict:
+    async def generate_image(self, prompt: str, timeout_s: int = 180) -> dict:
         """Generate an image via the UI and return ``{"path", "prompt"}``."""
         await self._ensure_started()
-        result = await self.ui.generate_image(prompt, timeout_s=timeout_s, output_dir=output_dir)
+        result = await self.ui.generate_image(prompt, timeout_s=timeout_s)
         await self._track(result.get("conversation_id"))
         return result
 
@@ -91,8 +91,11 @@ class ChatGPT:
         """Record a bridge-created conversation and prune the oldest past the limit."""
         if not conversation_id:
             return
-        self.pool.record(conversation_id)
-        await self.pool.prune()
+        try:
+            self.pool.record(conversation_id)
+            await self.pool.prune()
+        except Exception:
+            pass
 
     def close(self) -> None:
         """Synchronously stop the browser."""

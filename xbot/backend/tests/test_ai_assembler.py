@@ -297,8 +297,7 @@ async def test_assembler_success(db_session: AsyncSession, tmp_path: Path) -> No
 
     # Render User Prompt
     rendered = context.render_user_prompt()
-    assert "## Your Current State" in rendered
-    assert "## Your Active Memories" in rendered
-    assert "## Your Strategy" in rendered
+    assert "## Session Context" in rendered
+    assert "## Active Creator Memories" in rendered
     assert "Testing context assembler!" in rendered
     assert "ContextAssembler is implemented" in rendered

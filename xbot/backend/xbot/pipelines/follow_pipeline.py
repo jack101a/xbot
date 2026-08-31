@@ -67,10 +67,16 @@ async def run_follow_pipeline_for_profile(
         page = await context.new_page()
         page.set_default_timeout(25000)
 
-        # 1. Scrape followers & following
-        logger.info("FollowPipeline: Scanning live followers & following for @%s...", clean_handle)
+        # 1. Scrape verified_followers, regular followers & following
+        logger.info("FollowPipeline: Scanning verified_followers, followers & following for @%s...", clean_handle)
+        verified_followers = await ScrapeFollowList().execute(page, username=clean_handle, list_type="verified_followers", limit=100, verified_only=False)
         current_followers = await ScrapeFollowList().execute(page, username=clean_handle, list_type="followers", limit=100, verified_only=False)
         current_following = await ScrapeFollowList().execute(page, username=clean_handle, list_type="following", limit=100, verified_only=False)
+
+        # Merge verified followers into full follower list
+        for vf in verified_followers:
+            if vf not in current_followers:
+                current_followers.append(vf)
 
         # 1b. Check Notifications for new followers
         try:
@@ -94,6 +100,7 @@ async def run_follow_pipeline_for_profile(
 
         followers_set = {f.lstrip("@").lower() for f in current_followers}
         following_set = {f.lstrip("@").lower() for f in current_following}
+        verified_set = {f.lstrip("@").lower() for f in verified_followers}
 
         if current_followers or current_following:
             snap = AnalyticsSnapshot(
@@ -106,19 +113,27 @@ async def run_follow_pipeline_for_profile(
             db.add(snap)
             await db.commit()
 
-        # 2. Reciprocal follow-backs (Follow all users who follow us)
-        missing_reciprocal = [f for f in followers_set if f not in following_set and f != clean_handle.lower()]
-        logger.info("FollowPipeline: Found %d users who follow us whom we haven't followed back.", len(missing_reciprocal))
+        # 2. Reciprocal follow-backs (Priority 1: Verified Followers -> Priority 2: General Followers)
+        missing_verified = [f for f in verified_set if f not in following_set and f != clean_handle.lower()]
+        missing_general = [f for f in followers_set if f not in following_set and f != clean_handle.lower() and f not in missing_verified]
+        missing_reciprocal = missing_verified + missing_general
 
-        for target_user in missing_reciprocal[:5]:
+        logger.info(
+            "FollowPipeline: Found %d users who follow us (including %d verified followers) whom we haven't followed back.",
+            len(missing_reciprocal),
+            len(missing_verified),
+        )
+
+        for target_user in missing_reciprocal[:10]:
             can_follow = await guard.can_act(db, profile_slug, "follow", target_id=f"follow_{target_user}")
             if not can_follow:
                 break
 
-            logger.info("Executing reciprocal follow-back on @%s...", target_user)
+            is_vf = target_user in verified_set
+            logger.info("Executing reciprocal follow-back on @%s (Verified: %s)...", target_user, is_vf)
             follow_res = await FollowUser().execute(page, username=target_user)
-            if follow_res.get("status") in ("followed", "already_following"):
-                await record_follow_action(db, profile.id, target_user, is_proactive=False, is_reciprocal=True)
+            if follow_res:
+                await record_follow_action(profile_id=profile.id, target_handle=target_user, db=db)
                 await guard.record_action(db, profile_slug, "follow", target_id=f"follow_{target_user}")
                 followed_back_count += 1
                 await sleep_with_jitter(3000)
@@ -131,7 +146,7 @@ async def run_follow_pipeline_for_profile(
                 select(FollowCandidate)
                 .where(
                     FollowCandidate.profile_id == profile.id,
-                    FollowCandidate.is_followed.is_(False),
+                    FollowCandidate.status == "discovered",
                 )
                 .order_by(FollowCandidate.reciprocity_score.desc())
                 .limit(2)
@@ -139,9 +154,9 @@ async def run_follow_pipeline_for_profile(
             top_candidates = cands_res.scalars().all()
 
             for cand in top_candidates:
-                target_user = cand.target_handle.lstrip("@").lower()
+                target_user = cand.handle.lstrip("@").lower()
                 if target_user in following_set:
-                    cand.is_followed = True
+                    cand.status = "followed"
                     await db.commit()
                     continue
 
@@ -151,10 +166,9 @@ async def run_follow_pipeline_for_profile(
 
                 logger.info("Executing proactive follow on candidate @%s...", target_user)
                 follow_res = await FollowUser().execute(page, username=target_user)
-                if follow_res.get("status") in ("followed", "already_following"):
-                    cand.is_followed = True
-                    cand.followed_at = datetime.datetime.utcnow()
-                    await record_follow_action(db, profile.id, target_user, is_proactive=True, is_reciprocal=False)
+                if follow_res:
+                    cand.status = "followed"
+                    await record_follow_action(profile_id=profile.id, target_handle=target_user, db=db)
                     await guard.record_action(db, profile_slug, "follow", target_id=f"follow_{target_user}")
                     proactive_followed_count += 1
                     await sleep_with_jitter(3000)
@@ -165,8 +179,7 @@ async def run_follow_pipeline_for_profile(
             select(FollowRelationship)
             .where(
                 FollowRelationship.profile_id == profile.id,
-                FollowRelationship.is_following.is_(True),
-                FollowRelationship.is_followed_back.is_(False),
+                FollowRelationship.status == "following",
                 FollowRelationship.followed_at < grace_period_cutoff,
             )
             .limit(2)
@@ -176,7 +189,7 @@ async def run_follow_pipeline_for_profile(
         for rel in stale_relations:
             target_user = rel.target_handle.lstrip("@").lower()
             if target_user in followers_set:
-                rel.is_followed_back = True
+                rel.status = "followed_back"
                 await db.commit()
                 continue
 
@@ -186,8 +199,10 @@ async def run_follow_pipeline_for_profile(
 
             logger.info("Pruning unreciprocated follow @%s after 4-day grace period...", target_user)
             unf_res = await UnfollowUser().execute(page, username=target_user)
-            if unf_res.get("status") in ("unfollowed", "not_following"):
-                await record_unfollow_action(db, profile.id, target_user)
+            if unf_res:
+                rel.status = "unfollowed"
+                rel.unfollowed_at = datetime.datetime.utcnow()
+                await record_unfollow_action(profile_id=profile.id, target_handle=target_user, db=db)
                 await guard.record_action(db, profile_slug, "unfollow", target_id=f"unfollow_{target_user}")
                 pruned_count += 1
                 await sleep_with_jitter(3000)

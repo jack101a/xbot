@@ -99,11 +99,11 @@ class BrowserManager:
         from running the same profile simultaneously.
         """
         lock_key = f"lock:browser:{profile_slug}"
-        for _ in range(3):
+        import time
+        for _ in range(15):
             if self._redis_client.set(lock_key, "1", ex=timeout_seconds, nx=True):
                 return True
-            import time
-            time.sleep(1.0)
+            time.sleep(2.0)
         return False
 
     def release_lock(self, profile_slug: str) -> None:
@@ -135,9 +135,11 @@ class BrowserManager:
 
         assert self.playwright is not None
 
-        # Pick a fully consistent browser profile (UA + client hints + viewport)
+        # Pick a fully consistent, deterministic browser profile pinned to profile_slug
         if browser_profile is None:
-            browser_profile = random.choice(_BROWSER_PROFILES)
+            import hashlib
+            slug_hash = int(hashlib.md5(profile_slug.encode("utf-8")).hexdigest(), 16)
+            browser_profile = _BROWSER_PROFILES[slug_hash % len(_BROWSER_PROFILES)]
 
         ua = browser_profile["ua"]
         sec_ch_ua = browser_profile["sec_ch_ua"]
@@ -181,7 +183,6 @@ class BrowserManager:
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-web-security",
                 "--enable-webgl",
                 "--ignore-certificate-errors",
                 # Declare window size so headless size matches the viewport

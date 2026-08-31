@@ -143,14 +143,14 @@ class CentralGuard:
             return False
 
         # 3. SafetyGuard check
-        # Map pipeline actions to SafetyGuard recognized actions
         sg_action_map = {
             "like": "like",
             "reply": "reply",
             "quote": "quote",
             "post": "post",
+            "growth_post": "growth_post",
             "follow": "follow",
-            "unfollow": "follow",  # Uses follow sliding window/limits
+            "unfollow": "unfollow",
             "trend_researcher": "post",
             "trend_generator": "post",
         }

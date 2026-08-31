@@ -37,7 +37,8 @@ async def handle_post_action(
     """Handles standard standalone post actions with anti-duplication, link extraction, and 1st reply staging/publishing."""
     raw_content = getattr(p_action, "content", "") or ""
     clean_post_text, extracted_link = extract_links(raw_content.strip())
-    post_text = clean_post_text
+    from xbot.ai.formatting_engine import format_content
+    post_text = format_content(clean_post_text, profile_slug=profile_slug, content_type="post", max_hard_limit=260)
 
     if not post_text or len(post_text.strip()) < 5:
         logger.warning("Post action skipped: content is empty or invalid.")
@@ -55,15 +56,35 @@ async def handle_post_action(
     res_dup = await db.execute(stmt_dup)
     existing_posts = res_dup.scalars().all()
 
+    import re
+    stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "with", "about", "is", "are", "was", "were", "it", "this", "that", "of", "from", "by", "as", "just", "my", "your", "we", "all", "so", "if"}
+    def extract_keywords(text: str) -> set[str]:
+        words = re.findall(r"\b[a-zA-Z0-9_]{3,}\b", text.lower())
+        return {w for w in words if w not in stop_words}
+
+    pt_keywords = extract_keywords(post_text)
+
     for ep in existing_posts:
         if ep.body:
             clean_ep = ep.body.lower().strip()
             clean_pt = post_text.lower().strip()
-            if clean_ep == clean_pt or (len(clean_pt) > 30 and clean_pt in clean_ep) or (len(clean_ep) > 30 and clean_ep in clean_pt):
-                logger.info("Skipping duplicate post '%s' - already drafted/posted in last 7 days", post_text[:50])
+            # 1. Exact match
+            if clean_ep == clean_pt:
+                logger.info("Skipping duplicate post '%s' - exact duplicate in last 7 days", post_text[:50])
                 db_action.status = ActionStatus.SKIPPED
                 db_action.error = "Duplicate post content detected from recent history."
                 return True
+
+            # 2. Strict Topic/Keyword Jaccard similarity check (>= 75% identical keywords)
+            ep_keywords = extract_keywords(ep.body)
+            if pt_keywords and ep_keywords:
+                overlap = pt_keywords.intersection(ep_keywords)
+                jaccard = len(overlap) / max(len(pt_keywords.union(ep_keywords)), 1)
+                if jaccard >= 0.75:
+                    logger.info("Skipping repetitive topic '%s' (similarity %.2f) - posted recently", post_text[:50], jaccard)
+                    db_action.status = ActionStatus.SKIPPED
+                    db_action.error = f"Topic repetition detected (shared keywords: {overlap})"
+                    return True
 
     require_approval = getattr(config, "require_post_approval", False)
     if require_approval:

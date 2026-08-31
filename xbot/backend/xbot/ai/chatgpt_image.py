@@ -30,8 +30,8 @@ async def generate_and_save_chatgpt_image_async(
     prompt: str,
     output_dir: str | Path | None = None,
     filename: str | None = None,
-    aspect_ratio: str = "4:5",
-    timeout_s: int = 180,
+    aspect_ratio: str = "1:1",
+    timeout_s: int = 300,
 ) -> str:
     """
     Generates a studio-grade image via ChatGPT web bridge and saves it to disk.
@@ -56,7 +56,6 @@ async def generate_and_save_chatgpt_image_async(
             res = await bridge.generate_image(
                 prompt=enhanced_prompt,
                 timeout_s=timeout_s,
-                output_dir=str(target_dir),
             )
             raw_path_str = res.get("path")
             if not raw_path_str or not Path(raw_path_str).exists():
@@ -64,13 +63,13 @@ async def generate_and_save_chatgpt_image_async(
 
             saved_path = Path(raw_path_str)
 
-            # If custom filename requested, rename/move the file
-            if filename:
-                if not filename.endswith(".png"):
-                    filename = f"{filename}.png"
-                dest_path = target_dir / filename
-                shutil.move(str(saved_path), str(dest_path))
-                saved_path = dest_path
+            # Move/rename to target output_dir
+            target_file = target_dir / (filename if filename else saved_path.name)
+            if not target_file.name.endswith(".png"):
+                target_file = target_file.with_suffix(".png")
+            if saved_path.resolve() != target_file.resolve():
+                shutil.move(str(saved_path), str(target_file))
+                saved_path = target_file
 
             logger.info("Successfully generated and saved ChatGPT image to: %s", saved_path)
             return str(saved_path.resolve())

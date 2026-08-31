@@ -254,17 +254,33 @@ async def _fetch_single_feed(
 
 
 async def fetch_rss_trends(
-    feed_urls: list[str],
+    feed_urls: list[str] | None = None,
     keywords: list[str] | None = None,
     max_items_per_feed: int = 5,
     client: Any | None = None,
+    config: Any | None = None,
+    max_items: int | None = None,
 ) -> list[TrendItem]:
-    if not feed_urls:
-        return []
+    urls = list(feed_urls) if feed_urls else []
+    if config:
+        cfg_feeds = getattr(config, "rss_feeds", []) or []
+        if not cfg_feeds and hasattr(config, "persona"):
+            cfg_feeds = getattr(config.persona, "rss_feeds", []) or []
+        for f in cfg_feeds:
+            if f not in urls:
+                urls.append(f)
 
+    if not urls:
+        urls = [
+            "https://hnrss.org/frontpage",
+            "https://feeds.feedburner.com/TechCrunch/",
+            "https://www.theverge.com/rss/index.xml",
+        ]
+
+    limit_per_feed = max_items_per_feed if max_items is None else max(1, max_items // max(1, len(urls)))
     tasks = [
-        _fetch_single_feed(url, keywords, max_items_per_feed, client)
-        for url in feed_urls
+        _fetch_single_feed(url, keywords, limit_per_feed, client)
+        for url in urls
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -272,4 +288,4 @@ async def fetch_rss_trends(
     for res in results:
         if isinstance(res, list):
             all_items.extend(res)
-    return all_items
+    return all_items[:max_items] if max_items else all_items

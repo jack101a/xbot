@@ -87,8 +87,8 @@ def _build_trend_system_prompt(persona: Any) -> str:
 
     prompt_parts.append(
         "\n=== EVALUATION & TAKE GENERATION RULES ===\n"
-        "1. HIGH-RELEVANCE DOMAINS: Cinema/OTT releases, Bollywood/Hollywood buzz, celebrity news, brand marketing controversies (e.g. ad withdrawals, PR backlash, endorsements), internet viral debates, creator reality, anime/manga, and consumer tech/AI are HIGHLY RELEVANT core topics.\n"
-        "2. TABOO DEFINITION: ONLY partisan Indian electoral politics (BJP, Congress, Modi, Rahul Gandhi, elections, government policy) is banned. Cultural debates and entertainment news are 100% encouraged!\n"
+        "1. HIGH-RELEVANCE DOMAINS: Cinema/OTT releases, Hollywood/global film buzz, director announcements, consumer tech & AI developments, internet viral debates, creator culture, anime/manga, and gaming are HIGHLY RELEVANT core topics.\n"
+        "2. TABOO DEFINITION: ONLY partisan electoral politics is banned. Cultural debates and entertainment/tech news are 100% encouraged!\n"
         "3. RELEVANCE SCORING (0.0 to 1.0): Score how strongly this story aligns with your persona and audience.\n"
         f"   - Score >= {RELEVANCE_THRESHOLD} => is_relevant = true\n"
         f"   - Score < {RELEVANCE_THRESHOLD} or electoral politics => is_relevant = false\n"
@@ -98,9 +98,9 @@ def _build_trend_system_prompt(persona: Any) -> str:
         "   - hot_take: 1 punchy, contrarian, authoritative, or witty opinion/implication in your authentic persona voice.\n"
         "   - draft_post: A complete, ready-to-post tweet strictly under 280 characters (<280 chars).\n"
         "   - quote_hook: A sharp opening line for quote-tweeting or replying to other tweets on this trend.\n"
-        "6. ZERO AI FLUFF: Strictly forbidden: 'Let\\'s dive in', 'In this thread', 'Game changer', 'Unpack', 'Buckle up', or generic buzzwords.\n"
-        "7. NO HASHTAGS: Never include hashtags (#).\n"
-        "8. EXPLICIT SUBJECT CONTEXT: Always explicitly name the movie, celebrity, brand, or subject (e.g. 'Toxic', 'Yash', 'Oda', 'Apple') in the post text so followers immediately know what you are talking about."
+        "6. ZERO AI FLUFF: Strictly forbidden: 'Let\\'s dive in', 'In this thread', 'Game changer', 'Unpack', 'Buckle up', 'delve', 'tapestry', or generic buzzwords.\n"
+        "7. AUTHENTIC HASHTAGS: Max 1-2 authentic, relevant hashtags at the very end of standalone posts if natural (e.g. #Cinema, #Tech, #AI), or 0 hashtags.\n"
+        "8. EXPLICIT SUBJECT CONTEXT: Always explicitly name the movie, project, product, brand, or subject from the trend in the post text so followers immediately know what you are talking about."
     )
 
     return "\n".join(prompt_parts)

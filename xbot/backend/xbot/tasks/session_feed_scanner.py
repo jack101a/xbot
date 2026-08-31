@@ -138,22 +138,41 @@ async def scan_session_feed(
     except Exception as s_err:
         logger.warning("Niche topic search scan encountered non-fatal error: %s", s_err)
 
-    # 3. Live Trends Ingestion: Fetch breaking trends and viral discussions
+    # 3. Live Trends Ingestion: Fetch breaking trends and viral discussions (with 24h deduplication)
     try:
+        import hashlib
+        from xbot.config import settings
         from xbot.ai.trend_radar import fetch_rss_trends
-        rss_urls = [
+        import redis.asyncio as aioredis
+        r_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+
+        rss_urls = getattr(persona, "rss_feeds", None) or [
             "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGRqTVhZU0FtVnVHZ0pWVXlnQVAB?hl=en-IN&gl=IN&ceid=IN%3Aen",
             "https://feeds.feedburner.com/TechCrunch/",
         ]
         live_trends = await fetch_rss_trends(rss_urls[:2], max_items_per_feed=3)
-        for tr in (live_trends or [])[:4]:
+        for tr in (live_trends or []):
+            if not tr.title or len(tr.title.strip()) < 10:
+                continue
+            # Hash headline for 24h Redis deduplication
+            t_hash = hashlib.md5(tr.title.strip().lower().encode("utf-8")).hexdigest()[:12]
+            dedup_key = f"xbot:seen_feed_trend:{profile_slug}:{t_hash}"
+            if await r_client.exists(dedup_key):
+                logger.debug("Skipping already-seen RSS trend: %s", tr.title[:50])
+                continue
+
+            # Mark seen for 24 hours (86400s)
+            await r_client.set(dedup_key, "1", ex=86400)
+
             feed_snapshot.append({
                 "author": f"LiveNews ({tr.source_name})",
                 "text": f"🔥 [BREAKING NEWS/TOPIC FOR STANDALONE POST ONLY]: {tr.title}",
-                "url": None,
+                "url": tr.url or f"https://news.google.com/rss/item/{t_hash}",
                 "type": "trend_topic",
                 "is_news_article": True,
             })
+            if len(feed_snapshot) >= 20:
+                break
     except Exception as t_err:
         logger.debug("Trend pre-scan skipped or failed: %s", t_err)
 

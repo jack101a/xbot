@@ -38,15 +38,20 @@ logger = logging.getLogger("xbot.tasks.session_runner")
 
 async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
     """Runs a complete autonomous session for a given profile."""
-    profile_id = uuid.UUID(profile_id_str)
-
     async with tasks.AsyncSessionLocal() as db:
-        # 1. Fetch Profile
-        stmt = select(Profile).where(Profile.id == profile_id)
+        # 1. Fetch Profile by UUID or slug
+        try:
+            p_uuid = uuid.UUID(profile_id_str)
+            stmt = select(Profile).where((Profile.id == p_uuid) | (Profile.profile_slug == profile_id_str))
+        except (ValueError, TypeError):
+            stmt = select(Profile).where(Profile.profile_slug == profile_id_str)
+
         res = await db.execute(stmt)
         profile = res.scalar_one_or_none()
         if not profile:
             return {"status": "failed", "error": "Profile not found."}
+
+        profile_id = profile.id
 
         if profile.status in (ProfileStatus.PAUSED, ProfileStatus.LOCKED, ProfileStatus.SUSPENDED):
             return {"status": "ignored", "reason": f"Profile status is {profile.status}."}

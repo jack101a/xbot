@@ -113,25 +113,18 @@ class CheckUserLatestTweet(BaseAction):
     async def execute(
         self,
         page: Page,
-        handle: str,
+        handle: str = "",
+        username: str = "",
         base_url: str = "https://x.com",
         max_age_minutes: int = 30,
+        **kwargs: Any,
     ) -> dict[str, Any] | None:
         """
         Navigates to a user's profile and extracts their latest tweet.
         Handles pinned tweets by falling back to the next tweet if available.
-        Returns a dict:
-        {
-            "tweet_id": str,
-            "text": str,
-            "url": str,
-            "handle": str,
-            "is_pinned": bool,
-            "created_at": str | None,
-        }
-        or None if no tweet is found or navigation fails.
         """
-        clean_handle = handle.lstrip("@").strip()
+        target_handle = handle or username or ""
+        clean_handle = target_handle.lstrip("@").strip()
         if not clean_handle:
             logger.error("Empty handle provided to CheckUserLatestTweet")
             return None

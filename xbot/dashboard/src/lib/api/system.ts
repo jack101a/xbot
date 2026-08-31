@@ -43,4 +43,17 @@ export const systemApi = {
     }>('/api/system/chatgpt/test', {
       method: 'POST',
     }),
+  getAIPromptLogs: (params?: { limit?: number; offset?: number; provider?: string; q?: string }) => {
+    const qp = new URLSearchParams();
+    if (params?.limit) qp.set('limit', String(params.limit));
+    if (params?.offset) qp.set('offset', String(params.offset));
+    if (params?.provider) qp.set('provider', params.provider);
+    if (params?.q) qp.set('q', params.q);
+    const queryStr = qp.toString() ? `?${qp.toString()}` : '';
+    return request<import('./types').AIPromptLogsResponse>(`/api/system/ai-logs${queryStr}`);
+  },
+  clearAIPromptLogs: () =>
+    request<{ status: string; message: string }>('/api/system/ai-logs', {
+      method: 'DELETE',
+    }),
 };

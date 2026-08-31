@@ -47,20 +47,41 @@ async def run_quote_pipeline_for_profile(
     if not can_proceed:
         return {"status": "skipped", "reason": "guard_check_failed", "quotes_executed": 0}
 
-    # 2. Scrape feed for candidates
-    scrape_job = BrowserJob(
-        action_type="scrape_feed",
-        profile_slug=profile_slug,
-        params={"scroll_count": 3, "collect_tweets": True},
-        priority=3,
-    )
-    job_id = enqueue_browser_job(scrape_job)
-    scrape_res = await asyncio.to_thread(get_browser_job_result, job_id, 45.0)
+    # 2. Scrape feed for candidates with fallback
+    feed_tweets: list[dict[str, Any]] = []
+    try:
+        scrape_job = BrowserJob(
+            action_type="scrape_feed",
+            profile_slug=profile_slug,
+            params={"scroll_count": 3, "collect_tweets": True},
+            priority=3,
+        )
+        job_id = enqueue_browser_job(scrape_job)
+        scrape_res = await asyncio.to_thread(get_browser_job_result, job_id, 45.0)
+        if scrape_res and scrape_res.get("status") == "success":
+            feed_tweets = scrape_res.get("tweets", [])
+    except Exception as scrape_err:
+        logger.debug("QuotePipeline: Feed scrape error for %s: %s", profile_slug, scrape_err)
 
-    if not scrape_res or scrape_res.get("status") != "success":
-        return {"status": "failed", "reason": "feed_scrape_failed", "quotes_executed": 0}
+    # Fallback: If feed scrape returned empty, source candidates from recent ResearchedTopic records
+    if not feed_tweets:
+        try:
+            from xbot.models.pipeline import ResearchedTopic
+            r_stmt = (
+                select(ResearchedTopic)
+                .where(ResearchedTopic.profile_id == profile.id)
+                .order_by(ResearchedTopic.created_at.desc())
+                .limit(5)
+            )
+            r_res = await db.execute(r_stmt)
+            for rt in r_res.scalars().all():
+                if rt.scraped_posts:
+                    for sp in rt.scraped_posts:
+                        if isinstance(sp, dict) and sp.get("text"):
+                            feed_tweets.append(sp)
+        except Exception as fb_err:
+            logger.debug("QuotePipeline: ResearchedTopic fallback error: %s", fb_err)
 
-    feed_tweets: list[dict[str, Any]] = scrape_res.get("tweets", [])
     if not feed_tweets:
         return {"status": "success", "quotes_executed": 0}
 
@@ -87,13 +108,13 @@ async def run_quote_pipeline_for_profile(
         if is_f4f_or_engagement_growth_post(tweet_text):
             continue
 
-        # Enforce 50,000 impression threshold
+        # Optional impression threshold (relax from strict 50k to 1k floor if views present)
         try:
             views_int = int(str(views).replace(",", "").replace(".", "").replace("K", "000").replace("M", "000000")) if isinstance(views, str) else int(views)
         except Exception:
             views_int = 0
 
-        if views_int > 0 and views_int < 50000:
+        if views_int > 0 and views_int < 1000:
             continue
 
         # Load profile persona

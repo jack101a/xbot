@@ -35,7 +35,7 @@ ASPECT_RATIO_PRESETS: dict[str, tuple[int, int]] = {
     "2:3": (768, 1024),
 }
 
-REQUEST_TIMEOUT_SECONDS = 180
+REQUEST_TIMEOUT_SECONDS = 300
 
 
 def snap_flux_dimension(dim: int) -> int:
@@ -189,11 +189,11 @@ async def generate_nvidia_image_async(
         raise ValueError("NVIDIA API Key is missing. Set NVIDIA_API_KEY in environment or .env file.")
 
     resolved_base_url = (base_url or getattr(settings, "NVIDIA_BASE_URL", None) or "https://ai.api.nvidia.com/v1/genai").rstrip("/")
-    chosen_model = model_name or getattr(settings, "NVIDIA_DEFAULT_IMAGE_MODEL", "flux.2-klein-4b") or "flux.2-klein-4b"
+    chosen_model = model_name or getattr(settings, "NVIDIA_DEFAULT_IMAGE_MODEL", "flux.1-dev") or "flux.1-dev"
 
-    # Candidate cascade order
+    # Candidate cascade order (flux.1-dev preferred)
     cascade = [chosen_model]
-    for alt in ["flux.2-klein-4b", "flux.1-dev"]:
+    for alt in ["flux.1-dev", "flux.2-klein-4b"]:
         if alt not in cascade:
             cascade.append(alt)
 
@@ -285,14 +285,20 @@ async def generate_and_save_nvidia_image_async(
     target_dir.mkdir(parents=True, exist_ok=True)
 
     if not filename:
-        resolved_tag = str(model_name or getattr(settings, "NVIDIA_DEFAULT_IMAGE_MODEL", "flux.2-klein-4b") or "flux.2-klein-4b").replace("/", "_")
+        resolved_tag = str(model_name or getattr(settings, "NVIDIA_DEFAULT_IMAGE_MODEL", "flux.1-dev") or "flux.1-dev").replace("/", "_")
         filename = f"nvidia_{resolved_tag}_{int(time.time())}_{uuid.uuid4().hex[:6]}.png"
     elif not filename.endswith(".png"):
         filename = f"{filename}.png"
 
     file_path = target_dir / filename
     image_bytes = base64.b64decode(b64_image)
-    file_path.write_bytes(image_bytes)
+    try:
+        import io
+        from PIL import Image
+        im = Image.open(io.BytesIO(image_bytes))
+        im.save(file_path, format="PNG")
+    except Exception:
+        file_path.write_bytes(image_bytes)
 
-    logger.info("Successfully saved generated NVIDIA image (%d bytes) to: %s", len(image_bytes), file_path)
+    logger.info("Successfully saved generated NVIDIA image (%d bytes) to: %s", os.path.getsize(file_path), file_path)
     return str(file_path.resolve())

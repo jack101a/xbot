@@ -43,6 +43,7 @@ async def generate_sniper_reply(
     target_text = target_tweet.get("text", "")
     top_comments = target_tweet.get("top_comments") or []
     lang_mode = _detect_language_vibe(target_text, top_comments)
+    profile_slug = (getattr(persona, "x_handle", None) or getattr(persona, "id", None) or "global").lstrip("@")
 
     system_prompt = _build_sniper_system_prompt(persona, preferred_angle)
     user_prompt = _build_sniper_user_prompt(target_tweet, preferred_angle)
@@ -87,6 +88,8 @@ async def generate_sniper_reply(
                     {"role": "user", "content": user_prompt},
                 ],
                 response_format=SniperResult,
+                action_type="sniper_reply",
+                profile_slug=profile_slug,
             )
             parsed = completion.choices[0].message.parsed
             if isinstance(parsed, SniperResult):
@@ -108,6 +111,8 @@ async def generate_sniper_reply(
                         {"role": "user", "content": vision_user_content},
                     ],
                     response_format={"type": "json_object"},
+                    action_type="sniper_reply",
+                    profile_slug=profile_slug,
                 )
             except Exception:
                 completion = await ai_client.chat.completions.create(
@@ -116,6 +121,8 @@ async def generate_sniper_reply(
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
+                    action_type="sniper_reply",
+                    profile_slug=profile_slug,
                 )
 
             raw_content = completion.choices[0].message.content or ""

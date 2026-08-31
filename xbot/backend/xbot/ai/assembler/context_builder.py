@@ -38,35 +38,31 @@ async def build_today_actions_summary(
     stmt_actions = (
         select(Action)
         .where(Action.profile_id == profile_id, Action.executed_at >= midnight_utc)
-        .order_by(Action.executed_at.asc())
+        .order_by(Action.executed_at.desc())
     )
     res_actions = await db.execute(stmt_actions)
     actions_today = res_actions.scalars().all()
 
     if not actions_today:
-        return "  None"
+        return "None"
 
-    action_lines = []
-    for action in actions_today:
-        assert action.executed_at is not None
-        act_local = (
-            action.executed_at.replace(tzinfo=datetime.timezone.utc)
-            .astimezone(tz)
-            .strftime("%I:%M %p")
-        )
-        line = f"  - [{act_local}] {action.action_type.upper()}"
-        if action.target_url:
-            line += f" target: {action.target_url}"
-        if action.content:
-            snippet = (
-                action.content
-                if len(action.content) <= 60
-                else action.content[:57] + "..."
-            )
-            line += f" content: '{snippet}'"
-        line += f" ({action.status})"
-        action_lines.append(line)
-    return "\n".join(action_lines)
+    counts = {}
+    for a in actions_today:
+        atype = a.action_type.lower()
+        counts[atype] = counts.get(atype, 0) + 1
+
+    summary_part = ", ".join(f"{v} {k}s" for k, v in counts.items())
+    recent_parts = []
+    for a in actions_today[:3]:
+        act_local = a.executed_at.replace(tzinfo=datetime.timezone.utc).astimezone(tz).strftime("%I:%M %p")
+        raw_val = (a.content or a.target_url or "").strip()
+        snippet = (raw_val[:40] + "...") if len(raw_val) > 40 else raw_val
+        if snippet:
+            recent_parts.append(f"[{act_local}] {a.action_type.upper()} ({snippet})")
+        else:
+            recent_parts.append(f"[{act_local}] {a.action_type.upper()}")
+
+    return f"Completed today: {summary_part}. Recent: {'; '.join(recent_parts)}"
 
 
 async def build_rate_budget_summary(
@@ -121,43 +117,22 @@ def build_recent_diary_summary(profile_dir: Path) -> str:
 def build_active_memories_summary(
     profile_dir: Path,
     mention_query: str | None = None,
-    token_budget: int = 4000,
+    token_budget: int = 400,
 ) -> str:
     memory_mgr = MemoryManager(profile_dir)
     memories = memory_mgr.retrieve_memories(
         mention_query=mention_query, token_budget=token_budget
     )
     if not memories:
-        return "No active memories retrieved."
+        return "No active memories."
 
     memory_lines = []
-    for m in memories:
-        ts = m.get("ts", "unknown")
-        m_type = m.get("type", "unknown")
-        importance = m.get("importance", 0.0)
-
-        if m_type == "episodic":
-            event = m.get("event", "")
-            content = m.get("content", "")
-            memory_lines.append(
-                f"[{ts}] (episodic, importance: {importance}) "
-                f"Event: {event} | Content: {content}"
-            )
-        elif m_type == "semantic":
-            fact = m.get("fact", "")
-            source = m.get("source", "")
-            memory_lines.append(
-                f"[{ts}] (semantic, importance: {importance}) "
-                f"Fact: {fact} | Source: {source}"
-            )
-        elif m_type == "important":
-            content = m.get("content", "")
-            evidence = m.get("evidence", "")
-            memory_lines.append(
-                f"[{ts}] (important, importance: {importance}) "
-                f"Content: {content} | Evidence: {evidence}"
-            )
-    return "\n".join(memory_lines)
+    for m in memories[:4]:
+        m_type = m.get("type", "important")
+        content = m.get("content") or m.get("fact") or m.get("event") or ""
+        if content:
+            memory_lines.append(f"- ({m_type}) {content}")
+    return "\n".join(memory_lines) if memory_lines else "No active memories."
 
 
 def build_relationships_summary(relationships: Relationships) -> str:

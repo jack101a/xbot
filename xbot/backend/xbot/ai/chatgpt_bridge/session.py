@@ -19,7 +19,6 @@ class SessionManager:
     def __init__(self, browser: BrowserManager) -> None:
         self.browser = browser
         self._pending_import: list[dict] | None = None
-        self._cached_access_token: str | None = None
 
     async def is_alive(self) -> bool:
         """Return True iff the session endpoint reports an authenticated user."""
@@ -39,8 +38,8 @@ class SessionManager:
         finally:
             await page.close()
 
-    async def get_user_info(self) -> dict[str, Any] | None:
-        """Return user dict from session endpoint if authenticated, else None."""
+    async def get_user_info(self) -> dict | None:
+        """Return user info dict if authenticated, else None."""
         ctx = await self.browser.context()
         page = await ctx.new_page()
         try:
@@ -66,9 +65,7 @@ class SessionManager:
             await page.close()
 
     async def get_access_token(self) -> str:
-        """Parse the access token from the session endpoint JSON with token caching."""
-        if self._cached_access_token:
-            return self._cached_access_token
+        """Parse the access token from the session endpoint JSON."""
         ctx = await self.browser.context()
         page = await ctx.new_page()
         try:
@@ -87,7 +84,6 @@ class SessionManager:
                 raise AuthError(
                     "session JSON missing accessToken; re-login or refresh cookies."
                 )
-            self._cached_access_token = token
             return token
         finally:
             await page.close()
@@ -111,11 +107,7 @@ class SessionManager:
         if not self._pending_import:
             return
         ctx = await self.browser.context()
-        for cookie in self._pending_import:
-            try:
-                await ctx.add_cookies([cookie])
-            except Exception:
-                pass
+        await ctx.add_cookies(self._pending_import)
         self._pending_import = None
 
     async def try_cookie_login(self) -> bool:
@@ -193,6 +185,8 @@ class SessionManager:
                 timeout=30_000,
             )
             if resp.status not in (200, 204):
+                if resp.status in (400, 404):
+                    return
                 raise AuthError(
                     f"delete conversation returned status {resp.status}"
                 )

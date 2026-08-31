@@ -152,19 +152,19 @@ async def _fast_response_sentinel_async(base_profile_dir: Path | str | None = No
                         target_tweet_url = f"https://x.com/{thread.target_handle}/status/{thread.parent_tweet_id}"
                         
                         system_prompt = (
-                            f"You are {persona.display_name} (@{persona.x_handle}). You are executing a fast-response "
+                            f"You are {persona.display_name} (@{persona.x_handle.lstrip('@')}). You are executing a fast-response "
                             f"conversational counter-reply on X to an active discussion turn.\n"
                             f"Tone: {persona.writing_style.tone}\n"
-                            f"Traits: {', '.join(persona.personality.traits)}\n"
+                            f"Traits: {', '.join(persona.personality.traits[:4])}\n"
                             f"Rules:\n"
-                            f"- Character length: 120-240 characters.\n"
-                            f"- MUST end with a compelling debate-sparking question ('?') to trigger an author reply.\n"
+                            f"- Concise, sharp, and natural (50-200 chars).\n"
+                            f"- No forced questions or filler. No hashtags (#).\n"
                             f"- Zero AI fluff (no 'delve', 'supercharge', 'tapestry', 'testament'). Clean sentence case.\n"
                         )
                         user_prompt = (
                             f"Conversation so far with @{thread.target_handle}:\n"
                             f"{json.dumps(thread.conversation_history, indent=2)}\n\n"
-                            f"Write an insightful in-character counter-reply that advances the discussion and ends with a question."
+                            f"Write an insightful, authentic in-character reply that advances the discussion naturally."
                         )
 
                         client_fn = getattr(tasks, "get_ai_client", get_ai_client)
@@ -177,8 +177,6 @@ async def _fast_response_sentinel_async(base_profile_dir: Path | str | None = No
                             ],
                         )
                         reply_text = (completion.choices[0].message.content or "").strip()
-                        if not reply_text.endswith("?"):
-                            reply_text += " What's your take on this?"
 
                         # Execute reply via browser
                         success = False

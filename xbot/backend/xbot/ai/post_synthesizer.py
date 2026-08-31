@@ -129,6 +129,8 @@ async def synthesize_creator_post(
             ],
             temperature=0.75,
             max_tokens=600,
+            action_type="post_synthesis",
+            profile_slug=persona.x_handle.lstrip("@"),
         )
         content_str = response.choices[0].message.content or ""
         clean_json = content_str.strip()

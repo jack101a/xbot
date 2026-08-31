@@ -92,7 +92,7 @@ def _build_clean_creator_prompt(
         sections.append(
             "## 🧵 Multi-Tweet Thread Instructions (3-4 Tweets):\n"
             "- Tweet 1 (Hook): Scroll-stopping curiosity cliffhanger strictly < 100 characters before the mobile fold\n"
-            "- Explicit Naming: Explicitly name the subject/movie/company (e.g. 'Toxic', 'Yash') in Tweet 1\n"
+            "- Explicit Naming: Explicitly name the specific topic subject, entity, or project in Tweet 1\n"
             "- Tweets 2-3 (Body): Atomic value nuggets with generous whitespace (\\n\\n) and bullet frameworks\n"
             "- Tweet 4 (Closer): High-conviction punchy takeaway + 1-2 relevant hashtags"
         )
@@ -107,8 +107,8 @@ def _build_clean_creator_prompt(
         sections.append(
             "## 📝 Standalone Post Directives:\n"
             "- Mobile Fold Hook: Keep opening curiosity hook strictly < 100 characters before the mobile fold\n"
-            "- Explicit Subject Naming: Always explicitly state the specific person, project, movie, or brand (e.g. 'Toxic', 'Yash', 'GTA 6') so readers immediately know what is being discussed\n"
-            "- Relevant Hashtags: If topic hashtags were discovered (e.g. #Toxic #Yash), include 1-2 clean hashtags naturally at the end\n"
+            "- Explicit Subject Naming: Always explicitly state the specific person, project, movie, or brand from the researched topic so readers immediately know what is being discussed\n"
+            "- Relevant Hashtags: If topic hashtags were discovered in research, include 1-2 clean hashtags naturally at the end\n"
             "- High-Utility & Variety: Match authentic human cadence (micro-takes, staccato observations, bookmark-bait frameworks)\n"
             "- Structure: Clear line breaks (\\n\\n) between setup, observation, and punchline\n"
             "- Character count: Strictly <= 260 characters\n"

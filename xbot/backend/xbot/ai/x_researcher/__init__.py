@@ -10,6 +10,10 @@ from .extractor import (
     _parse_engagement_number,
     download_viral_media,
 )
+from .growth_researcher import (
+    get_latest_growth_insights,
+    research_viral_growth_patterns,
+)
 from .researcher import research_topic_comprehensively
 
 __all__ = [
@@ -23,4 +27,6 @@ __all__ = [
     "scrape_x_top_tweets",
     "research_topic_comprehensively",
     "search_web_grounding",
+    "research_viral_growth_patterns",
+    "get_latest_growth_insights",
 ]

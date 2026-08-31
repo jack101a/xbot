@@ -177,6 +177,26 @@ async def execute_browser_action(
         )
         return res if isinstance(res, dict) else {"status": "success", "result": res}
 
+    elif action_type == "scrape_notifications":
+        action = pkg.ScrapeNotifications()
+        notifications = await action.execute(
+            page,
+            limit=params.get("limit", 20),
+            filter_tab=params.get("filter_tab", "all"),
+        )
+        return {"status": "success", "notifications": notifications or []}
+
+    elif action_type == "scrape_followers":
+        action = pkg.ScrapeFollowList()
+        followers = await action.execute(
+            page,
+            username=params.get("username", ""),
+            list_type=params.get("list_type", "followers"),
+            limit=params.get("limit", 100),
+            verified_only=params.get("verified_only", False),
+        )
+        return {"status": "success", "followers": followers or []}
+
     elif action_type == "scrape_profile_tweets":
         action = pkg.ScrapeProfileTweets()
         res = await action.execute(

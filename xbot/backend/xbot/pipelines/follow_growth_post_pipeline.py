@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
+import os
+from pathlib import Path
 import re
 from typing import Any
 import uuid
@@ -56,10 +58,10 @@ async def run_follow_growth_post_for_profile(
     clean_handle = profile.x_handle.lstrip("@")
 
     # 1. Rate Limit & Safety Check
-    can_post = await guard.can_act(db, profile_slug, "post")
+    can_post = await guard.can_act(db, profile_slug, "growth_post")
     if not can_post:
-        logger.info("FollowGrowthPost: Skipped for @%s (daily post rate limit reached)", clean_handle)
-        return {"status": "skipped", "reason": "post_rate_limit"}
+        logger.info("FollowGrowthPost: Skipped for @%s (daily growth post rate limit reached)", clean_handle)
+        return {"status": "skipped", "reason": "growth_post_rate_limit"}
 
     # 2. Acquire browser execution lock
     lock_acquired = False
@@ -84,11 +86,41 @@ async def run_follow_growth_post_for_profile(
     liked_comments_count = 0
 
     try:
-        # 3. Generate Growth Copy & NVIDIA Image
-        logger.info("FollowGrowthPost: Generating visual growth post for @%s via NVIDIA GenAI...", clean_handle)
-        growth_spec, image_path = await generate_growth_post_with_image(persona=persona)
+        # 3. Determine current follower count from latest snapshot or profile config
+        followers_count = 0
+        if profile.config and "followers_count" in profile.config:
+            try:
+                followers_count = int(profile.config.get("followers_count") or 0)
+            except Exception:
+                followers_count = 0
+        else:
+            try:
+                from xbot.models.analytics import AnalyticsSnapshot
+                res_snap = await db.execute(
+                    select(AnalyticsSnapshot)
+                    .where(AnalyticsSnapshot.profile_id == profile.id)
+                    .order_by(AnalyticsSnapshot.snapshot_at.desc())
+                    .limit(1)
+                )
+                latest_snap = res_snap.scalar_one_or_none()
+                if latest_snap and latest_snap.followers_count:
+                    followers_count = int(latest_snap.followers_count)
+            except Exception as snap_err:
+                logger.debug("Could not read analytics snapshot for %s: %s", profile_slug, snap_err)
 
-        # Stage in Content table
+        # 4. Generate Dynamic Growth Copy & Image via AI
+        logger.info(
+            "FollowGrowthPost: Generating dynamic visual growth post for @%s (current followers: %d)...",
+            clean_handle,
+            followers_count,
+        )
+        growth_spec, image_path = await generate_growth_post_with_image(
+            persona=persona,
+            current_followers=followers_count,
+        )
+        if not growth_spec:
+            logger.warning("FollowGrowthPost: AI growth generation returned None for @%s", clean_handle)
+            return {"status": "failed", "reason": "generation_failed"}
         content_record = Content(
             profile_id=profile.id,
             content_type=ContentType.ORIGINAL,
@@ -116,10 +148,11 @@ async def run_follow_growth_post_for_profile(
 
         logger.info("FollowGrowthPost: Publishing growth post with NVIDIA image on X...")
         composer = ComposePost()
+        media_to_send = [image_path] if (image_path and os.path.exists(image_path)) else None
         post_success = await composer.execute(
             page,
             text=growth_spec.tweet_copy,
-            media_paths=[image_path],
+            media_paths=media_to_send,
         )
 
         if post_success:
@@ -128,7 +161,7 @@ async def run_follow_growth_post_for_profile(
             logger.info("FollowGrowthPost: Successfully published visual promotion on @%s", clean_handle)
 
             # Record action in guard
-            await guard.record_action(db, profile_slug, "post", target_id=str(new_post_id))
+            await guard.record_action(db, profile_slug, "growth_post", target_id=str(new_post_id))
             await db.commit()
         else:
             content_record.status = ContentStatus.FAILED
@@ -255,7 +288,7 @@ def run_follow_growth_post() -> dict[str, Any]:
                     profile_id=profile.id,
                     pipeline_name="follow_growth_post",
                     status="completed" if r.get("status") == "success" else "failed",
-                    actions_executed=1 if r.get("post_published") else 0 + r.get("followed_commenters", 0),
+                    actions_count=(1 if r.get("post_published") else 0) + r.get("followed_commenters", 0),
                     details=r,
                 )
                 db.add(prun)

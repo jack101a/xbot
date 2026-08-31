@@ -9,6 +9,7 @@ import {
   Sliders,
   Sparkles,
   Trash2,
+  BotMessageSquare,
 } from "lucide-react";
 import { TabType } from "@/store/useAppStore";
 import { cn } from "@/lib/utils/cn";
@@ -33,6 +34,7 @@ const NAV_ITEMS: NavItemDef[] = [
   { id: "growth", label: "Audience & Growth", icon: Zap, badge: "AI", shortcut: "⌘3" },
   { id: "activity", label: "Live Activity", icon: Activity, shortcut: "⌘4" },
   { id: "persona", label: "Persona & Knowledge", icon: Brain, shortcut: "⌘5" },
+  { id: "ai-logs", label: "AI Prompt Logs", icon: BotMessageSquare, badge: "LIVE", shortcut: "⌘8" },
   { id: "limits", label: "System & Safety", icon: Sliders, shortcut: "⌘6" },
   { id: "pruner", label: "Post Pruner", icon: Trash2, shortcut: "⌘7" },
 ];

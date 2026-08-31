@@ -10,18 +10,18 @@ from .detector import TrendItem, fetch_rss_trends
 logger = logging.getLogger(__name__)
 
 DEFAULT_CURATED_FEEDS = [
-    "https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-IN&gl=IN&ceid=IN:en",
-    "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-IN&gl=IN&ceid=IN:en",
-    "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en",
+    "https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en",
+    "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en",
     "https://www.techmeme.com/feed.xml",
     "https://hnrss.org/frontpage",
+    "https://www.theverge.com/rss/index.xml",
 ]
 
 DEFAULT_WEB_SEARCH_TREND_QUERIES = [
-    "trending Bollywood entertainment controversy today",
     "trending cinema movie viral debate",
     "trending anime manga community discussion",
     "trending AI developer tools launch",
+    "trending tech gadget announcement",
 ]
 
 

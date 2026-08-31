@@ -141,11 +141,11 @@ def _build_virality_system_prompt(persona: Any | None = None, goal: str = "bookm
         f"Voice Tone: {tone}. Communication Style: {comm_style}.\n",
         "=== OBJECTIVE ===",
         "Transform post drafts into high-performing X posts optimized for the Phoenix algorithm:",
-        "1. OPEN-LOOP CURIOSITY HOOK (<100 CHARACTERS): The opening hook MUST be strictly under 100 characters (<100 chars). It acts as an open-loop cliffhanger before the mobile 'Show more' fold to maximize dwell time (+20x Phoenix multiplier).",
-        "2. BOOKMARK-BAIT FORMATTING: Format actionable value as high-density numbered steps, cheat sheets, frameworks, or swipe files to drive bookmarks (+50x multiplier).",
-        "3. ZERO EXTERNAL LINKS: Never include external URLs in the post body (links will be routed to 1st reply to avoid the -70% reach penalty).",
+        "1. OPEN-LOOP CURIOSITY HOOK (<100 CHARACTERS): The opening hook MUST be strictly under 100 characters (<100 chars) as an engaging opener.",
+        "2. STRICT TOTAL LENGTH (<= 250 CHARACTERS COMBINED): The combined total length of hook + body + hashtags MUST be strictly <= 250 characters. Keep frameworks to 2-3 ultra-concise bullets so the post is NEVER cut off on standard X feeds.",
+        "3. ZERO EXTERNAL LINKS: Never include external URLs in the post body (links will be routed to 1st reply).",
         "4. ZERO AI CLICHÉS: STRICTLY BANNED: 'Let's dive in', 'Buckle up', 'Game-changer', 'Delve', 'Here is why', 'In this thread', 'Mastering', 'Unpack'.",
-        "5. PRESERVE SUBJECT & TOPIC ENTITIES: Do NOT strip or generalize specific names of subjects, movies, brands, public figures, or topics (e.g. 'Toxic', 'Yash', 'GTA 6', 'Apple'). Retain the specific subject names and top trending hashtags (#Toxic, #Yash) so the post is clearly grounded in what is actually being discussed.\n",
+        "5. PRESERVE SUBJECT & TOPIC ENTITIES: Do NOT strip or generalize specific names of subjects, projects, companies, or public figures. Retain the specific subject names and top trending hashtags so the post is clearly grounded in what is actually being discussed.\n",
         "=== 4 VIRAL HOOK ARCHETYPES ===",
         "- contrarian_reversal: Challenges industry dogma or common consensus with a sharp counter-intuitive truth.",
         "- asymmetric_result: Highlights an outsized return, unexpected metric, or 10x differential.",
@@ -163,12 +163,13 @@ def _build_virality_user_prompt(draft: str, goal: str = "bookmark_and_dwell") ->
         "1. Select the single best archetype from (contrarian_reversal, asymmetric_result, zero_to_hero, framework_breakdown).\n"
         "2. Craft an irresistible open-loop hook that is STRICTLY UNDER 100 CHARACTERS (<100 chars).\n"
         "3. Format the clean body with high-density numbered steps / bullet points / cheat sheet layout (NO external URLs).\n"
-        "4. PRESERVE SUBJECT NAMES & HASHTAGS: Do not remove specific names of subjects/movies/topics (e.g. 'Toxic', 'Yash') and include relevant hashtags.\n"
-        "5. Rate the bookmark-bait utility score from 1.0 to 10.0.\n\n"
+        "4. STRICT TOTAL LENGTH: The COMBINED text of hook + clean_body MUST be strictly under 250 characters total.\n"
+        "5. PRESERVE SUBJECT NAMES & HASHTAGS: Do not remove specific names of subjects/topics from the draft and include relevant hashtags.\n"
+        "6. Rate the bookmark-bait utility score from 1.0 to 10.0.\n\n"
         "Return a JSON object matching this schema:\n"
         "{\n"
         "  \"open_loop_hook\": \"Cliffhanger hook strictly <100 chars\",\n"
-        "  \"clean_body\": \"Formatted link-free body with numbered framework/bullet points\",\n"
+        "  \"clean_body\": \"Formatted link-free body (keep short so hook + body <= 250 chars total)\",\n"
         "  \"archetype\": \"contrarian_reversal | asymmetric_result | zero_to_hero | framework_breakdown\",\n"
         "  \"bookmark_score\": 8.5,\n"
         "  \"reasoning\": \"Why this hook and format drive dwell time and bookmarks\"\n"

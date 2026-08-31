@@ -15,6 +15,7 @@ import {
   Plus,
   Terminal,
   User,
+  BotMessageSquare,
 } from "lucide-react";
 
 export interface CommandPaletteAction {
@@ -73,6 +74,13 @@ export function useCommandPaletteActions() {
         category: "Navigation",
         icon: Brain,
         action: () => setActiveTab("persona"),
+      },
+      {
+        id: "nav-ai-logs",
+        label: "Go to AI Prompt Logs",
+        category: "Navigation",
+        icon: BotMessageSquare,
+        action: () => setActiveTab("ai-logs"),
       },
       {
         id: "nav-limits",

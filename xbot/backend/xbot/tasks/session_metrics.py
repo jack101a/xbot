@@ -134,7 +134,8 @@ async def audit_and_prune_misaligned_actions(
             if has_politics or has_cross_domain:
                 logger.warning("Integrity auditor flagged misaligned action %s: politics=%s, cross_domain=%s. Auto-pruning from live X...", act.id, has_politics, has_cross_domain)
                 try:
-                    await page.goto("https://x.com/jackds1234/with_replies", wait_until="domcontentloaded", timeout=25000)
+                    handle = getattr(persona, "x_handle", profile_slug).lstrip("@")
+                    await page.goto(f"https://x.com/{handle}/with_replies", wait_until="domcontentloaded", timeout=25000)
                     await tasks.sleep_think_time(2000, 4000)
                     tweets = await page.query_selector_all('[data-testid="tweet"]')
                     for tw in tweets:

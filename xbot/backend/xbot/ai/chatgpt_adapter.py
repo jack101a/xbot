@@ -134,10 +134,10 @@ class ChatGPTBridgeCompletions:
         async with _bridge_lock:
             bridge = get_chatgpt_instance()
             try:
-                res = await bridge.ask(prompt)
+                res = await asyncio.wait_for(bridge.ask(prompt), timeout=10.0)
                 text = res.get("text", "")
                 return MockChatCompletion(content=text)
-            except (AuthError, ShapeChangedError, BridgeTimeoutError) as e:
+            except (AuthError, ShapeChangedError, BridgeTimeoutError, asyncio.TimeoutError, Exception) as e:
                 logger.warning("ChatGPT bridge request error: %s", e)
                 raise RuntimeError(f"ChatGPT bridge failure: {e}") from e
 

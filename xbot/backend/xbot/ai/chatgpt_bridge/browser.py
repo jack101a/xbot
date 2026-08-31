@@ -19,14 +19,24 @@ STATE_DIR = Path(os.environ.get("CHATGPT_BRIDGE_STATE", "~/.chatgpt-bridge")).ex
 PROFILE_DIR = STATE_DIR / "profile"
 
 
+def _ensure_virtual_display() -> None:
+    """Ensures an X11 virtual display is running so Chromium can run headed without a physical monitor."""
+    if not os.environ.get("DISPLAY"):
+        try:
+            import subprocess
+            res = subprocess.run(["pgrep", "-a", "Xvfb"], capture_output=True, text=True)
+            if ":99" not in res.stdout:
+                subprocess.Popen(["Xvfb", ":99", "-screen", "0", "1920x1080x24"])
+            os.environ["DISPLAY"] = ":99"
+        except Exception:
+            pass
+
+
 class BrowserManager:
     """Launch and manage a persistent Playwright Chromium context."""
 
     def __init__(self, headless: bool = True) -> None:
-        if not os.environ.get("DISPLAY"):
-            self.headless = True
-        else:
-            self.headless = headless
+        self.headless = headless
         self._playwright: Any = None
         self._context: Any = None
 
@@ -34,31 +44,46 @@ class BrowserManager:
         """Launch the persistent context at ``PROFILE_DIR``."""
         if self._context is not None:
             return
+        _ensure_virtual_display()
         PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-        from xbot.browser.stealth import apply_stealth_to_context
-
-        launch_args = [
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-infobars",
-            "--disable-dev-shm-usage",
-            "--window-size=1280,800",
-        ]
+        # Clean up any stale singleton locks from killed processes
+        for lock_file in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+            lf = PROFILE_DIR / lock_file
+            if lf.exists() or lf.is_symlink():
+                try:
+                    lf.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        self._playwright = await async_playwright().start()
+        # If virtual display is available, run headed to bypass Cloudflare Turnstile headless detection
+        effective_headless = False if os.environ.get("DISPLAY") else self.headless
         self._context = await self._playwright.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE_DIR),
-            headless=self.headless,
-            viewport={"width": 1280, "height": 800},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            args=launch_args,
+            headless=effective_headless,
+            args=["--disable-blink-features=AutomationControlled"],
         )
-        try:
-            await apply_stealth_to_context(self._context, "Win32")
-        except Exception:
-            pass
 
     async def context(self):
-        """Return the Playwright ``BrowserContext``, starting it if needed."""
-        if self._context is None:
+        """Return the Playwright ``BrowserContext``, starting or recreating it if needed."""
+        is_active = False
+        if self._context is not None:
+            try:
+                # Check if context is still open
+                if hasattr(self._context, "is_closed"):
+                    is_active = not self._context.is_closed()
+                else:
+                    is_active = True
+            except Exception:
+                is_active = False
+
+        if not is_active:
+            self._context = None
+            if self._playwright is not None:
+                try:
+                    await self._playwright.stop()
+                except Exception:
+                    pass
+                self._playwright = None
             await self.start()
         return self._context
 

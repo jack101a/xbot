@@ -130,22 +130,23 @@ class ContentStrategyConfig(BaseModel):
 
 
 class EngagementTargets(BaseModel):
-    likes: str
-    replies: str
-    follows: str
+    likes: str = "30-50"
+    replies: str = "10-18"
+    follows: str = "5-10"
+    quotes: str = "2-4"
 
 
 class EngagementStrategyConfig(BaseModel):
-    daily_targets: EngagementTargets
+    daily_targets: EngagementTargets = Field(default_factory=EngagementTargets)
     priority_accounts: list[str] = Field(default_factory=list)
 
 
 class Strategy(BaseModel):
-    last_updated: str
+    last_updated: str = Field(default_factory=lambda: datetime.date.today().isoformat())
     review_period: str = "weekly"
-    current_focus: FocusConfig
-    content_strategy: ContentStrategyConfig
-    engagement_strategy: EngagementStrategyConfig
+    current_focus: FocusConfig = Field(default_factory=lambda: FocusConfig(primary="General Creator Growth"))
+    content_strategy: ContentStrategyConfig = Field(default_factory=lambda: ContentStrategyConfig(posting_frequency="2-3 posts per day"))
+    engagement_strategy: EngagementStrategyConfig = Field(default_factory=EngagementStrategyConfig)
     growth_observations: list[str] = Field(default_factory=list)
     adjustments: list[str] = Field(default_factory=list)
 

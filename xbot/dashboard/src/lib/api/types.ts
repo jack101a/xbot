@@ -200,3 +200,28 @@ export interface SystemConfig {
   CONTEXT_LIKE_RETWEET: string;
   CONTEXT_FOLLOW: string;
 }
+
+export interface AIPromptLogItem {
+  id: string;
+  timestamp: number;
+  iso_time: string;
+  profile_slug: string;
+  action_type: string;
+  provider: string;
+  model: string;
+  latency_ms: number;
+  status: 'success' | 'error';
+  system_prompt: string;
+  user_prompt: string;
+  other_messages?: Array<{ role: string; content: string }>;
+  response: string;
+  error_message?: string | null;
+  tokens?: number | null;
+}
+
+export interface AIPromptLogsResponse {
+  status: string;
+  count: number;
+  logs: AIPromptLogItem[];
+}
+

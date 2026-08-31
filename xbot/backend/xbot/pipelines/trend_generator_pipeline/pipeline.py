@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xbot.database import AsyncSessionLocal
-from xbot.models.content import Content, ContentType
+from xbot.models.content import Content, ContentStatus, ContentType
 from xbot.models.pipeline import PipelineRun, ResearchedTopic
 from xbot.models.profile import Profile, ProfileStatus
 from xbot.pipelines.browser_queue import BrowserJob, enqueue_browser_job, process_browser_queue

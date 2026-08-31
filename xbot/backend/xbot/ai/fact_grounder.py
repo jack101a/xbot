@@ -163,7 +163,12 @@ async def search_web_grounding(query: str, max_results: int = 4, max_age_days: i
 
 
 SOCIAL_SLANG_OR_GROWTH_REGEX = re.compile(
-    r"\b(gm|gn|lfg|f4f|mutuals?|follow\s*back|drop\s*(your\s*)?handle|say\s*yes|connect|who'?s\s*active)\b",
+    r"\b(gm|gn|good\s*morning|good\s*night|good\s*afternoon|hello\s*everyone|hey\s*all|happy\s*monday|happy\s*friday|happy\s*weekend|lfg|f4f|mutuals?|follow\s*back|drop\s*(your\s*)?(handle|links?|@)|say\s*yes|let'?s\s*connect|who'?s\s*active|boost\s*(your\s*)?profile|engage\s*with)\b",
+    re.IGNORECASE,
+)
+
+ENTITY_OR_NEWS_SIGNAL_REGEX = re.compile(
+    r"\b(apple|google|nvidia|openai|microsoft|gta|rockstar|nolan|movie|film|trailer|chip|camera|sensor|release|announced|launches|features|model|update|patch|box\s*office|directed|actor|character|series|season|engine|benchmark|gpu|cpu|ios|android|playstation|xbox|anime|one\s*piece|pewpiece|discussingfilm|mkbhd|sama)\b",
     re.IGNORECASE,
 )
 
@@ -181,21 +186,28 @@ def extract_search_query_from_text(text: str) -> str:
     clean = re.sub(r"^\[.*?\]:?", "", text).strip()
     clean = re.sub(r"^[🔥🤝💡🚀🎬🏴‍☠️💻🤖]\s*\[.*?\]:?", "", clean).strip()
 
-    # Skip generic social greetings, crypto slang, and mutuals trains
-    if len(clean.split()) <= 4 and re.search(r"^(gm|gn|good morning|good night|hello|hi|hey)\b", clean, re.IGNORECASE):
+    # If starts with greeting, strip leading greeting banter
+    clean = re.sub(r"^(gm|gn|good morning|good night|hello|hi|hey|happy monday|happy friday)\b[,\.\!\s]*", "", clean, flags=re.IGNORECASE).strip()
+
+    if not clean:
         return ""
 
-    if SOCIAL_SLANG_OR_GROWTH_REGEX.search(clean) and len(clean.split()) <= 8:
+    # Skip social banter / growth threads if no strong news or entity signal
+    if SOCIAL_SLANG_OR_GROWTH_REGEX.search(text) and not ENTITY_OR_NEWS_SIGNAL_REGEX.search(clean):
         return ""
 
-    # If short enough, use directly
-    words = clean.split()
-    if len(words) <= 12:
-        return " ".join(words)
+    # Require minimum signal: proper nouns (capitalized) or entity/news keywords
+    has_proper_nouns = bool(re.search(r"\b[A-Z][a-zA-Z0-9_]{2,}\b", clean))
+    has_entity_signal = bool(ENTITY_OR_NEWS_SIGNAL_REGEX.search(clean))
+    if not (has_proper_nouns or has_entity_signal):
+        return ""
 
-    # Otherwise take first sentence or top 10 words
+    # Take first sentence or top 8 words
     first_sentence = re.split(r"[\.\?\!\n]", clean)[0]
-    return " ".join(first_sentence.split()[:10])
+    words = first_sentence.split()
+    if len(words) <= 8:
+        return " ".join(words)
+    return " ".join(words[:8])
 
 
 async def ground_context_with_live_facts(topic_or_tweet: str, max_results: int = 3) -> str:

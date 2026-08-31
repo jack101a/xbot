@@ -70,6 +70,7 @@ async def optimize_post_for_virality(
                     {"role": "user", "content": user_prompt},
                 ],
                 response_format=_ViralHookResponse,
+                action_type="hook_optimizer",
             )
             parsed = getattr(completion.choices[0].message, "parsed", None)
             if parsed and isinstance(parsed, _ViralHookResponse):
@@ -98,6 +99,7 @@ async def optimize_post_for_virality(
                     {"role": "user", "content": user_prompt},
                 ],
                 response_format={"type": "json_object"},
+                action_type="hook_optimizer",
             )
         except Exception:
             completion = await ai_client.chat.completions.create(
@@ -106,6 +108,7 @@ async def optimize_post_for_virality(
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                action_type="hook_optimizer",
             )
 
         raw_content = getattr(completion.choices[0].message, "content", None)

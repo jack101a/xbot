@@ -46,6 +46,20 @@ async def synthesize_visual_topic(
     )
     final_hook = pkg.strip_surrounding_quotes(formatted_hook)
 
+    # If no media was scraped from popular X tweets, generate an image for the visual/meme post
+    if not media_to_attach:
+        try:
+            from xbot.ai.image_engine import generate_post_image_async
+            gen_img = await generate_post_image_async(
+                visual_spec.image_prompt or topic.topic,
+                aspect_ratio="4:5",
+                provider_preference="chatgpt",
+            )
+            if gen_img and gen_img.get("file_path"):
+                media_to_attach = [gen_img["file_path"]]
+        except Exception as img_err:
+            logger.warning("Visual topic image generation skipped: %s", img_err)
+
     content_record = Content(
         profile_id=profile.id,
         content_type=ContentType.ORIGINAL,
@@ -166,11 +180,24 @@ async def synthesize_post_topic(
     pkg: Any,
 ) -> Content:
     """Synthesizes a punchy standalone hot take."""
+    summary_parts = []
+    if getattr(topic, "summary", None):
+        summary_parts.append(f"Summary: {topic.summary}")
+    k_facts = getattr(topic, "key_facts", None)
+    if k_facts:
+        summary_parts.append("Key Facts:\n" + "\n".join(f"- {f}" for f in k_facts[:4]))
+    c_sent = getattr(topic, "community_sentiment", None)
+    if c_sent and isinstance(c_sent, dict):
+        if c_sent.get("consensus_view"):
+            summary_parts.append(f"Audience Reaction: {c_sent.get('consensus_view')}")
+    context_summary = "\n\n".join(summary_parts) if summary_parts else None
+
     synth_res = await pkg.synthesize_creator_post(
         topic=topic.topic,
         persona=persona,
         image_url=media_to_attach[0] if media_to_attach else None,
         post_type="post",
+        context_summary=context_summary,
     )
     raw_post = synth_res.content if synth_res and synth_res.content else topic.topic
 
@@ -187,7 +214,16 @@ async def synthesize_post_topic(
     )
 
     opt_res = await pkg.optimize_post_for_virality(formatted_post)
-    final_post_text = pkg.strip_surrounding_quotes(opt_res.full_optimized_text or formatted_post)
+    candidate_post_text = pkg.strip_surrounding_quotes(opt_res.full_optimized_text or formatted_post)
+    final_post_text = pkg.format_content(
+        raw_text=candidate_post_text,
+        profile_slug=profile_slug,
+        content_type="post",
+        has_media=has_media,
+        topic=topic.topic,
+        max_hard_limit=260,
+    )
+    final_post_text = pkg.strip_surrounding_quotes(final_post_text)
     extracted_link = opt_res.extracted_link
     first_reply_text = f"Link / source breakdown: {extracted_link}" if extracted_link else None
     gif_query = _detect_reaction_gif_query(final_post_text, topic.topic)

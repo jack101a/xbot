@@ -226,14 +226,11 @@ async def _fast_response_sentinel_async(base_profile_dir: Path | str | None=None
                             page = await context.new_page()
                         else:
                             page = None
-                        target_tweet_url = f'https://x.com/{thread.target_handle}/status/{thread.parent_tweet_id}'
-                        system_prompt = f"You are {persona.display_name} (@{persona.x_handle}). You are executing a fast-response conversational counter-reply on X to an active discussion turn.\nTone: {persona.writing_style.tone}\nTraits: {', '.join(persona.personality.traits)}\nRules:\n- Character length: 120-240 characters.\n- MUST end with a compelling debate-sparking question ('?') to trigger an author reply.\n- Zero AI fluff (no 'delve', 'supercharge', 'tapestry', 'testament'). Clean sentence case.\n"
-                        user_prompt = f'Conversation so far with @{thread.target_handle}:\n{json.dumps(thread.conversation_history, indent=2)}\n\nWrite an insightful in-character counter-reply that advances the discussion and ends with a question.'
+                        system_prompt = f"You are {persona.display_name} (@{persona.x_handle.lstrip('@')}). You are executing a fast-response conversational counter-reply on X to an active discussion turn.\nTone: {persona.writing_style.tone}\nTraits: {', '.join(persona.personality.traits[:4])}\nRules:\n- Concise, sharp, and natural (50-200 chars).\n- No forced questions or filler. No hashtags (#).\n- Zero AI fluff (no 'delve', 'supercharge', 'tapestry', 'testament'). Clean sentence case.\n"
+                        user_prompt = f'Conversation so far with @{thread.target_handle}:\n{json.dumps(thread.conversation_history, indent=2)}\n\nWrite an insightful, authentic in-character reply that advances the discussion naturally.'
                         client = get_ai_client()
                         completion = await client.chat.completions.create(model=settings.MODEL_REPLY_ANALYSIS, messages=[{'role': 'system', 'content': system_prompt}, {'role': 'user', 'content': user_prompt}])
                         reply_text = (completion.choices[0].message.content or '').strip()
-                        if not reply_text.endswith('?'):
-                            reply_text += " What's your take on this?"
                         success = False
                         if is_mock:
                             await asyncio.sleep(0.3)

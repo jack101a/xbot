@@ -91,22 +91,23 @@ class PostSessionProcessor:
         profile_dir = self.base_profile_dir / profile_slug
         persona = load_persona(profile_dir)
 
-        # 2. Format execution summary
+        # 2. Format execution summary (sanitized of technical bug tracebacks)
         summary_lines = [
             f"Session Status: {session.status}",
-            f"Started At: {session.started_at}",
-            f"Ended At: {session.ended_at}",
-            f"Actions Planned: {session.actions_planned}",
             f"Actions Completed: {session.actions_completed}",
-            f"Actions Failed: {session.actions_failed}",
+            f"Actions Skipped: {session.actions_failed}",
             "",
             "Actions Executed List:",
         ]
         for act in actions:
-            summary_lines.append(
-                f"- TYPE: {act.action_type.upper()} | TARGET: {act.target_url or 'None'} | "
-                f"STATUS: {act.status} | ERROR: {act.error or 'None'} | CONTENT: '{act.content or ''}'"
-            )
+            if act.status == "completed":
+                summary_lines.append(
+                    f"- TYPE: {act.action_type.upper()} | TARGET: {act.target_url or 'None'} | CONTENT: '{act.content or ''}'"
+                )
+            else:
+                summary_lines.append(
+                    f"- TYPE: {act.action_type.upper()} | STATUS: {act.status} (Skipped/Cooldown)"
+                )
         session_summary = "\n".join(summary_lines)
 
         client = get_ai_client()
@@ -114,11 +115,13 @@ class PostSessionProcessor:
         # 3. Generate Diary Entry
         system_diary_prompt = (
             f"You are {persona.display_name} (@{persona.x_handle}). Write a structured diary entry (inner monologue) "
-            f"reflecting on your recent automated X session activities.\n"
-            f"Do not break character. Use your unique writing tone: {persona.writing_style.tone}.\n\n"
+            f"reflecting on your creative creator presence and community interactions on X.\n"
+            f"Do not break character. Use your unique writing tone: {persona.writing_style.tone}.\n"
+            f"CRITICAL SAFETY RULE: You are an authentic human creator on X. NEVER mention or write about software bugs, "
+            f"Python errors, browser scripts, rate limits, cooldowns, or automation mechanics.\n\n"
             f"Persona traits: {', '.join(persona.personality.traits)}\n"
             f"Writing examples:\n"
-            + "\n".join(f"- \"{ex}\"" for ex in persona.writing_style.examples)
+            + "\n".join(f"- \"{ex}\"" for ex in persona.writing_style.examples[:3])
         )
 
         user_diary_prompt = (
@@ -191,17 +194,17 @@ class PostSessionProcessor:
             thoughts_for_next_time=diary_entry.thoughts_for_next_time,
         )
 
-        # 4. Extract Memories
+        # 4. Extract Memories (strictly ignoring software automation bugs)
         system_memory_prompt = (
             f"You are the memory manager for {persona.display_name} (@{persona.x_handle}).\n"
-            "Your job is to identify and extract episodic, semantic, or important memories from the recent session events "
-            "that are worth saving for long-term recall.\n"
-            "Focus only on significant events: interaction with users, successful posts, insights, or major milestones.\n"
-            "Discard minor, repetitive details."
+            "Your job is to identify and extract episodic, semantic, or important memories from the recent creative creator interactions.\n"
+            "Focus only on significant creator events: meaningful conversations with users, viral takes, cinema/tech observations, or audience resonance.\n"
+            "CRITICAL SAFETY RULE: You are an authentic human creator on X. NEVER extract, mention, or log internal software bugs, "
+            "Python exceptions, variable names, browser automation failures, rate limits, cooldowns, or bot mechanics."
         )
 
         user_memory_prompt = (
-            f"Recent Session Execution Summary:\n"
+            f"Recent Creative Session Summary:\n"
             f"```\n{session_summary}\n```\n\n"
             "Extract memories. Return a JSON object matching:\n"
             "{\n"
@@ -258,10 +261,22 @@ class PostSessionProcessor:
         except Exception as e:
             logger.error("Failed to extract memories: %s", e)
 
-        # Save memories
+        # Save memories with programmatic validation
+        MEMORY_BLACKLIST = (
+            "selectors", "nameerror", "importerror", "traceback", "unexpected keyword argument",
+            "cooldown active", "safety guard", "browser automation", "returned false", "status code",
+            "tweet_url", "opportunity_score", "failed due to", "code error", "technical error",
+            "browser interaction", "execution error", "name 're'"
+        )
+
         memory_mgr = MemoryManager(profile_dir)
         for mem in extracted_memories:
             try:
+                blob = f"{mem.content or ''} {mem.event or ''} {mem.fact or ''} {mem.evidence or ''}".lower()
+                if any(bad in blob for bad in MEMORY_BLACKLIST):
+                    logger.debug("Dropped technical bug memory candidate: %s", blob[:80])
+                    continue
+
                 if mem.type == "episodic":
                     if mem.event and mem.content:
                         memory_mgr.append_episodic(

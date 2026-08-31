@@ -74,6 +74,8 @@ from .trend_tasks import _check_trend_radar_async, check_trend_radar
 from .creator_sync_tasks import _sync_all_profiles_creator_studio_async, sync_all_profiles_creator_studio
 from .publish_tasks import _auto_publish_pending_drafts_async, auto_publish_pending_drafts
 from .growth_tasks import _run_growth_and_autofollowback_async, run_growth_and_autofollowback
+from xbot.pipelines.follow_growth_post_pipeline import run_follow_growth_post
+from xbot.pipelines.notification_engagement_pipeline import run_notification_engagement
 
 __all__ = [
     "redis",

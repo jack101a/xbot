@@ -148,10 +148,22 @@ class MemoryManager:
             if k not in seen_keys:
                 seen_keys.add(k)
                 deduped_candidates.append(c)
+        # Blacklist of technical bug keywords that should never enter memory context
+        MEMORY_BLACKLIST = (
+            "selectors", "nameerror", "importerror", "traceback", "unexpected keyword argument",
+            "cooldown active", "safety guard", "browser automation", "returned false", "status code",
+            "tweet_url", "opportunity_score", "failed due to", "code error", "technical error",
+            "browser interaction", "execution error", "name 're'"
+        )
 
         # 3. Filter candidates based on criteria
         filtered_memories: list[dict[str, Any]] = []
         for m in deduped_candidates:
+            # Drop any technical bug traces
+            blob = f"{m.get('content', '')} {m.get('fact', '')} {m.get('evidence', '')} {m.get('event', '')}".lower()
+            if any(bad in blob for bad in MEMORY_BLACKLIST):
+                continue
+
             importance = m.get("importance", 0.0)
 
             # Rule 1: Always keep recent episodic (they were added from recent_episodic)

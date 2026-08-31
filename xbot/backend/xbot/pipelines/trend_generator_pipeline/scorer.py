@@ -45,7 +45,7 @@ def determine_creation_format(topic: ResearchedTopic, persona: Persona | None = 
     ):
         return "thread"
 
-    # 2. Visual candidate
+    # 2. Visual candidate (explicit visual source or visual keywords)
     if topic.source == "visual" or any(kw in combined for kw in visual_keywords):
         return "visual"
 

@@ -153,12 +153,17 @@ class ContentGenerator:
 
         system_prompt = "\n".join(prompt_parts)
 
+        prompt_target = context_prompt.strip() if context_prompt and context_prompt.strip() else (settings.PROMPT_POST_CREATION or "Share an authentic, witty observation on trending technology, creator lifestyle, or cinema.")
+
+        recent_posts_block = ""
+        if recent_posts:
+            recent_posts_block = "Do not write anything similar to these recent posts of yours:\n" + "\n".join(f"- \"{p}\"" for p in recent_posts[:5]) + "\n\n"
+
         user_instruction = (
-            f"Generate a post/reply matching the context prompt:\n"
-            f"\"{context_prompt}\"\n\n"
-            f"Do not write anything similar to these recent posts of yours:\n"
-            + "\n".join(f"- \"{p}\"" for p in recent_posts)
-            + "\n\nEnsure that the generated primary text is under {max_chars} characters.\n"
+            f"Generate an authentic post/take matching this premise:\n"
+            f"\"{prompt_target}\"\n\n"
+            f"{recent_posts_block}"
+            f"Ensure that the generated primary text is strictly under {max_chars} characters.\n"
             "Return a JSON object containing:\n"
             "{\n"
             "  \"content\": {\n"

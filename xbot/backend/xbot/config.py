@@ -94,6 +94,10 @@ class Settings(BaseSettings):
     CHATGPT_BRIDGE_STATE_DIR: str = "~/.chatgpt-bridge"
     IMAGE_GENERATION_PROVIDER: str = "chatgpt,nvidia"
 
+    # AI Request & Bridge Timeouts
+    AI_REQUEST_TIMEOUT: float = 120.0
+    AI_MAX_RETRIES: int = 3
+
     # Secret key must be 32 URL-safe base64-encoded bytes for Fernet
     SECRET_KEY: str = "supersecretfernetkeyforlocaldev12="
     API_PORT: int = 8000

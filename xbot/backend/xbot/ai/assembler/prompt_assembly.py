@@ -11,69 +11,29 @@ yaml.default_flow_style = False
 
 
 def format_persona_sheet(persona: Persona) -> str:
-    """Helper to format the Persona object into a markdown character sheet."""
+    """Helper to format the Persona into a sharp, lean Creator Capsule (<120 words)."""
+    traits = ", ".join(persona.personality.traits[:4]) if persona.personality.traits else "witty, tech-literate"
+    pillars = ", ".join(persona.goals.content_pillars[:4]) if persona.goals.content_pillars else "Tech, Cinema, AI"
+    examples = persona.writing_style.examples[:3] if persona.writing_style.examples else []
+
     lines = [
-        f"Display Name: {persona.display_name}",
-        f"X Handle: {persona.x_handle}",
+        f"You are {persona.display_name} (@{persona.x_handle.lstrip('@')}), an authentic creator on X.",
+        f"VOICE & TONE: {persona.writing_style.tone or 'Sharp, self-aware wit, conversational, tech-literate'}.",
+        f"CORE TRAITS: {traits}.",
+        f"CONTENT PILLARS: {pillars}.",
         "",
-        "## Identity",
-        f"- Age: {persona.identity.age or 'Unknown'}",
-        f"- Location: {persona.identity.location or 'Unknown'}",
-        f"- Occupation: {persona.identity.occupation or 'Unknown'}",
-        f"- Education: {persona.identity.education or 'Unknown'}",
-        f"- Background: {persona.identity.background}",
-        "",
-        "## Personality",
-        f"- Traits: {', '.join(persona.personality.traits)}",
-        f"- Values: {', '.join(persona.personality.values)}",
-        f"- Communication Style: {persona.personality.communication_style}",
-        "",
-        "## Interests",
-        f"- Primary Interests: {', '.join(persona.interests.primary)}",
-        f"- Secondary Interests: {', '.join(persona.interests.secondary)}",
-        f"- Will Not Discuss: {', '.join(persona.interests.will_not_discuss)}",
-        "",
-        "## Writing Style",
-        f"- Tone: {persona.writing_style.tone}",
-        f"- Typical Length: {persona.writing_style.typical_length}",
-        "- Formatting Rules:",
+        "REPRESENTATIVE VOICE EXAMPLES:",
     ]
-    for fmt in persona.writing_style.formatting:
-        lines.append(f"  * {fmt}")
-
-    lines.append("- Writing Examples:")
-    for ex in persona.writing_style.examples:
-        lines.append(f"  * \"{ex}\"")
+    for ex in examples:
+        lines.append(f"- \"{ex}\"")
 
     lines.extend([
         "",
-        "## Goals & Content Pillars",
-        "- Short Term Goals:",
-    ])
-    for goal in persona.goals.short_term:
-        lines.append(f"  * {goal}")
-    lines.append("- Long Term Goals:")
-    for goal in persona.goals.long_term:
-        lines.append(f"  * {goal}")
-    lines.append("- Content Pillars:")
-    for pillar in persona.goals.content_pillars:
-        lines.append(f"  * {pillar}")
-
-    lines.extend([
-        "",
-        "## Rules of Engagement",
-        "- Always Do:",
-    ])
-    for rule in persona.rules.always:
-        lines.append(f"  * {rule}")
-    lines.append("- Never Do:")
-    for rule in persona.rules.never:
-        lines.append(f"  * {rule}")
-
-    lines.extend([
-        "",
-        "## 🚫 GLOBAL SYSTEM-WIDE SAFETY DIRECTIVE (MANDATORY ACROSS ALL PERSONAS & ACCOUNTS)",
-        "- ABSOLUTE ZERO TOLERANCE FOR INDIAN POLITICS: You are STRICTLY FORBIDDEN from discussing, mentioning, debating, liking, quoting, or joking about ANY Indian political parties, politicians, elections, policies, or controversies (STRICTLY BANNED: BJP, Congress, AAP, Modi, Narendra Modi, Rahul Gandhi, Kejriwal, Amit Shah, Yogi, Hindutva, RSS, Lok Sabha, Indian government). This applies globally to all personas, tools, and actions without exception.",
+        "CRITICAL RULES:",
+        "- Double-spacing between lines (\\n\\n) for mobile pacing.",
+        "- No corporate AI buzzwords (delve, tapestry, supercharge, beacon).",
+        "- Strictly 0 hashtags in replies. Max 1-2 authentic hashtags in standalone posts.",
+        "- Strictly 0 Indian political commentary.",
     ])
 
     return "\n".join(lines)
@@ -128,26 +88,17 @@ class AssembledContext(BaseModel):
 
     def render_user_prompt(self, feed_snapshot_str: str | None = None) -> str:
         """
-        Renders the user prompt context for session planning.
+        Renders the concise user prompt context for session planning.
         """
         feed_content = feed_snapshot_str or "No active feed snapshot available."
         return (
-            f"## Your Current State\n"
-            f"- Local Time: {self.current_time}\n"
-            f"- Account age: {self.account_age_days} days\n"
-            f"- Followers: {self.followers_count} | Following: {self.following_count}\n"
-            f"- Today's actions so far:\n{self.today_actions_summary}\n\n"
-            f"## 📜 Recently Created Posts & Drafts (DO NOT DUPLICATE)\n"
+            f"## Session Context ({self.current_time})\n"
+            f"- Daily Activity: {self.today_actions_summary}\n\n"
+            f"## 📜 Recent Posts (DO NOT REPEAT TOPICS):\n"
             f"{self.recent_content_summary}\n\n"
-            f"## High-Reciprocity Blue Tick Follow Candidates (Queue)\n"
-            f"{self.blue_tick_candidates_summary}\n\n"
-            f"## Your Active Memories\n"
+            f"## Active Creator Memories:\n"
             f"{self.active_memories}\n\n"
-            f"## Your Strategy\n"
-            f"```yaml\n"
-            f"{self._render_strategy_yaml()}\n"
-            f"```\n\n"
-            f"## Current Feed Snapshot\n"
+            f"## Live Feed Opportunities & Trends:\n"
             f"{feed_content}"
         )
 

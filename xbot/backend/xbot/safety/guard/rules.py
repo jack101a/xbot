@@ -13,12 +13,14 @@ logger = logging.getLogger(__name__)
 # Base Limits as defined in Section 9.2
 # Action type -> (hourly_cap, daily_cap)
 BASE_LIMITS: dict[str, tuple[int, int]] = {
-    "post": (3, 15),
-    "reply": (5, 30),
-    "like": (10, 50),
-    "retweet": (3, 15),
-    "quote": (2, 10),
-    "follow": (3, 15),
+    "post": (5, 30),
+    "growth_post": (2, 24),
+    "reply": (15, 60),
+    "like": (25, 120),
+    "retweet": (5, 25),
+    "quote": (5, 20),
+    "follow": (10, 50),
+    "unfollow": (10, 50),
 }
 
 

@@ -17,6 +17,7 @@ from xbot.browser.actions.follow_scrape_action import ScrapeFollowList, HarvestF
 from xbot.browser.actions.feed_action import BrowseFeed, SearchQuery
 from xbot.browser.actions.metrics_action import ScrapeProfileMetrics, ScrapeTrends
 from xbot.browser.actions.metrics_scrape_action import ScrapeProfileTweets, ScrapeCreatorStudioMetrics
+from xbot.browser.actions.notification_action import ScrapeNotifications, NotificationItem
 
 __all__ = [
     "BaseAction",
@@ -54,5 +55,7 @@ __all__ = [
     "ScrapeProfileMetrics",
     "ScrapeTrends",
     "ScrapeProfileTweets",
-    "ScrapeCreatorStudioMetrics"
+    "ScrapeCreatorStudioMetrics",
+    "ScrapeNotifications",
+    "NotificationItem",
 ]

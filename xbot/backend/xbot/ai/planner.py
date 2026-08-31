@@ -156,15 +156,18 @@ async def plan_session(
 
     # 4. Call LLM
     client = get_ai_client()
+    planner_model = getattr(settings, "MODEL_PLANNER", settings.MODEL_TREND_ANALYSIS)
     try:
         # Attempt to use structured parsing if supported by primary model
         completion = await client.beta.chat.completions.parse(
-            model=settings.MODEL_TREND_ANALYSIS,
+            model=planner_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             response_format=SessionPlanResponse,
+            action_type="session_planner",
+            profile_slug=profile_slug,
         )
         response_obj = completion.choices[0].message.parsed
         if response_obj and response_obj.session_plan:
@@ -178,12 +181,14 @@ async def plan_session(
 
         # Fallback to standard chat completions
         completion = await client.chat.completions.create(
-            model=settings.MODEL_TREND_ANALYSIS,
+            model=planner_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             response_format={"type": "json_object"},
+            action_type="session_planner",
+            profile_slug=profile_slug,
         )
         raw_text = completion.choices[0].message.content or ""
 

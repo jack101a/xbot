@@ -59,7 +59,14 @@ async def execute_kol_sniper_replies(
     if persona and hasattr(persona, "kol_channels") and persona.kol_channels:
         active_channels = {ch.name for ch in persona.kol_channels if getattr(ch, "is_active", True)}
 
-    for kol in target_kols:
+    # Rotate and sample up to 4 active KOLs per cycle to keep pipeline latency under 30s
+    candidate_kols = list(target_kols)
+    if len(candidate_kols) > 4:
+        import random
+        random.shuffle(candidate_kols)
+        candidate_kols = candidate_kols[:4]
+
+    for kol in candidate_kols:
         if replies_count >= max_replies:
             break
 

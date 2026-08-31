@@ -182,30 +182,36 @@ async def run_trend_researcher_for_profile(
             report = await research_topic_comprehensively(
                 topic=topic_title,
                 profile_slug=profile_slug,
-                max_posts=25,
+                max_tweets=25,
             )
 
-            if report and report.viral_posts:
+            if report and (getattr(report, "viral_tweets", None) or getattr(report, "summary", None)):
+                tweets_list = getattr(report, "viral_tweets", []) or getattr(report, "viral_posts", [])
                 scraped_posts_data = [
                     {
-                        "tweet_id": p.tweet_id,
-                        "author": p.author,
-                        "text": p.text,
-                        "likes": p.likes,
-                        "retweets": p.retweets,
-                        "replies": p.replies,
-                        "views": p.views,
-                        "media_urls": p.media_urls,
+                        "tweet_id": getattr(p, "tweet_url", "") or getattr(p, "tweet_id", ""),
+                        "author": getattr(p, "author", "") or getattr(p, "handle", ""),
+                        "text": getattr(p, "text", ""),
+                        "likes": getattr(p, "likes", 0),
+                        "retweets": getattr(p, "retweets", 0),
+                        "replies": getattr(p, "replies", 0),
+                        "views": getattr(p, "views", 0),
+                        "media_urls": getattr(p, "media_urls", []),
                     }
-                    for p in report.viral_posts
+                    for p in tweets_list
                 ]
-                media_file_paths = [m.file_path for m in report.downloaded_media if m.file_path]
+                dl_media = getattr(report, "downloaded_media", [])
+                media_file_paths = [
+                    getattr(m, "local_path", getattr(m, "file_path", None))
+                    for m in dl_media
+                    if getattr(m, "local_path", getattr(m, "file_path", None))
+                ]
 
                 # Store in ResearchedTopic table
                 db_topic = ResearchedTopic(
                     profile_id=profile.id,
                     topic=topic_title,
-                    summary=report.synthesis_summary or item.get("summary"),
+                    summary=getattr(report, "summary", None) or getattr(report, "synthesis_summary", None) or item.get("summary"),
                     source=item.get("source", "x_search"),
                     scraped_posts=scraped_posts_data,
                     media_paths=media_file_paths,
@@ -215,8 +221,8 @@ async def run_trend_researcher_for_profile(
                 db.add(db_topic)
                 await db.commit()
 
-                # Mark dedup in Redis (6 hour TTL)
-                r.set(dedup_key, "1", ex=21600)
+                # Mark dedup in Redis (24 hour TTL)
+                r.set(dedup_key, "1", ex=86400)
                 researched_count += 1
                 researched_titles.append(topic_title)
 
