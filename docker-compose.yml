@@ -18,6 +18,7 @@ services:
     restart: unless-stopped
     ports:
       - "8200:8200"
+    shm_size: "512mb"
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
@@ -37,8 +38,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.5"
-          memory: 300M
+          cpus: "1.0"
+          memory: 800M
 
   worker:
     image: ghcr.io/jack101a/xbot-worker:latest
