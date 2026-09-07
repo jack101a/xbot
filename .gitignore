@@ -110,3 +110,4 @@ Thumbs.db
 .superpowers/
 .playwright/
 .claude/
+scripts/call_kimi_orchestrator.py
