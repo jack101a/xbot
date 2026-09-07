@@ -48,13 +48,14 @@ yaml.default_flow_style = False
 
 def load_persona(profile_dir: Path | str) -> Persona:
     """Loads persona.yaml from the given profile directory, slug, or direct file path."""
+    from xbot.config import settings
     p = Path(profile_dir)
     if not p.exists():
-        candidate = Path("/home/ubuntu/projects/xbot/data/profiles") / p
+        candidate = Path(settings.BASE_PROFILE_DIR) / p
         if candidate.exists():
             p = candidate
         else:
-            candidate_file = Path("/home/ubuntu/projects/xbot/data/profiles") / p / "persona.yaml"
+            candidate_file = Path(settings.BASE_PROFILE_DIR) / p / "persona.yaml"
             if candidate_file.exists():
                 p = candidate_file
 
@@ -71,9 +72,10 @@ def load_persona(profile_dir: Path | str) -> Persona:
 
 def profile_is_launchable(profile_dir: Path | str) -> bool:
     """Returns True if the profile directory exists and contains persona.yaml and storage_state.json."""
+    from xbot.config import settings
     p = Path(profile_dir)
     if not p.exists():
-        candidate = Path("/home/ubuntu/projects/xbot/data/profiles") / p
+        candidate = Path(settings.BASE_PROFILE_DIR) / p
         if candidate.exists():
             p = candidate
         else:
@@ -83,9 +85,15 @@ def profile_is_launchable(profile_dir: Path | str) -> bool:
     return persona_path.is_file() and storage_path.is_file()
 
 
-def load_config(profile_dir: Path) -> Config:
+def load_config(profile_dir: Path | str) -> Config:
     """Loads config.yaml from the given profile directory."""
-    path = profile_dir / "config.yaml"
+    from xbot.config import settings
+    p = Path(profile_dir)
+    if not p.exists():
+        candidate = Path(settings.BASE_PROFILE_DIR) / p
+        if candidate.exists():
+            p = candidate
+    path = p / "config.yaml" if p.is_dir() else p
     if not path.exists():
         return Config()
     with path.open(encoding="utf-8") as f:

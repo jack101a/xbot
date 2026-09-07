@@ -176,8 +176,8 @@ async def _fast_response_sentinel_async(base_profile_dir: Path | str | None=None
     Captures the open-source X algorithm's +150x reply_engaged_by_author multiplier.
     """
     r = redis.from_url(settings.REDIS_URL)
-    base_dir = Path(base_profile_dir) if base_profile_dir else Path('/home/ubuntu/projects/xbot/data/profiles')
-    manager = BrowserManager()
+    base_dir = Path(base_profile_dir or settings.BASE_PROFILE_DIR)
+    manager = BrowserManager(base_profile_dir=base_dir)
     await manager.start()
     total_threads_checked = 0
     replies_posted = 0

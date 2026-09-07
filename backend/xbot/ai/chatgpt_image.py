@@ -38,7 +38,8 @@ async def generate_and_save_chatgpt_image_async(
     
     Returns the absolute path to the saved PNG image.
     """
-    target_dir = Path(output_dir) if output_dir else Path("/home/ubuntu/projects/xbot/data/media")
+    from xbot.config import settings
+    target_dir = Path(output_dir) if output_dir else (Path(settings.BASE_PROFILE_DIR).parent / "media")
     target_dir.mkdir(parents=True, exist_ok=True)
 
     # Format visual prompt with explicit framing instructions

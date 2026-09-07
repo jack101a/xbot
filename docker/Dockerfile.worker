@@ -24,4 +24,4 @@ COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["celery", "-A", "xbot.celery_app", "worker", "--beat", "-Q", "celery,browser", "--concurrency=1", "--loglevel=info"]
+CMD ["celery", "-A", "xbot.celery_app", "worker", "--beat", "-Q", "celery,browser,publish", "--concurrency=1", "--loglevel=info"]

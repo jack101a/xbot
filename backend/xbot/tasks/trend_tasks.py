@@ -35,7 +35,7 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
     and stages approved content into the Content database table with Redis deduplication.
     """
     r = tasks.redis.from_url(settings.REDIS_URL)
-    base_dir = Path(base_profile_dir) if base_profile_dir else Path("/home/ubuntu/projects/xbot/data/profiles")
+    base_dir = Path(base_profile_dir or settings.BASE_PROFILE_DIR)
 
     total_profiles = 0
     items_scanned = 0

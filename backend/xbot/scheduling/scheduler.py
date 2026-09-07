@@ -124,7 +124,7 @@ def save_daily_schedule_to_redis(
 async def check_and_trigger_schedules(
     db: AsyncSession,
     now_utc: datetime.datetime | None = None,
-    base_profile_dir: str = "/home/ubuntu/projects/xbot/data/profiles",
+    base_profile_dir: str | Path | None = None,
 ) -> None:
     """
     Called every 60s by Celery Beat:
@@ -134,6 +134,8 @@ async def check_and_trigger_schedules(
     """
     if now_utc is None:
         now_utc = datetime.datetime.utcnow()
+
+    base_dir = Path(base_profile_dir or settings.BASE_PROFILE_DIR)
 
     r = redis.from_url(settings.REDIS_URL)
     if r.get("system:paused") == b"1":
@@ -146,8 +148,9 @@ async def check_and_trigger_schedules(
     active_profiles = res.scalars().all()
 
     for profile in active_profiles:
-        profile_dir = Path(base_profile_dir) / profile.profile_slug
+        profile_dir = base_dir / profile.profile_slug
         if not profile_dir.exists():
+            logger.warning("Profile directory not found: %s", profile_dir)
             continue
 
         # Load config to get timezone & natural parameters

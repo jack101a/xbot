@@ -281,7 +281,7 @@ async def generate_and_save_nvidia_image_async(
     )
 
     # Resolve output directory
-    target_dir = Path(output_dir) if output_dir else Path("/home/ubuntu/projects/xbot/data/media")
+    target_dir = Path(output_dir) if output_dir else (Path(settings.BASE_PROFILE_DIR).parent / "media")
     target_dir.mkdir(parents=True, exist_ok=True)
 
     if not filename:

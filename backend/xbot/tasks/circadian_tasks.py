@@ -62,6 +62,6 @@ def check_schedules() -> None:
 
     async def _runner() -> None:
         async with AsyncSessionLocal() as db:
-            await check_and_trigger_schedules(db)
+            await check_and_trigger_schedules(db, base_profile_dir=settings.BASE_PROFILE_DIR)
 
     asyncio.run(_runner())

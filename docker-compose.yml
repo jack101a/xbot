@@ -44,6 +44,7 @@ services:
   worker:
     image: ghcr.io/jack101a/xbot-worker:latest
     restart: unless-stopped
+    command: ["celery", "-A", "xbot.celery_app", "worker", "--beat", "-Q", "celery,browser,publish", "--concurrency=1", "--loglevel=info"]
     shm_size: "512mb"
     environment:
       - PUID=${PUID}

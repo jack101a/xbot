@@ -36,11 +36,11 @@ class SafetyGuard:
     def __init__(
         self,
         redis_url: str | None = None,
-        base_profile_dir: str = "/home/ubuntu/projects/xbot/data/profiles",
+        base_profile_dir: str | Path | None = None,
     ) -> None:
         self.r = redis.from_url(redis_url or settings.REDIS_URL)
         self.limiter = SlidingWindowLimiter(redis_url)
-        self.base_profile_dir = Path(base_profile_dir)
+        self.base_profile_dir = Path(base_profile_dir or settings.BASE_PROFILE_DIR)
 
     def get_warmup_multiplier(
         self, created_at: datetime.datetime, now_utc: datetime.datetime

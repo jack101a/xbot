@@ -186,9 +186,11 @@ async def audit_and_prune_misaligned_actions(
 def clean_temp_storage_and_logs() -> None:
     """Prunes temporary media and log files older than 7 days."""
     try:
+        from xbot.config import settings
+        base_data = Path(settings.BASE_PROFILE_DIR).parent
         temp_storage_dirs = [
-            Path("/home/ubuntu/projects/xbot/data/temp_media"),
-            Path("/home/ubuntu/projects/xbot/backend/logs"),
+            base_data / "temp_media",
+            base_data / "logs",
         ]
         now_ts = datetime.datetime.utcnow().timestamp()
         cutoff_7d = now_ts - (7 * 86400)

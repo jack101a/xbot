@@ -16,9 +16,13 @@ class BaseAction:
 
     def __init__(
         self,
-        screenshot_dir: str = "/home/ubuntu/projects/xbot/data/screenshots",
+        screenshot_dir: str | Path | None = None,
     ) -> None:
-        self.screenshot_dir = Path(screenshot_dir)
+        from xbot.config import settings
+        if screenshot_dir is None:
+            self.screenshot_dir = Path(settings.BASE_PROFILE_DIR).parent / "screenshots"
+        else:
+            self.screenshot_dir = Path(screenshot_dir)
         self.screenshot_dir.mkdir(parents=True, exist_ok=True)
 
     async def capture_failure(self, page: Page, action_name: str) -> str:

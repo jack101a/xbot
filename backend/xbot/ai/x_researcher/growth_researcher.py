@@ -26,7 +26,9 @@ from xbot.ai.x_researcher.extractor import download_viral_media
 
 logger = logging.getLogger(__name__)
 
-INSIGHTS_FILE = Path("/home/ubuntu/projects/xbot/data/growth_insights.json")
+from xbot.config import settings
+
+INSIGHTS_FILE = Path(settings.BASE_PROFILE_DIR).parent / "growth_insights.json"
 DEFAULT_GROWTH_QUERIES = [
     "follow for follow",
     "followers growth",

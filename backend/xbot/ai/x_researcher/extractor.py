@@ -9,9 +9,11 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, Field
 
+from xbot.config import settings
+
 logger = logging.getLogger(__name__)
 
-MEDIA_STORAGE_DIR = Path("/home/ubuntu/projects/xbot/data/media/threads")
+MEDIA_STORAGE_DIR = Path(settings.BASE_PROFILE_DIR).parent / "media" / "threads"
 MEDIA_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
