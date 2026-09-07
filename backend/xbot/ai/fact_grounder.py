@@ -103,7 +103,10 @@ async def search_web_grounding(query: str, max_results: int = 4, max_age_days: i
     # 2. Secondary Fallback: DDGS live web search with timelimit='w' (past week)
     try:
         def _ddgs_run():
-            from ddgs import DDGS
+            try:
+                from duckduckgo_search import DDGS
+            except ImportError:
+                from ddgs import DDGS
             with DDGS() as ddgs:
                 return list(ddgs.text(clean_query, timelimit="w", max_results=max_results))
 

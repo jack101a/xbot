@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql+asyncpg://xbot:xbot@localhost:5432/xbot"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./data/xbot.db"
     REDIS_URL: str = "redis://localhost:6379/0"
     BASE_PROFILE_DIR: str = "/home/ubuntu/projects/xbot/data/profiles"
     LITELLM_BASE_URL: str = "http://localhost:4000"
@@ -105,7 +105,7 @@ class Settings(BaseSettings):
     WEBHOOK_URL: str | None = None
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "/app/data/.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )

@@ -7,6 +7,8 @@ services:
     command: redis-server --save "" --appendonly no --maxmemory 48mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
+    environment:
+      - TZ=${TZ}
     deploy:
       resources:
         limits:
@@ -22,6 +24,9 @@ services:
     ports:
       - "8200:8200"
     environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
       - BASE_PROFILE_DIR=/app/data/profiles
@@ -29,7 +34,7 @@ services:
       - path: .env
         required: false
     volumes:
-      - ./data:/app/data
+      - ${CONFIG_PATH}/xbot:/app/data
     depends_on:
       - redis
     deploy:
@@ -46,6 +51,9 @@ services:
     restart: unless-stopped
     shm_size: "512mb"
     environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
       - BASE_PROFILE_DIR=/app/data/profiles
@@ -53,7 +61,7 @@ services:
       - path: .env
         required: false
     volumes:
-      - ./data:/app/data
+      - ${CONFIG_PATH}/xbot:/app/data
     depends_on:
       - redis
       - backend
@@ -71,6 +79,8 @@ services:
     restart: unless-stopped
     ports:
       - "3002:3002"
+    environment:
+      - TZ=${TZ}
     depends_on:
       - backend
     deploy:

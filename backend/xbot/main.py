@@ -32,7 +32,7 @@ async def _background_growth_scheduler_loop() -> None:
     # Initial startup delay (5s) to allow servers to stabilize
     await asyncio.sleep(5)
 
-    base_profiles_dir = Path(__file__).resolve().parent.parent.parent / "data" / "profiles"
+    base_profiles_dir = Path(settings.BASE_PROFILE_DIR)
 
     while True:
         try:

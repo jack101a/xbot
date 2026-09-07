@@ -74,9 +74,9 @@ class BrowserManager:
     """
 
     def __init__(
-        self, base_profile_dir: str = "/home/ubuntu/projects/xbot/data/profiles"
+        self, base_profile_dir: str | None = None
     ) -> None:
-        self.base_profile_dir = Path(base_profile_dir)
+        self.base_profile_dir = Path(base_profile_dir or settings.BASE_PROFILE_DIR)
         self.playwright: Playwright | None = None
         self._redis_client = redis.from_url(settings.REDIS_URL)
 

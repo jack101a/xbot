@@ -1,0 +1,42 @@
+last_updated: "2026-08-30"
+content_strategy:
+  posting_frequency: 2-3 posts per day
+  best_times:
+  - 09:30
+  - 13:30
+  - 18:45
+  - 21:30
+  top_performing_topics:
+  - Cinema & prestige entertainment (directors, IMAX, box office)
+  - Consumer tech & AI developer tools (smartphones, cameras, LLM tools)
+  - Relatable creator life & internet culture dilemmas
+  - Anime & pop-culture community discussions (One Piece, animation)
+  underperforming_topics:
+  - Generic motivational quotes
+  - Mundane coffee/tea routines or diary logs
+  - Corporate marketing jargon
+engagement_strategy:
+  daily_targets:
+    replies: 10-18
+    quotes: 2-4
+    likes: 30-50
+    follows: 5-10
+  priority_accounts:
+  - '@DiscussingFilm'
+  - '@MKBHD'
+  - '@Dave2D'
+  - '@pewpiece'
+  - '@sama'
+  - '@theo'
+  - '@CultureCrave'
+  growth_observations:
+  - Sharp, contrarian takes on movie releases and tech launches drive peak 
+    profile visits.
+  - Zero-emoji deadpan humor and relatable creator dilemmas yield highest reply 
+    depth.
+  - Fast sniper replies on verified creator threads convert audience to 
+    followers rapidly.
+current_focus:
+  primary: Authority building in Cinema, Consumer Tech & AI/Dev culture
+  secondary: High-retention Sniper Replies on top creator accounts
+review_period: weekly

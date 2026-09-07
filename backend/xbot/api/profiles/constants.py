@@ -9,6 +9,7 @@ yaml = YAML(typ="safe")
 yaml.default_flow_style = False
 
 router = APIRouter(prefix="/profiles", tags=["Profiles"])
+from xbot.config import settings
 
-BASE_PROFILE_DIR = "/home/ubuntu/projects/xbot/data/profiles"
+BASE_PROFILE_DIR = settings.BASE_PROFILE_DIR
 

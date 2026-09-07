@@ -1,0 +1,18 @@
+credentials: null
+limits:
+  cooldown_seconds: 30
+  max_follows_per_day: 80
+  max_likes_per_day: 180
+  max_posts_per_day: 50
+  max_replies_per_day: 100
+  safety_mode: normal
+  warmup_enabled: 0
+mock_mode: false
+proxy_url: null
+require_post_approval: false
+schedule:
+  active_hours: 00:00-23:59
+  interval_minutes: 20
+  max_sessions_per_day: 48
+  min_sessions_per_day: 12
+  timezone: Asia/Kolkata
