@@ -5,8 +5,6 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: redis-server --save "" --appendonly no --maxmemory 48mb --maxmemory-policy allkeys-lru
-    ports:
-      - "6379:6379"
     environment:
       - TZ=${TZ}
     deploy:
@@ -17,9 +15,6 @@ services:
 
   backend:
     image: ghcr.io/jack101a/xbot-api:latest
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.api
     restart: unless-stopped
     ports:
       - "8200:8200"
@@ -47,9 +42,6 @@ services:
 
   worker:
     image: ghcr.io/jack101a/xbot-worker:latest
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.worker
     restart: unless-stopped
     shm_size: "512mb"
     environment:
@@ -77,9 +69,6 @@ services:
 
   dashboard:
     image: ghcr.io/jack101a/xbot-dashboard:latest
-    build:
-      context: ./dashboard
-      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "3002:3002"

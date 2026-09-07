@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xbot.models.profile import Profile
+from xbot.config import settings
 from xbot.persona import (
     load_config,
     load_persona,
@@ -40,9 +41,9 @@ class ContextAssembler:
     """
 
     def __init__(
-        self, base_profile_dir: str = "/home/ubuntu/projects/xbot/data/profiles"
+        self, base_profile_dir: str | None = None
     ) -> None:
-        self.base_profile_dir = Path(base_profile_dir)
+        self.base_profile_dir = Path(base_profile_dir or settings.BASE_PROFILE_DIR)
 
     async def assemble(
         self,

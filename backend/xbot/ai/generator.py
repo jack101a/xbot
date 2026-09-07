@@ -40,10 +40,10 @@ class ContentGenerator:
 
     def __init__(
         self,
-        base_profile_dir: str = "/home/ubuntu/projects/xbot/data/profiles",
+        base_profile_dir: str | None = None,
         client: Any | None = None,
     ) -> None:
-        self.base_profile_dir = Path(base_profile_dir)
+        self.base_profile_dir = Path(base_profile_dir or settings.BASE_PROFILE_DIR)
         self.client = client
 
     async def generate_content(

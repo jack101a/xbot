@@ -43,12 +43,13 @@ async def plan_session(
     feed_snapshot: list[dict[str, Any]] | None = None,
     now_utc: datetime.datetime | None = None,
     token_budget: int = 4000,
-    base_profile_dir: str = "/home/ubuntu/projects/xbot/data/profiles",
+    base_profile_dir: str | None = None,
 ) -> SessionPlan:
     """
     Assembles context, constructs planning prompts, calls the primary LLM,
     and returns a validated SessionPlan.
     """
+    base_profile_dir = base_profile_dir or settings.BASE_PROFILE_DIR
     if now_utc is None:
         now_utc = datetime.datetime.utcnow()
 
