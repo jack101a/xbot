@@ -1,0 +1,31 @@
+# Multi-stage build for FastAPI backend
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+RUN pip install --no-cache-dir uv
+
+COPY backend/pyproject.toml .
+RUN uv venv /opt/venv && \
+    VIRTUAL_ENV=/opt/venv uv pip install --no-cache -r pyproject.toml
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+
+# Copy backend application code
+COPY backend/ .
+
+EXPOSE 8200
+
+CMD ["uvicorn", "xbot.main:app", "--host", "0.0.0.0", "--port", "8200"]

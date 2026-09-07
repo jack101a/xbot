@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: var(--bg-background);
+  --color-surface: var(--bg-surface);
+  --color-border-default: var(--border-default);
+  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-heading: var(--font-outfit), var(--font-inter), sans-serif;
+}
+
+:root {
+  /* Light Mode */
+  --bg-background: #f8fafc; /* slate-50 */
+  --bg-surface: #ffffff;
+  --border-default: #e2e8f0; /* slate-200 */
+}
+
+.dark {
+  /* Dark Mode */
+  --bg-background: #020617; /* slate-950 */
+  --bg-surface: #0f172a; /* slate-900 */
+  --border-default: #1e293b; /* slate-800 */
+}
+
+body {
+  background-color: var(--bg-background);
+  color: #0f172a;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.dark body {
+  color: #f8fafc;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.4);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Safe Area Insets for Mobile Devices (iPhone notch, Home Bar, Android Navigation Bar) */
+.pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 16px));
+}
+.pt-safe {
+  padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
+}
+
+/* Mobile Touch & Scroll Hygiene */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent unwanted iOS Safari form input auto-zoom when tapping inputs */
+@media (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Smooth momentum touch scrolling for mobile devices */
+.touch-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+

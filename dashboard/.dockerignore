@@ -1,0 +1,10 @@
+node_modules
+.next
+out
+.git
+*.log
+.env*
+tsconfig.tsbuildinfo
+*.py
+temp.txt
+refactor.ts

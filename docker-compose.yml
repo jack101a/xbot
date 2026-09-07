@@ -1,0 +1,80 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save "" --appendonly no --maxmemory 48mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M
+
+  backend:
+    image: ghcr.io/jack101a/xbot-api:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
+      - BASE_PROFILE_DIR=/app/data/profiles
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 300M
+
+  worker:
+    image: ghcr.io/jack101a/xbot-worker:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    restart: unless-stopped
+    shm_size: "512mb"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
+      - BASE_PROFILE_DIR=/app/data/profiles
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - redis
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1200M
+
+  dashboard:
+    image: ghcr.io/jack101a/xbot-dashboard:latest
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    depends_on:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 64M

@@ -1,0 +1,22 @@
+# Celery worker with Playwright Chromium support for dual architectures (amd64 and arm64)
+FROM mcr.microsoft.com/playwright/python:v1.42.0-jammy
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+RUN pip install --no-cache-dir uv
+
+COPY backend/pyproject.toml .
+RUN uv venv /opt/venv && \
+    VIRTUAL_ENV=/opt/venv uv pip install --no-cache -r pyproject.toml
+
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Ensure Chromium browser binary matches the installed Playwright library
+RUN playwright install chromium
+
+COPY backend/ .
+
+CMD ["celery", "-A", "xbot.celery_app", "worker", "--beat", "-Q", "celery,browser", "--concurrency=1", "--loglevel=info"]
