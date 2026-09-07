@@ -69,11 +69,23 @@ class SyncProfileFromX(BaseAction):
                 logger.warning("X session challenge detected for @%s at %s", clean_username, current_url)
                 return self._empty_result(clean_username, status="challenged")
 
+            # Wait for primary column or navigation to hydrate
+            try:
+                await page.wait_for_selector(
+                    '[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="AppTabBar_Profile_Link"], [data-testid="primaryColumn"], [data-testid="loginButton"]',
+                    timeout=8000,
+                )
+            except Exception:
+                pass
+
             # 2. Detect Authentication Status & Logged-In Account Info
             auth_indicator = await page.query_selector(
                 '[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="AppTabBar_Profile_Link"], [data-testid="SideNav_NewTweet_Button"]'
             )
-            is_authenticated = auth_indicator is not None
+            login_indicator = await page.query_selector(
+                '[data-testid="loginButton"], a[href="/login"]'
+            )
+            is_authenticated = (auth_indicator is not None) and (login_indicator is None)
             status = "authenticated" if is_authenticated else "logged_out"
 
             # 3. Extract Avatar URL

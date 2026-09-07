@@ -1,5 +1,5 @@
-# Multi-stage build for FastAPI backend
-FROM python:3.11-slim AS builder
+# FastAPI backend with Playwright Chromium support for dual architectures (amd64 and arm64)
+FROM mcr.microsoft.com/playwright/python:v1.42.0-jammy
 
 WORKDIR /app
 
@@ -12,18 +12,11 @@ COPY backend/pyproject.toml .
 RUN uv venv /opt/venv && \
     VIRTUAL_ENV=/opt/venv uv pip install --no-cache -r pyproject.toml
 
-FROM python:3.11-slim
-
-WORKDIR /app
-
 ENV PATH="/opt/venv/bin:$PATH"
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
 
-# Copy virtual environment from builder
-COPY --from=builder /opt/venv /opt/venv
+# Ensure Chromium browser binary matches the installed Playwright library
+RUN playwright install chromium
 
-# Copy backend application code
 COPY backend/ .
 
 # Copy entrypoint script
