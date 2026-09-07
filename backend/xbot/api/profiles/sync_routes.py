@@ -80,12 +80,17 @@ async def sync_profile_from_x_endpoint(
 
     from datetime import date, datetime
     today = date.today()
-    snap_stmt = select(AnalyticsSnapshot).where(
-        AnalyticsSnapshot.profile_id == db_profile.id,
-        AnalyticsSnapshot.snapshot_date == today,
+    snap_stmt = (
+        select(AnalyticsSnapshot)
+        .where(
+            AnalyticsSnapshot.profile_id == db_profile.id,
+            AnalyticsSnapshot.snapshot_date == today,
+        )
+        .order_by(AnalyticsSnapshot.captured_at.desc())
+        .limit(1)
     )
     snap_res = await db.execute(snap_stmt)
-    snap = snap_res.scalar_one_or_none()
+    snap = snap_res.scalars().first()
 
     recent_tw = sync_data.get("recent_tweets", [])
     top_tw_payload = {
