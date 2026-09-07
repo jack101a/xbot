@@ -1,125 +1,158 @@
-# XBot Pro: Autonomous Agent Platform for X
+<div align="center">
 
-XBot Pro is a production-ready, autonomous AI agent platform engineered for high-impact social media management on X. Featuring an asynchronous modular architecture, dynamic circadian scheduling, multi-tier LLM reasoning, computer vision / image synthesis, anti-hallucination memory synthesis, and a modern glassmorphic dashboard.
+# 🤖 XBot Pro
+
+**Enterprise Autonomous Social Media Engine for X**
+
+[![Docker Multi-Arch](https://github.com/jack101a/xbot/actions/workflows/docker.yml/badge.svg)](https://github.com/jack101a/xbot/actions/workflows/docker.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16-black)](https://nextjs.org/)
+[![Platforms](https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-informational)](https://github.com/jack101a/xbot/pkgs/container/xbot-api)
+
+*An intelligent, circadian-scheduled autonomous agent platform with multi-tier LLM reasoning, computer vision synthesis, anti-hallucination memory synthesis, and a real-time glassmorphic control center.*
+
+</div>
 
 ---
 
-## ⚡ Quick Start: Docker Deployment (Recommended)
+## 🌟 Key Features
 
-XBot is fully containerized and multi-architecture ready (`linux/amd64` and `linux/arm64`). Docker images are automatically built and published to GitHub Container Registry (GHCR).
+- **🧠 Multi-Tier Reasoning & LLM Cascades**: Intelligent fallback orchestration across primary and lightweight reasoning models for post drafting, thread synthesis, replies, and trend analysis.
+- **🕒 Natural Circadian Automation**: Probabilistic session scheduler that mimics human active hours, natural variance delays, and biological pauses.
+- **🛡️ Multi-Layer Account Safety**: Sliding-window rate limiters, automated circuit breakers, sentiment guardrails, and taboo topic blacklists.
+- **🎨 Glassmorphic Control Dashboard**: Built with Next.js 16, React 19, and Tailwind CSS. Features Persona Memory studio, Growth Engine, Post Pruner, and real-time live activity monitoring.
+- **🐳 Turnkey Containerization**: Multi-architecture (`linux/amd64` and `linux/arm64`) Docker images automatically published to GitHub Container Registry (GHCR).
 
-### 1. Clone & Configure Environment
+---
+
+## ⚡ Quick Start: Docker (Recommended)
+
+Run the entire system—including Redis, FastAPI backend, Celery automation worker, and the Next.js dashboard—with a single command:
+
 ```bash
+# 1. Clone repository
 git clone https://github.com/jack101a/xbot.git
 cd xbot
 
-# Copy example environment configuration
+# 2. Configure environment
 cp .env.example .env
+nano .env  # Add your LLM keys and gateway settings
 
-# Edit .env with your LiteLLM API base URL, keys, and credentials
-nano .env
-```
-
-### 2. Launch Services with Docker Compose
-```bash
-# Pull and start all services (Redis, Backend API, Celery Worker, Next.js Dashboard)
+# 3. Launch stack
 docker compose up -d
 ```
 
-### 3. Access Dashboard & API
-- **Admin Dashboard**: `http://localhost:3002`
-- **FastAPI Documentation**: `http://localhost:8200/docs`
-- **Health Check**: `http://localhost:8200/api/health`
+### Endpoints
+- **Admin Dashboard**: [http://localhost:3002](http://localhost:3002)
+- **REST API Docs**: [http://localhost:8200/docs](http://localhost:8200/docs)
+- **Health Check**: [http://localhost:8200/api/health](http://localhost:8200/api/health)
 
-### 4. Stop Services
+To view logs or shut down:
 ```bash
+docker compose logs -f
 docker compose down
 ```
 
 ---
 
-## 💻 Bare-Metal / Local Development Setup
-
-If running directly on Linux/macOS host:
+## 💻 Local Development (Bare-Metal)
 
 ### Prerequisites
 - Python 3.11+
 - Node.js 20+ & npm
-- Redis server (`redis-server`)
+- Redis (`redis-server`)
 
-### Launch All Services
-We provide a unified orchestrator script `xbot.sh`:
-
+### Using the CLI Manager or Makefile
 ```bash
-# Start Redis, FastAPI backend, Celery worker + beat, and Next.js dashboard
+# Initialize configuration
+cp .env.example .env
+
+# Using Makefile
+make start       # Starts Redis, Backend, Celery worker + beat, and Dashboard
+make status      # Checks process health
+make logs        # Tails consolidated logs
+make stop        # Stops all services
+
+# Or using the direct CLI script:
 ./xbot.sh start
-
-# Check operational status of all services
 ./xbot.sh status
-
-# View live consolidated logs
 ./xbot.sh logs
-
-# Restart or stop services
-./xbot.sh restart
 ./xbot.sh stop
 ```
 
 ---
 
-## 🏗 Architecture & Core Components
+## 🏛️ Architecture Overview
+
+```mermaid
+graph TD
+    UI[Next.js 16 Dashboard<br/>:3002] -->|REST API| API[FastAPI Backend<br/>:8200]
+    API --> DB[(SQLite / PostgreSQL)]
+    API --> Redis[(Redis Broker<br/>:6379)]
+    Worker[Celery Worker + Beat<br/>Playwright Chromium] -->|Polls Queue| Redis
+    Worker -->|Actions & Scraping| X[X Platform]
+    Worker -->|LLM Reasoning & Vision| LLM[LiteLLM / ChatGPT Bridge]
+    Worker -->|State & Logs| DB
+```
+
+---
+
+## 📁 Repository Structure
 
 ```
 xbot/
 ├── .github/workflows/         # CI/CD: Automated multi-arch GHCR image builds
 │   └── docker.yml
-├── backend/                   # FastAPI REST API & Core Engine
-│   ├── pyproject.toml         # Dependency definitions (FastAPI, Celery, Playwright)
-│   ├── alembic.ini            # Database schema migrations
-│   ├── xbot/
-│   │   ├── ai/                # LLM cascades, prompt engine, topic radar, reflection
-│   │   ├── api/               # REST API endpoints (profiles, campaigns, system)
-│   │   ├── browser/           # Playwright stealth driver and humanized actions
-│   │   ├── contracts/         # Domain ports & DTO contracts (Hexagonal Architecture)
-│   │   ├── growth/            # Follow-for-follow and community harvesting engine
-│   │   ├── infra/             # Adapter implementations (browser queue, LLM bridges)
-│   │   ├── models/            # SQLAlchemy database ORM models
+├── backend/                   # FastAPI REST API & Async Worker Service
+│   ├── alembic.ini            # Database migration configuration
+│   ├── pyproject.toml         # PEP 621 Python dependencies & tools
+│   ├── migrations/            # Alembic schema version history
+│   ├── xbot/                  # Core domain logic, ports & adapters
+│   │   ├── ai/                # LLM cascades, topic radar, prompts, reflection
+│   │   ├── api/               # REST routers (profiles, campaigns, system)
+│   │   ├── browser/           # Playwright automation engine & action handlers
+│   │   ├── contracts/         # Domain ports & DTOs (Hexagonal Architecture)
+│   │   ├── growth/            # F4F community harvesting & relationship tracking
+│   │   ├── infra/             # Adapters (browser queue worker, LLM bridges)
+│   │   ├── models/            # SQLAlchemy database models
 │   │   ├── persona/           # Character cards, worldview engine, memory/diary
-│   │   ├── pipelines/         # High-level pipelines (quote, reply, instant trend)
-│   │   ├── safety/            # Circuit breakers, rate limits, topic blacklists
-│   │   ├── scheduling/        # Circadian rhythms and natural active window calculations
-│   │   └── tasks/             # Celery asynchronous task definitions & session loops
-│   └── tests/                 # Full test suite (Pytest + Asyncio)
-├── dashboard/                 # Next.js 16 Web Dashboard (Control Center)
-│   ├── src/app/               # App Router pages and responsive layout
-│   ├── src/features/          # Persona studio, Growth engine, Campaign studio, Pruner
+│   │   ├── pipelines/         # High-level autonomous workflows
+│   │   ├── safety/            # Circuit breakers & rate limiters
+│   │   ├── scheduling/        # Circadian algorithms & active windows
+│   │   └── tasks/             # Celery background tasks & session loops
+│   └── tests/                 # Automated Pytest suite (60+ tests)
+├── dashboard/                 # Next.js 16 Glassmorphic Control Center
+│   ├── src/app/               # App Router layouts and routes
+│   ├── src/features/          # Persona Studio, Growth Engine, Post Pruner
+│   ├── src/lib/               # API clients, utilities, and date parsers
 │   └── src/store/             # Zustand state management
-├── data/                      # Local volume mount for persistent profiles, DB, and media
 ├── docker/                    # Container Dockerfiles
-│   ├── Dockerfile.api         # Lightweight Python 3.11 slim backend image
-│   └── Dockerfile.worker      # Playwright + Celery worker image (Dual AMD64/ARM64)
-├── docker-compose.yml         # Multi-service stack definition
-├── xbot.sh                    # Unified service CLI manager
+│   ├── Dockerfile.api         # Python 3.11 slim backend image
+│   └── Dockerfile.worker      # Playwright + Chromium worker (Dual AMD64/ARM64)
+├── docs/                      # Technical documentation & design specifications
+├── scripts/                   # Operator tools, backup scripts & diagnostics
+├── docker-compose.yml         # Multi-service container specification
+├── Makefile                   # Standard developer & operator commands
+├── xbot.sh                    # Unified service orchestrator CLI
+├── LICENSE                    # MIT License
 └── README.md
 ```
 
 ---
 
-## 🚢 CI/CD & Container Registry (GHCR)
+## 🚢 CI/CD & Registry Automation
 
-The repository includes a GitHub Actions workflow (`.github/workflows/docker.yml`) that triggers on every push to `main` and version tags:
+Every commit pushed to `main` automatically triggers `.github/workflows/docker.yml` to build multi-architecture container images for both **`linux/amd64`** and **`linux/arm64`** via Docker Buildx and QEMU:
 
-- **Build Matrix**: Concurrently compiles `xbot-api`, `xbot-worker`, and `xbot-dashboard`.
-- **Architectures**: Dual-target cross-compilation for `linux/amd64` and `linux/arm64` via Docker Buildx & QEMU.
-- **Images Published**:
-  - `ghcr.io/jack101a/xbot-api:latest`
-  - `ghcr.io/jack101a/xbot-worker:latest`
-  - `ghcr.io/jack101a/xbot-dashboard:latest`
+| Service | Image | Architectures |
+| :--- | :--- | :--- |
+| **API** | `ghcr.io/jack101a/xbot-api:latest` | `amd64`, `arm64` |
+| **Worker** | `ghcr.io/jack101a/xbot-worker:latest` | `amd64`, `arm64` |
+| **Dashboard** | `ghcr.io/jack101a/xbot-dashboard:latest` | `amd64`, `arm64` |
 
 ---
 
-## 🔒 Security & Best Practices
+## 📄 License
 
-- **Never Commit Secrets**: Live credentials, session cookies (`storage_state.json`), and API keys in `.env` are strictly excluded in `.gitignore` and `.dockerignore`.
-- **Rate Limits & Circuit Breakers**: Built-in sliding window rate limiters and autonomous cool-down algorithms protect accounts against platform detection.
-- **Database Safety**: SQLite with async WAL mode enabled, or point to external PostgreSQL with zero code changes.
+This project is licensed under the [MIT License](LICENSE).

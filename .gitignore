@@ -1,23 +1,17 @@
 # ==============================================================================
-# Python & Virtual Environments
+# Python & Environment
 # ==============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -33,13 +27,13 @@ node_modules/
 dashboard/node_modules/
 dashboard/.next/
 dashboard/out/
-dashboard/tsconfig.tsbuildinfo
+dashboard/*.tsbuildinfo
 dashboard/temp.txt
 dashboard/refactor.ts
 dashboard/*.py
 
 # ==============================================================================
-# Databases & Storage
+# Persistent Databases & Runtime State (Keep Private)
 # ==============================================================================
 *.db
 *.db-journal
@@ -47,10 +41,10 @@ dashboard/*.py
 xbot.db*
 celerybeat-schedule*
 test_*.db*
-data/
+/data/
 
 # ==============================================================================
-# Secrets & Environment
+# Secrets & Credentials
 # ==============================================================================
 .env
 .env.*
@@ -59,14 +53,14 @@ data/
 *.key
 
 # ==============================================================================
-# Logs & Process IDs
+# Logs & Process Tracking
 # ==============================================================================
-logs/
+/logs/
 *.log
-.pids/
+/.pids/
 
 # ==============================================================================
-# Testing, Coverage & Tooling
+# Testing & Tool Caches
 # ==============================================================================
 .pytest_cache/
 .mypy_cache/
@@ -76,28 +70,30 @@ htmlcov/
 graphify-out/
 
 # ==============================================================================
-# Temporary Scratch & Artifacts
+# Scratch, AI & Workspace Artifacts
 # ==============================================================================
 ask_kimi_*.py
-kimi_orchestrator_response.md
+kimi_orchestrator_*
 backend/ask_kimi.py
 backend/kimi_prompt_context.txt
 backend/check_chatgpt_models.py
 backend/list_litellm_models.py
 backend/test_gpt_5_6.py
+scripts/call_kimi_orchestrator.py
 scraped_live_x_profile.json
 *.png
 *.jpg
 *.jpeg
-test-script/live_image_debug/
-test-script/diag_output/
-test-script/multi_run_screenshots/
-test-script/live_multi_test_screenshots/
-test-script/*.png
-test-script/*.json
+.agents/
+.superpowers/
+.playwright/
+.claude/
+memory/
+dashboard/AGENTS.md
+dashboard/CLAUDE.md
 
 # ==============================================================================
-# IDEs & System
+# IDE & System Files
 # ==============================================================================
 .vscode/
 .idea/
@@ -105,9 +101,6 @@ test-script/*.json
 *.swo
 .DS_Store
 Thumbs.db
-
-# Local AI / IDE extensions
-.superpowers/
-.playwright/
-.claude/
-scripts/call_kimi_orchestrator.py
+backend/data/
+**/data/
+scripts/diagnostics/*.json
