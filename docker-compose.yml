@@ -30,6 +30,8 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
       - BASE_PROFILE_DIR=/app/data/profiles
+      - CHATGPT_BRIDGE_STATE=/app/data/.chatgpt-bridge
+      - CHATGPT_BRIDGE_HEADLESS=true
     env_file:
       - path: .env
         required: false
@@ -57,6 +59,8 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
       - BASE_PROFILE_DIR=/app/data/profiles
+      - CHATGPT_BRIDGE_STATE=/app/data/.chatgpt-bridge
+      - CHATGPT_BRIDGE_HEADLESS=true
     env_file:
       - path: .env
         required: false
