@@ -56,8 +56,8 @@ class QueuedBrowserAdapter(BrowserPort):
     async def execute(self, request: BrowserRequest) -> BrowserResponse:
         logger.info(f"[QueuedBrowserAdapter] Enqueueing '{request.action}' for '{request.profile_slug}'")
         try:
-            wait_timeout = max(float(request.timeout_seconds), 360.0)
-            ttl = max(900, int(wait_timeout) + 300)
+            wait_timeout = float(request.timeout_seconds or 45.0)
+            ttl = max(180, int(wait_timeout) + 60)
             priority = _PRIORITY_MAP.get(request.action, 4)
             job = BrowserJob(
                 action_type=request.action.value,

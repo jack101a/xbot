@@ -44,7 +44,7 @@ services:
   worker:
     image: ghcr.io/jack101a/xbot-worker:latest
     restart: unless-stopped
-    command: ["celery", "-A", "xbot.celery_app", "worker", "--beat", "-Q", "celery,browser,publish", "--concurrency=1", "--loglevel=info"]
+    command: ["celery", "-A", "xbot.celery_app", "worker", "--beat", "-Q", "celery,publish", "--concurrency=2", "--loglevel=info", "-n", "tasks@%h"]
     shm_size: "512mb"
     environment:
       - PUID=${PUID}
@@ -66,8 +66,36 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.5"
-          memory: 1200M
+          cpus: "1.0"
+          memory: 800M
+
+  browser-worker:
+    image: ghcr.io/jack101a/xbot-worker:latest
+    restart: unless-stopped
+    command: ["celery", "-A", "xbot.celery_app", "worker", "-Q", "browser", "--concurrency=1", "--loglevel=info", "-n", "browser@%h"]
+    shm_size: "512mb"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
+      - BASE_PROFILE_DIR=/app/data/profiles
+      - CHATGPT_BRIDGE_STATE=/app/data/.chatgpt-bridge
+      - CHATGPT_BRIDGE_HEADLESS=true
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ${CONFIG_PATH}/xbot:/app/data
+    depends_on:
+      - redis
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 800M
 
   dashboard:
     image: ghcr.io/jack101a/xbot-dashboard:latest

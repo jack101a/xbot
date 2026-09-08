@@ -58,7 +58,7 @@ celery_app.conf.beat_schedule = {
     "check-schedules-every-60-seconds": {
         "task": "xbot.tasks.check_schedules",
         "schedule": 60.0,
-        "options": {"expires": 60.0},
+        "options": {"expires": 120.0},
     },
     # 6. Trend Researcher (25 min - SearXNG / Web grounding)
     "trend-researcher-every-25m": {

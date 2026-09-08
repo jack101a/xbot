@@ -141,6 +141,13 @@ async def _process_browser_queue_async(max_jobs: int = 10) -> int:
         logger.debug("Browser queue worker lock already held; skipping cycle.")
         return 0
 
+    # Quick check: do not spin up Chromium if both queues are empty
+    action_count = r.zcard(ACTION_QUEUE_KEY)
+    research_count = r.zcard(RESEARCH_QUEUE_KEY)
+    if action_count == 0 and research_count == 0:
+        r.delete(QUEUE_LOCK_KEY)
+        return 0
+
     processed_count = 0
     browser_manager = BrowserManager(base_profile_dir=settings.BASE_PROFILE_DIR)
     open_contexts: dict[str, BrowserContext] = {}
