@@ -83,11 +83,11 @@ class ContextAssembler:
         persona_sheet = self._format_persona_sheet(persona)
 
         # 4. Form timezone and local time strings
-        timezone_str = config.schedule.timezone or "America/New_York"
+        timezone_str = config.schedule.timezone or "Asia/Kolkata"
         try:
             tz = ZoneInfo(timezone_str)
         except Exception:
-            tz = ZoneInfo("America/New_York")
+            tz = ZoneInfo("Asia/Kolkata")
 
         now_aware_utc = now_utc.replace(tzinfo=datetime.timezone.utc)
         local_now = now_aware_utc.astimezone(tz)

@@ -136,7 +136,7 @@ class BrowserManager:
         profile_slug: str,
         browser_profile: dict | None = None,
         locale: str = "en-US",
-        timezone: str = "America/New_York",
+        timezone: str = "Asia/Kolkata",
         proxy_url: str | None = None,
     ) -> BrowserContext:
         """

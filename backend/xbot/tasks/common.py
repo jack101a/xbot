@@ -23,6 +23,7 @@ from xbot.models.profile import Profile, ProfileStatus
 from xbot.models.session import Action, ActionStatus, ActionType, Session, SessionStatus
 from xbot.models.content import Content, ContentStatus, ContentType
 from xbot.models.analytics import AnalyticsSnapshot, FollowerSnapshot, FollowerChangeLog
+from xbot.utils.time import now_ist, now_ist_iso
 from xbot.models.realgraph import RealGraphEdge
 from xbot.models.follow_growth import FollowCandidate, FollowRelationship
 from xbot.persona import load_config
@@ -124,7 +125,7 @@ async def has_already_acted(
         return False
     clean_target = target_url.strip().rstrip("/")
     t_id = extract_tweet_id_from_url(clean_target)
-    cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=hours)
+    cutoff = now_ist() - datetime.timedelta(hours=hours)
     act_type_str = action_type.value if hasattr(action_type, "value") else str(action_type)
 
     stmt = (
@@ -184,7 +185,7 @@ def broadcast_session_log(
         payload_data = data or {}
         payload = {
             "event": event_type,
-            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            "timestamp": now_ist_iso(),
             "session_id": str(session_id),
             "action_type": payload_data.get("action_type"),
             "status": payload_data.get("status"),

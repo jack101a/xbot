@@ -6,9 +6,9 @@ export function parseUtcDate(isoStr?: string | null): Date | null {
   if (!isoStr) return null;
   const str = String(isoStr).trim();
   if (!str) return null;
-  // If string has no timezone indicator (no 'Z' and no +XX:XX / -XX:XX), append 'Z' to treat as UTC
+  // If string has no timezone indicator (no 'Z' and no +XX:XX / -XX:XX), append '+05:30' to treat as IST
   const hasTz = str.endsWith("Z") || /[+-]\d{2}(?::?\d{2})?$/.test(str);
-  const normalized = hasTz ? str : str + "Z";
+  const normalized = hasTz ? str : str.replace(" ", "T") + "+05:30";
   const d = new Date(normalized);
   return isNaN(d.getTime()) ? new Date(str) : d;
 }

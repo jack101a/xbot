@@ -78,7 +78,7 @@ async def _collect_analytics_snapshot_async(profile_id_str: str) -> dict[str, An
                 following_val = profile.following_count or 0
                 logger.info("🧪 [MOCK / DEMO MODE] Using existing actual counts for simulated analytics snapshot.")
             else:
-                timezone_str = config.schedule.timezone or "America/New_York"
+                timezone_str = config.schedule.timezone or "Asia/Kolkata"
                 
                 context = await manager.get_context(
                     profile_slug=profile_slug,

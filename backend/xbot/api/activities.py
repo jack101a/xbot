@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from xbot.database import get_db
 from xbot.models.profile import Profile
 from xbot.models.session import Action, ActionStatus, ActionType
+from xbot.utils.time import now_ist
 
 logger = logging.getLogger(__name__)
 
@@ -124,21 +125,21 @@ async def get_profile_activities(
             detail=f"Profile with ID {profile_id} not found.",
         )
 
-    now_utc = datetime.datetime.utcnow()
+    now_time = now_ist()
     
     cutoff: datetime.datetime | None = None
     if time_range == "3h":
-        cutoff = now_utc - datetime.timedelta(hours=3)
+        cutoff = now_time - datetime.timedelta(hours=3)
     elif time_range == "6h":
-        cutoff = now_utc - datetime.timedelta(hours=6)
+        cutoff = now_time - datetime.timedelta(hours=6)
     elif time_range == "12h":
-        cutoff = now_utc - datetime.timedelta(hours=12)
+        cutoff = now_time - datetime.timedelta(hours=12)
     elif time_range == "24h":
-        cutoff = now_utc - datetime.timedelta(hours=24)
+        cutoff = now_time - datetime.timedelta(hours=24)
     elif time_range == "3d":
-        cutoff = now_utc - datetime.timedelta(days=3)
+        cutoff = now_time - datetime.timedelta(days=3)
     elif time_range == "7d":
-        cutoff = now_utc - datetime.timedelta(days=7)
+        cutoff = now_time - datetime.timedelta(days=7)
 
     base_conditions = [Action.profile_id == profile_id]
     if cutoff:
@@ -230,7 +231,7 @@ async def get_profile_activities(
                 error=act.error,
                 duration_ms=act.duration_ms,
                 executed_at=exec_dt,
-                time_ago=_format_time_ago(act.executed_at, now_utc),
+                time_ago=_format_time_ago(act.executed_at, now_time),
                 session_id=str(act.session_id) if act.session_id else None,
             )
         )

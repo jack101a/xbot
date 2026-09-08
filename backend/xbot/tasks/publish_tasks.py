@@ -21,6 +21,7 @@ from xbot.database import AsyncSessionLocal
 from xbot.models.profile import Profile, ProfileStatus
 from xbot.models.session import Action, ActionStatus, ActionType, Session, SessionStatus
 from xbot.models.content import Content, ContentStatus, ContentType
+from xbot.utils.time import now_ist
 from xbot.models.analytics import AnalyticsSnapshot, FollowerSnapshot, FollowerChangeLog
 from xbot.models.realgraph import RealGraphEdge
 from xbot.models.follow_growth import FollowCandidate, FollowRelationship
@@ -90,13 +91,13 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                 d_res = await db.execute(stmt_draft)
                 candidates = d_res.scalars().all()
                 draft = None
-                now_utc = datetime.datetime.utcnow()
+                now_curr = now_ist()
                 for c in candidates:
                     sched_str = (c.ai_metadata or {}).get("scheduled_for")
                     if sched_str:
                         try:
                             sched_dt = datetime.datetime.fromisoformat(sched_str.replace("Z", "+00:00")).replace(tzinfo=None)
-                            if sched_dt > now_utc:
+                            if sched_dt > now_curr:
                                 continue
                         except Exception:
                             pass
@@ -198,7 +199,7 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
 
                     if success:
                         draft.status = ContentStatus.POSTED
-                        draft.posted_at = datetime.datetime.utcnow()
+                        draft.posted_at = now_ist()
                         if resp.action_result and resp.action_result.target_id:
                             draft.tweet_id = resp.action_result.target_id
                         await db.commit()
@@ -223,7 +224,7 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                                         content_type=ContentType.REPLY,
                                         body=first_reply_msg,
                                         status=ContentStatus.POSTED,
-                                        posted_at=datetime.datetime.utcnow(),
+                                        posted_at=now_ist(),
                                         ai_metadata={"is_1st_reply_injection": True, "direct_publish": True}
                                     )
                                     db.add(reply_rec)

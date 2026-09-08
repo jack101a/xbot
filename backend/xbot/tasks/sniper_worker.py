@@ -3,6 +3,7 @@ from __future__ import annotations
 from .common import extract_tweet_id_from_url, _parse_x_counts, has_already_acted, broadcast_session_log, _extract_or_generate_poll_data
 from .common import *
 import asyncio, datetime, logging, random, uuid
+from xbot.utils.time import now_ist
 from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,7 +90,7 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
                     config = load_config(profile_dir)
                     is_mock = getattr(config, 'mock_mode', False)
                     if not is_mock:
-                        timezone_str = config.schedule.timezone or 'America/New_York'
+                        timezone_str = config.schedule.timezone or 'Asia/Kolkata'
                         context = await manager.get_context(profile_slug=profile_slug, timezone=timezone_str, proxy_url=config.proxy_url)
                         page = await context.new_page()
                     else:
@@ -138,7 +139,7 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
                         if success:
                             r.set(seen_key, '1', ex=604800)
                             r.sadd(seen_set_key, tweet_id)
-                            t_now = datetime.datetime.utcnow()
+                            t_now = now_ist()
                             await guard.record_action_success(profile_slug, 'reply', t_now)
                             db_session = Session(profile_id=profile_id, status=SessionStatus.COMPLETED, actions_planned=1, actions_completed=1, actions_failed=0, plan={'mode': 'sniper_reply', 'target_kol': kol_handle}, started_at=t_now, ended_at=t_now)
                             db.add(db_session)
@@ -221,7 +222,7 @@ async def _fast_response_sentinel_async(base_profile_dir: Path | str | None=None
                     context = None
                     try:
                         if not is_mock:
-                            timezone_str = config.schedule.timezone or 'America/New_York'
+                            timezone_str = config.schedule.timezone or 'Asia/Kolkata'
                             context = await manager.get_context(profile_slug=profile_slug, timezone=timezone_str, proxy_url=config.proxy_url)
                             page = await context.new_page()
                         else:
@@ -238,7 +239,7 @@ async def _fast_response_sentinel_async(base_profile_dir: Path | str | None=None
                         else:
                             success = await ReplyToTweet().execute(page, reply_text, tweet_url=target_tweet_url)
                         if success:
-                            t_now = datetime.datetime.utcnow()
+                            t_now = now_ist()
                             await guard.record_action_success(profile_slug, 'reply', t_now)
                             thread.turn_count += 1
                             thread.last_action_at = t_now

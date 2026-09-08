@@ -155,11 +155,11 @@ async def check_and_trigger_schedules(
 
         # Load config to get timezone & natural parameters
         config = load_config(profile_dir)
-        timezone_str = config.schedule.timezone or "America/New_York"
+        timezone_str = config.schedule.timezone or "Asia/Kolkata"
         try:
             tz = ZoneInfo(timezone_str)
         except Exception:
-            tz = ZoneInfo("America/New_York")
+            tz = ZoneInfo("Asia/Kolkata")
 
         min_gap_minutes = getattr(config.schedule, "interval_minutes", 20) or 20
         min_sessions = getattr(config.schedule, "min_sessions_per_day", 12) or 12

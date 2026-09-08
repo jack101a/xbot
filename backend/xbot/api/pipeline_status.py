@@ -22,6 +22,7 @@ from xbot.config import settings
 from xbot.database import get_db
 from xbot.models.pipeline import PipelineRun
 from xbot.models.profile import Profile, ProfileStatus
+from xbot.utils.time import now_ist
 from xbot.pipelines.browser_queue import get_queue_depth
 from xbot.pipelines.central_guard import CentralGuard, get_current_ist_time, is_within_active_hours
 from xbot.pipelines.follow_pipeline import run_follow_pipeline
@@ -67,7 +68,7 @@ async def get_all_pipelines_status(
         is_paused = bool(r.get(f"xbot:pipeline:paused:{name}"))
 
         # Aggregated stats today
-        today_start = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = now_ist().replace(hour=0, minute=0, second=0, microsecond=0)
         action_sum_stmt = (
             select(func.sum(PipelineRun.actions_count))
             .where(PipelineRun.pipeline_name == name, PipelineRun.started_at >= today_start)

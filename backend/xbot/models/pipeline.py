@@ -6,6 +6,7 @@ from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, Stri
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from xbot.models.base import Base
+from xbot.utils.time import now_ist
 
 if TYPE_CHECKING:
     from xbot.models.profile import Profile
@@ -26,10 +27,10 @@ class ResearchedTopic(Base):
     processed: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     relevance_score: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, index=True
+        DateTime, default=now_ist, index=True
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=now_ist, onupdate=now_ist
     )
 
     # Relationships
@@ -49,7 +50,7 @@ class PipelineRun(Base):
     details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, index=True
+        DateTime, default=now_ist, index=True
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -82,10 +83,10 @@ class InstantTrendCampaign(Base):
     seen_tweet_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     posted_actions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
 
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=now_ist, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    next_run_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    next_run_at: Mapped[datetime] = mapped_column(DateTime, default=now_ist, index=True)
 
     # Relationships
     profile: Mapped["Profile"] = relationship("Profile")

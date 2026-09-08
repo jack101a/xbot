@@ -21,6 +21,7 @@ from xbot.database import AsyncSessionLocal
 from xbot.models.profile import Profile, ProfileStatus
 from xbot.models.session import Action, ActionStatus, ActionType, Session, SessionStatus
 from xbot.models.content import Content, ContentStatus, ContentType
+from xbot.utils.time import now_ist
 from xbot.models.analytics import AnalyticsSnapshot, FollowerSnapshot, FollowerChangeLog
 from xbot.models.realgraph import RealGraphEdge
 from xbot.models.follow_growth import FollowCandidate, FollowRelationship
@@ -80,7 +81,7 @@ async def _fast_response_sentinel_async(base_profile_dir: Path | str | None = No
                     "replies_posted": 0,
                 }
 
-            now = datetime.datetime.utcnow()
+            now = now_ist()
 
             for profile in active_profiles:
                 profile_slug = profile.profile_slug
@@ -138,7 +139,7 @@ async def _fast_response_sentinel_async(base_profile_dir: Path | str | None = No
                     context = None
                     try:
                         if not is_mock:
-                            timezone_str = config.schedule.timezone or "America/New_York"
+                            timezone_str = config.schedule.timezone or "Asia/Kolkata"
                             context = await manager.get_context(
                                 profile_slug=profile_slug,
                                 timezone=timezone_str,
@@ -191,7 +192,7 @@ async def _fast_response_sentinel_async(base_profile_dir: Path | str | None = No
                             )
 
                         if success:
-                            t_now = datetime.datetime.utcnow()
+                            t_now = now_ist()
                             await guard.record_action_success(profile_slug, "reply", t_now)
 
                             # Advance thread state

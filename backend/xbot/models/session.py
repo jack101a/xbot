@@ -9,6 +9,7 @@ from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, Text, 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from xbot.models.base import Base
+from xbot.utils.time import now_ist
 
 if TYPE_CHECKING:
     from xbot.models.profile import Profile
@@ -57,7 +58,7 @@ class Session(Base):
         Uuid, ForeignKey("profiles.id", ondelete="CASCADE"), index=True
     )
     started_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, index=True
+        DateTime, default=now_ist, index=True
     )
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[SessionStatus] = mapped_column(
@@ -120,7 +121,7 @@ class ActionResult(Base):
     initial_replies: Mapped[int] = mapped_column(Integer, default=0)
     initial_views: Mapped[int] = mapped_column(Integer, default=0)
     raw_data: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=now_ist)
 
     # Relationships
     action: Mapped[Action] = relationship("Action", back_populates="action_result")

@@ -7,6 +7,7 @@ from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from xbot.models.base import Base
+from xbot.utils.time import now_ist
 
 if TYPE_CHECKING:
     from xbot.models.profile import Profile
@@ -109,7 +110,7 @@ class Content(Base):
         DateTime, nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, index=True
+        DateTime, default=now_ist, index=True
     )
 
     # Relationships
@@ -136,7 +137,7 @@ class ThreadItem(Base):
     media_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     tweet_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     performance: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_ist)
 
     # Relationships
     content: Mapped["Content"] = relationship("Content", back_populates="thread_items")

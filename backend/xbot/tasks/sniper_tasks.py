@@ -15,6 +15,7 @@ from xbot.celery_app import celery_app
 from xbot.config import settings
 from xbot.models.profile import Profile, ProfileStatus
 from xbot.models.session import Action, ActionStatus, ActionType, Session, SessionStatus
+from xbot.utils.time import now_ist
 
 logger = logging.getLogger("xbot.tasks")
 
@@ -188,7 +189,7 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
                             r.sadd(seen_set_key, tweet_id)
 
                             # 2. Record success in SafetyGuard
-                            t_now = datetime.datetime.utcnow()
+                            t_now = now_ist()
                             await guard.record_action_success(profile_slug, "reply", t_now)
 
                             # 3. Create Session and Record Action in DB

@@ -1,8 +1,10 @@
 #!/bin/sh
 set -e
 
-# Set timezone if TZ is provided
-if [ -n "$TZ" ] && [ -f "/usr/share/zoneinfo/$TZ" ]; then
+# Set timezone (defaults to Asia/Kolkata - IST)
+TZ="${TZ:-Asia/Kolkata}"
+export TZ
+if [ -f "/usr/share/zoneinfo/$TZ" ]; then
     ln -snf "/usr/share/zoneinfo/$TZ" /etc/localtime && echo "$TZ" > /etc/timezone
 fi
 

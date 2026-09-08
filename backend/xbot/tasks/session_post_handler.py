@@ -18,6 +18,7 @@ import xbot.tasks as tasks
 from xbot.ai.hook_optimizer import extract_links
 from xbot.models.content import Content, ContentStatus, ContentType
 from xbot.models.session import Action, ActionStatus, ActionType, Session
+from xbot.utils.time import now_ist, now_ist_iso
 
 logger = logging.getLogger("xbot.tasks.session_post_handler")
 
@@ -51,7 +52,7 @@ async def handle_post_action(
         return True
 
     # Anti-duplication check against recent posts/drafts (last 7 days)
-    cutoff_7d = datetime.datetime.utcnow() - datetime.timedelta(days=7)
+    cutoff_7d = now_ist() - datetime.timedelta(days=7)
     stmt_dup = select(Content).where(
         Content.profile_id == profile_id,
         Content.created_at >= cutoff_7d,
@@ -115,7 +116,7 @@ async def handle_post_action(
             status=ContentStatus.DRAFT,
             ai_metadata={
                 "require_approval": True,
-                "staged_at": datetime.datetime.utcnow().isoformat(),
+                "staged_at": now_ist_iso(),
                 "reasoning": getattr(p_action, "reasoning", None),
                 "gif_query": gif_query,
                 "research_report": research_report_dict,
@@ -194,7 +195,7 @@ async def handle_post_action(
                         content_type=ContentType.REPLY,
                         body=first_reply_msg,
                         status=ContentStatus.POSTED,
-                        posted_at=datetime.datetime.utcnow(),
+                        posted_at=now_ist(),
                         ai_metadata={"is_1st_reply_injection": True, "direct_publish": True},
                     )
                     db.add(reply_rec)

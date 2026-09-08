@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import xbot.tasks as tasks
 from xbot.models.session import Action, ActionStatus, ActionType, Session
+from xbot.utils.time import now_ist
 from xbot.tasks.session_interaction_handler import (
     handle_follow_action,
     handle_quote_action,
@@ -96,14 +97,14 @@ async def execute_planned_actions(
             continue
 
         db_action.status = ActionStatus.EXECUTING
-        db_action.executed_at = datetime.datetime.utcnow()
+        db_action.executed_at = now_ist()
         await db.commit()
 
         success = False
         error_msg = ""
 
         try:
-            t_start = datetime.datetime.utcnow()
+            t_start = now_ist()
             if is_mock:
                 success = await handle_mock_action(db, profile_id, profile_slug, p_action, db_action, session, manager, t_start)
             else:

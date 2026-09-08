@@ -107,7 +107,7 @@ async def _run_evergreen_recycling_async(profile_id_str: str) -> dict[str, Any]:
                 success = True
                 logger.info("🧪 [MOCK / DEMO MODE] Simulated evergreen recycling post: %s", recycled_text)
             else:
-                timezone_str = config.schedule.timezone or "America/New_York"
+                timezone_str = config.schedule.timezone or "Asia/Kolkata"
                 
                 context = await manager.get_context(
                     profile_slug=profile_slug,

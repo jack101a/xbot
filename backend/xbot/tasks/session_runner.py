@@ -97,7 +97,7 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
                 try:
                     proxy_url = getattr(config, "proxy_url", None)
                     schedule_cfg = getattr(config, "schedule", None)
-                    timezone_str = getattr(schedule_cfg, "timezone", "America/New_York") if schedule_cfg else "America/New_York"
+                    timezone_str = getattr(schedule_cfg, "timezone", "Asia/Kolkata") if schedule_cfg else "Asia/Kolkata"
 
                     context = await manager.get_context(
                         profile_slug=profile_slug,

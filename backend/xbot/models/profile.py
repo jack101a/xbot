@@ -9,6 +9,7 @@ from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from xbot.models.base import Base
+from xbot.utils.time import now_ist
 
 if TYPE_CHECKING:
     from xbot.models.analytics import AnalyticsSnapshot
@@ -40,7 +41,7 @@ class Profile(Base):
     proxy_url_encrypted: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, index=True
+        DateTime, default=now_ist, index=True
     )
     last_session_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -81,8 +82,8 @@ class RateLimit(Base):
     action_type: Mapped[str] = mapped_column(String(50))
     count_today: Mapped[int] = mapped_column(default=0)
     count_this_hour: Mapped[int] = mapped_column(default=0)
-    window_start: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    last_action_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    window_start: Mapped[datetime] = mapped_column(DateTime, default=now_ist)
+    last_action_at: Mapped[datetime] = mapped_column(DateTime, default=now_ist)
     cooldown_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships

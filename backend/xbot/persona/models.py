@@ -122,7 +122,7 @@ class Persona(BaseModel):
 
 
 class ScheduleConfig(BaseModel):
-    timezone: str = "America/New_York"
+    timezone: str = "Asia/Kolkata"
     active_hours: str = "08:00-22:00"
     min_sessions_per_day: int = 3
     max_sessions_per_day: int = 5

@@ -6,7 +6,7 @@ services:
     command: redis-server --save "" --appendonly no --maxmemory 48mb --maxmemory-policy
       allkeys-lru
     environment:
-    - TZ=${TZ}
+    - TZ=${TZ:-Asia/Kolkata}
     deploy:
       resources:
         limits:
@@ -26,7 +26,7 @@ services:
     environment:
     - PUID=${PUID}
     - PGID=${PGID}
-    - TZ=${TZ}
+    - TZ=${TZ:-Asia/Kolkata}
     - REDIS_URL=redis://redis:6379/0
     - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
     - BASE_PROFILE_DIR=/app/data/profiles
@@ -65,7 +65,7 @@ services:
     environment:
     - PUID=${PUID}
     - PGID=${PGID}
-    - TZ=${TZ}
+    - TZ=${TZ:-Asia/Kolkata}
     - REDIS_URL=redis://redis:6379/0
     - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
     - BASE_PROFILE_DIR=/app/data/profiles
@@ -104,7 +104,7 @@ services:
     environment:
     - PUID=${PUID}
     - PGID=${PGID}
-    - TZ=${TZ}
+    - TZ=${TZ:-Asia/Kolkata}
     - REDIS_URL=redis://redis:6379/0
     - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
     - BASE_PROFILE_DIR=/app/data/profiles
@@ -130,7 +130,7 @@ services:
     ports:
     - 3002:3002
     environment:
-    - TZ=${TZ}
+    - TZ=${TZ:-Asia/Kolkata}
     depends_on:
     - backend
     deploy:
