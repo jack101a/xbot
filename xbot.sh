@@ -16,6 +16,9 @@ VENV_CELERY="${BACKEND_DIR}/.venv/bin/celery"
 
 mkdir -p "${PID_DIR}" "${LOG_DIR}"
 
+BACKEND_PORT="${LOCAL_API_PORT:-8300}"
+DASHBOARD_PORT="${LOCAL_DASHBOARD_PORT:-3003}"
+
 # ANSI Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -74,17 +77,17 @@ start_services() {
 
     ensure_redis
 
-    # 1. Start FastAPI Backend (Port 8200)
-    if is_pid_running "${PID_DIR}/backend.pid" || is_port_in_use 8200; then
-        echo -e "${YELLOW}⚡ FastAPI Backend is already running on port 8200.${NC}"
+    # 1. Start FastAPI Backend (Port ${BACKEND_PORT})
+    if is_pid_running "${PID_DIR}/backend.pid" || is_port_in_use "${BACKEND_PORT}"; then
+        echo -e "${YELLOW}⚡ FastAPI Backend is already running on port ${BACKEND_PORT}.${NC}"
     else
-        echo -n "Starting FastAPI Backend (port 8200)... "
+        echo -n "Starting FastAPI Backend (port ${BACKEND_PORT})... "
         cd "${BACKEND_DIR}"
-        setsid "${VENV_PYTHON}" -m uvicorn xbot.main:app --host 0.0.0.0 --port 8200 </dev/null > "${LOG_DIR}/backend.log" 2>&1 &
+        setsid "${VENV_PYTHON}" -m uvicorn xbot.main:app --host 0.0.0.0 --port "${BACKEND_PORT}" </dev/null > "${LOG_DIR}/backend.log" 2>&1 &
         echo $! > "${PID_DIR}/backend.pid"
         cd "${PROJECT_ROOT}"
         sleep 2
-        if is_pid_running "${PID_DIR}/backend.pid" || is_port_in_use 8200; then
+        if is_pid_running "${PID_DIR}/backend.pid" || is_port_in_use "${BACKEND_PORT}"; then
             echo -e "${GREEN}DONE (PID: $(cat "${PID_DIR}/backend.pid"))${NC}"
         else
             echo -e "${RED}FAILED${NC} (Check logs/backend.log)"
@@ -125,21 +128,21 @@ start_services() {
         fi
     fi
 
-    # 3. Start Dashboard UI (Port 3002 - Production Static SPA Mode to prevent memory bloat)
-    if is_pid_running "${PID_DIR}/dashboard.pid" || is_port_in_use 3002; then
-        echo -e "${YELLOW}⚡ Dashboard UI is already running on port 3002.${NC}"
+    # 3. Start Dashboard UI (Port ${DASHBOARD_PORT} - Production Static SPA Mode to prevent memory bloat)
+    if is_pid_running "${PID_DIR}/dashboard.pid" || is_port_in_use "${DASHBOARD_PORT}"; then
+        echo -e "${YELLOW}⚡ Dashboard UI is already running on port ${DASHBOARD_PORT}.${NC}"
     else
-        echo -n "Starting Dashboard UI (port 3002, lightweight production mode)... "
+        echo -n "Starting Dashboard UI (port ${DASHBOARD_PORT}, lightweight production mode)... "
         cd "${DASHBOARD_DIR}"
         if [ -d "${DASHBOARD_DIR}/out" ]; then
-            setsid npx --yes serve -s "${DASHBOARD_DIR}/out" -l 3002 -p 3002 </dev/null > "${LOG_DIR}/dashboard.log" 2>&1 &
+            setsid npx --yes serve -s "${DASHBOARD_DIR}/out" -l "${DASHBOARD_PORT}" -p "${DASHBOARD_PORT}" </dev/null > "${LOG_DIR}/dashboard.log" 2>&1 &
         else
-            setsid npx next dev -p 3002 -H 0.0.0.0 </dev/null > "${LOG_DIR}/dashboard.log" 2>&1 &
+            setsid npx next dev -p "${DASHBOARD_PORT}" -H 0.0.0.0 </dev/null > "${LOG_DIR}/dashboard.log" 2>&1 &
         fi
         echo $! > "${PID_DIR}/dashboard.pid"
         cd "${PROJECT_ROOT}"
         sleep 2
-        if is_pid_running "${PID_DIR}/dashboard.pid" || is_port_in_use 3002; then
+        if is_pid_running "${PID_DIR}/dashboard.pid" || is_port_in_use "${DASHBOARD_PORT}"; then
             echo -e "${GREEN}DONE (PID: $(cat "${PID_DIR}/dashboard.pid"))${NC}"
         else
             echo -e "${RED}FAILED${NC} (Check logs/dashboard.log)"
@@ -164,10 +167,10 @@ start_services() {
     echo -e "\n${BOLD}${GREEN}======================================================${NC}"
     echo -e "${BOLD}${GREEN}            🎉 All Services Active!                   ${NC}"
     echo -e "${BOLD}${GREEN}======================================================${NC}"
-    echo -e "  🌐 ${BOLD}Dashboard UI:${NC}    ${CYAN}http://localhost:3002${NC} (or http://192.168.0.200:3002)"
-    echo -e "  🔌 ${BOLD}Backend API:${NC}     ${CYAN}http://localhost:8200${NC} (or http://192.168.0.200:8200)"
-    echo -e "  📖 ${BOLD}API Docs:${NC}        ${CYAN}http://localhost:8200/docs${NC}"
-    echo -e "  📂 ${BOLD}Log Directory:${NC}   ${YELLOW}${LOG_DIR}/${NC}\n"
+    echo -e "  🌐 ${BOLD}Dashboard UI (Local):${NC}    ${CYAN}http://localhost:${DASHBOARD_PORT}${NC}"
+    echo -e "  🔌 ${BOLD}Backend API (Local):${NC}     ${CYAN}http://localhost:${BACKEND_PORT}${NC}"
+    echo -e "  📖 ${BOLD}API Docs (Local):${NC}        ${CYAN}http://localhost:${BACKEND_PORT}/docs${NC}"
+    echo -e "  📂 ${BOLD}Log Directory:${NC}          ${YELLOW}${LOG_DIR}/${NC}\n"
 }
 
 stop_services() {
@@ -261,14 +264,14 @@ stop_services() {
     pkill -9 -f "uvicorn xbot.main:app" 2>/dev/null || true
     pkill -9 -f "celery.*xbot" 2>/dev/null || true
     pkill -9 -f "next" 2>/dev/null || true
-    fuser -k 3002/tcp 2>/dev/null || true
-    fuser -k 8200/tcp 2>/dev/null || true
+    fuser -k "${DASHBOARD_PORT}/tcp" 2>/dev/null || true
+    fuser -k "${BACKEND_PORT}/tcp" 2>/dev/null || true
     echo -e "${GREEN}DONE${NC}"
 
     # 5. Clean up stale browser lock files if any
     rm -f /tmp/xbot_lock_* 2>/dev/null || true
 
-    echo -e "\n${BOLD}${GREEN}✅ All XBot Pro services have been completely stopped.${NC}\n"
+    echo -e "\n${BOLD}${GREEN}✅ All local XBot Pro services have been completely stopped.${NC}\n"
 }
 
 check_status() {
@@ -276,38 +279,46 @@ check_status() {
     echo -e "${BOLD}${BLUE}          📊 XBot Pro Service Status                  ${NC}"
     echo -e "${BOLD}${BLUE}======================================================${NC}\n"
 
-    # Backend
-    if is_port_in_use 8200; then
+    # Docker Production Stack Notice
+    echo -e "${CYAN}🐳 Docker Production Stack:${NC}"
+    if is_port_in_use 8200 && is_port_in_use 3002; then
+        echo -e "  • Docker Stack (Ports 8200/3002):   ${GREEN}● ACTIVE & RUNNING (Docker/Portainer)${NC}"
+    fi
+    echo ""
+    echo -e "${CYAN}💻 Local Development Processes (Ports ${BACKEND_PORT}/${DASHBOARD_PORT}):${NC}"
+
+    # Local Backend
+    if is_port_in_use "${BACKEND_PORT}"; then
         local health
-        health=$(curl -s --max-time 2 http://127.0.0.1:8200/health || echo "error")
+        health=$(curl -s --max-time 2 "http://127.0.0.1:${BACKEND_PORT}/health" || echo "error")
         if echo "${health}" | grep -q "healthy"; then
-            echo -e "  • FastAPI Backend (Port 8200):      ${GREEN}● RUNNING & HEALTHY${NC}"
+            echo -e "  • Local Backend (Port ${BACKEND_PORT}):       ${GREEN}● RUNNING & HEALTHY${NC}"
         else
-            echo -e "  • FastAPI Backend (Port 8200):      ${YELLOW}● RUNNING (Health check unresponsive)${NC}"
+            echo -e "  • Local Backend (Port ${BACKEND_PORT}):       ${YELLOW}● RUNNING (Health check unresponsive)${NC}"
         fi
     else
-        echo -e "  • FastAPI Backend (Port 8200):      ${RED}○ STOPPED${NC}"
+        echo -e "  • Local Backend (Port ${BACKEND_PORT}):       ${RED}○ STOPPED${NC}"
     fi
 
     # Celery Task Worker
     if is_pid_running "${PID_DIR}/celery.pid"; then
-        echo -e "  • Celery Task Worker & Beat:        ${GREEN}● RUNNING${NC} (PID: $(cat "${PID_DIR}/celery.pid"))"
+        echo -e "  • Local Celery Task Worker & Beat:  ${GREEN}● RUNNING${NC} (PID: $(cat "${PID_DIR}/celery.pid"))"
     else
-        echo -e "  • Celery Task Worker & Beat:        ${RED}○ STOPPED${NC}"
+        echo -e "  • Local Celery Task Worker & Beat:  ${RED}○ STOPPED${NC}"
     fi
 
     # Celery Browser Worker
     if is_pid_running "${PID_DIR}/celery_browser.pid"; then
-        echo -e "  • Celery Browser Action Engine:     ${GREEN}● RUNNING${NC} (PID: $(cat "${PID_DIR}/celery_browser.pid"))"
+        echo -e "  • Local Celery Browser Action Eng:  ${GREEN}● RUNNING${NC} (PID: $(cat "${PID_DIR}/celery_browser.pid"))"
     else
-        echo -e "  • Celery Browser Action Engine:     ${RED}○ STOPPED${NC}"
+        echo -e "  • Local Celery Browser Action Eng:  ${RED}○ STOPPED${NC}"
     fi
 
-    # Dashboard
-    if is_port_in_use 3002; then
-        echo -e "  • Next.js Dashboard UI (Port 3002): ${GREEN}● RUNNING${NC} (http://localhost:3002)"
+    # Local Dashboard
+    if is_port_in_use "${DASHBOARD_PORT}"; then
+        echo -e "  • Local Dashboard (Port ${DASHBOARD_PORT}):     ${GREEN}● RUNNING${NC} (http://localhost:${DASHBOARD_PORT})"
     else
-        echo -e "  • Next.js Dashboard UI (Port 3002): ${RED}○ STOPPED${NC}"
+        echo -e "  • Local Dashboard (Port ${DASHBOARD_PORT}):     ${RED}○ STOPPED${NC}"
     fi
 
     # Redis
