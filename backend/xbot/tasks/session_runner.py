@@ -93,7 +93,7 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
             persona = tasks.load_persona(manager.base_profile_dir / profile_slug)
             is_mock = getattr(config, "mock_mode", False)
 
-            if not is_mock:
+            if not is_mock and not browser:
                 try:
                     proxy_url = getattr(config, "proxy_url", None)
                     schedule_cfg = getattr(config, "schedule", None)
