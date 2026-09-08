@@ -75,7 +75,7 @@ class ChatGPT:
         await self._ensure_started()
         try:
             result = await self.http.ask(prompt, conversation_id=conversation_id)
-        except ShapeChangedError:
+        except Exception:
             result = await self.ui.ask(prompt, conversation_id=conversation_id)
         await self._track(result.get("conversation_id"))
         return result
@@ -97,11 +97,24 @@ class ChatGPT:
         except Exception:
             pass
 
+    async def aclose(self) -> None:
+        """Asynchronously stop the browser."""
+        if self._started:
+            await self.browser.stop()
+            self._started = False
+
     def close(self) -> None:
         """Synchronously stop the browser."""
         if self._started:
-            loop = self._get_loop()
-            loop.run_until_complete(self.browser.stop())
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+            if running_loop and running_loop.is_running():
+                asyncio.ensure_future(self.browser.stop())
+            else:
+                loop = self._get_loop()
+                loop.run_until_complete(self.browser.stop())
             self._started = False
 
     # Sync sugar — all reuse one event loop (Playwright objects are loop-bound).

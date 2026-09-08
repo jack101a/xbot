@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .browser import BrowserManager
+from .browser import BrowserManager, STATE_DIR
 from .cookies import load_cookie_file
 from .errors import AuthError
 
 # Default cookie file locations checked during login flow.
-COOKIE_TXT = Path("~/.chatgpt-bridge/cookies.txt").expanduser()
-COOKIE_JSON = Path("~/.chatgpt-bridge/cookies.json").expanduser()
+COOKIE_TXT = STATE_DIR / "cookies.txt"
+COOKIE_JSON = STATE_DIR / "cookies.json"
 
 
 class SessionManager:

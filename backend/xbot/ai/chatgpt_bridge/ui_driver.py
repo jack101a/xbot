@@ -12,11 +12,11 @@ from .session import SessionManager
 
 # Robust selectors, data-testid first.
 COMPOSER_SELECTOR = (
-    '#prompt-textarea, [data-testid="composer-text-input"], div[contenteditable="true"], textarea[placeholder*="Message"]'
+    '.ProseMirror, div[contenteditable="true"], #prompt-textarea:not(.wcDTda_fallbackTextarea), [data-testid="composer-text-input"]'
 )
-SEND_SELECTOR = '[data-testid="send-button"], [data-testid="composer-send-button"], button[aria-label*="Send"]'
-TURN_SELECTOR = '[data-testid^="conversation-turn"]'
-ASSISTANT_SELECTOR = '[data-message-author-role="assistant"], .markdown'
+SEND_SELECTOR = '#composer-submit-button, [data-testid="send-button"], [data-testid="composer-send-button"], button[aria-label*="Send"]'
+TURN_SELECTOR = '[data-testid^="conversation-turn"], [data-message-author-role="assistant"], article'
+ASSISTANT_SELECTOR = '[data-message-author-role="assistant"], .markdown, article'
 
 HOME_URL = "https://chatgpt.com/"
 
@@ -107,25 +107,30 @@ class UIDriver:
             await self._dismiss_modals_if_present(page)
             await composer.click(force=True)
 
-        # Insert entire multi-line text block atomically without firing Enter on newlines
         inserted = False
         try:
-            inserted = await page.evaluate("""(text) => {
-                const el = document.querySelector('#prompt-textarea, [data-testid="composer-text-input"], div[contenteditable="true"]');
-                if (!el) return false;
-                el.focus();
-                // Select all existing text
-                const sel = window.getSelection();
-                const range = document.createRange();
-                range.selectNodeContents(el);
-                sel.removeAllRanges();
-                sel.addRange(range);
-                // Atomically insert full text including newlines
-                const res = document.execCommand('insertText', false, text);
-                return res && el.textContent.trim().length > 0;
-            }""", prompt)
+            await composer.fill(prompt, timeout=5000)
+            inserted = True
         except Exception:
             inserted = False
+
+        if not inserted:
+            # Insert multi-line text block atomically without firing Enter on newlines
+            try:
+                inserted = await page.evaluate("""(text) => {
+                    const el = document.querySelector('.ProseMirror, [contenteditable="true"], textarea[placeholder*="Ask"], textarea[placeholder*="Message"], #prompt-textarea');
+                    if (!el) return false;
+                    el.focus();
+                    const sel = window.getSelection();
+                    const range = document.createRange();
+                    range.selectNodeContents(el);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    const res = document.execCommand('insertText', false, text);
+                    return res && el.textContent.trim().length > 0;
+                }""", prompt)
+            except Exception:
+                inserted = False
 
         if not inserted:
             # Fallback: type line by line using Shift+Enter for newlines so Enter does not submit early
@@ -157,11 +162,11 @@ class UIDriver:
         deadline = time.monotonic() + timeout_s
         await asyncio.sleep(2.0)
 
-        # Wait for stop generating button to disappear
-        stop_btn = page.locator('[data-testid="stop-button"], button[aria-label*="Stop"]')
+        # Wait for stop generating button to disappear if present
+        stop_btn = page.locator('button[data-testid="stop-button"], button[aria-label="Stop generating"], button[aria-label="Stop answering"]')
         try:
-            if await stop_btn.count() > 0:
-                await stop_btn.first.wait_for(state="detached", timeout=timeout_s * 1000)
+            if await stop_btn.count() > 0 and await stop_btn.first.is_visible():
+                await stop_btn.first.wait_for(state="hidden", timeout=min(timeout_s, 60) * 1000)
         except Exception:
             pass
 
@@ -171,7 +176,7 @@ class UIDriver:
             text = await self._read_last_assistant(page)
             if text and text == last_text:
                 stable_polls += 1
-                if stable_polls >= 3:
+                if stable_polls >= 2:
                     return text
             elif text:
                 last_text = text
@@ -184,12 +189,22 @@ class UIDriver:
 
     async def _read_last_assistant(self, page) -> str:
         try:
+            # Check direct assistant messages first
+            assistants = page.locator('[data-message-author-role="assistant"], .markdown')
+            count = await assistants.count()
+            if count > 0:
+                t = (await assistants.last.inner_text()).strip()
+                if t:
+                    return t
+
             turns = page.locator(TURN_SELECTOR)
             count = await turns.count()
             for i in range(count - 1, -1, -1):
                 turn = turns.nth(i)
                 if await turn.locator(ASSISTANT_SELECTOR).count() > 0:
-                    return (await turn.inner_text()).strip()
+                    t = (await turn.inner_text()).strip()
+                    if t:
+                        return t
         except Exception:
             pass
         return ""
