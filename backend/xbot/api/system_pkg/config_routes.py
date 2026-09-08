@@ -50,7 +50,16 @@ async def update_system_config(payload: SystemConfigUpdate) -> dict[str, Any]:
             updated[k] = v
 
     # Persist only explicitly provided fields back to .env
-    env_path = Path("/home/ubuntu/projects/xbot/backend/.env")
+    env_paths = [
+        Path("/app/data/.env"),
+        Path("/app/.env"),
+        Path("/home/ubuntu/projects/xbot/backend/.env"),
+        Path("/home/ubuntu/projects/xbot/.env"),
+        Path(".env"),
+    ]
+    env_path = next((p for p in env_paths if p.exists()), None)
+    if not env_path:
+        env_path = Path("/app/data/.env") if Path("/app/data").exists() else Path(".env")
     lines = []
     if env_path.exists():
         lines = env_path.read_text(encoding="utf-8").splitlines()

@@ -87,8 +87,15 @@ async def resume_entire_system() -> dict[str, Any]:
 @router.get("/system/config", response_model=dict[str, Any])
 async def get_system_config() -> dict[str, Any]:
     """Gets primary backend settings configuration details, refreshed from .env."""
-    env_path = Path("/home/ubuntu/projects/xbot/backend/.env")
-    if env_path.exists():
+    env_paths = [
+        Path("/app/data/.env"),
+        Path("/app/.env"),
+        Path("/home/ubuntu/projects/xbot/backend/.env"),
+        Path("/home/ubuntu/projects/xbot/.env"),
+        Path(".env"),
+    ]
+    env_path = next((p for p in env_paths if p.exists()), None)
+    if env_path and env_path.exists():
         try:
             for line in env_path.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
