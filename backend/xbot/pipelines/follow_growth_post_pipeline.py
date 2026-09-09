@@ -77,6 +77,11 @@ async def run_follow_growth_post_for_profile(
         logger.info("FollowGrowthPost: Skipped for @%s (daily growth post rate limit reached)", clean_handle)
         return {"status": "skipped", "reason": "growth_post_rate_limit"}
 
+    session_file = Path(settings.BASE_PROFILE_DIR) / profile_slug / "storage_state.json"
+    if not session_file.exists():
+        logger.warning("FollowGrowthPost: Skipped for @%s (no storage_state.json auth session file)", clean_handle)
+        return {"status": "skipped", "reason": "no_auth_session"}
+
     # 1b. Check if 3-day F4F growth research is due; if so, dispatch background task
     try:
         from xbot.growth.growth_researcher import is_growth_research_due, run_f4f_growth_research_task
