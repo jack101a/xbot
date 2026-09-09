@@ -1,18 +1,26 @@
 
-const DEFAULT_API_BASE_URL = typeof window !== 'undefined'
-  ? (window.location.port === '8200' || !window.location.port ? '' : `${window.location.protocol}//${window.location.hostname}:8200`)
-  : 'http://localhost:8200';
+function getDefaultApiBase(): string {
+  if (typeof window === 'undefined') return 'http://localhost:8300';
+  if (window.location.port === '8200' || window.location.port === '8300' || !window.location.port) {
+    return '';
+  }
+  const apiPort = window.location.port === '3003' ? '8300' : '8200';
+  return `${window.location.protocol}//${window.location.hostname}:${apiPort}`;
+}
+
+const DEFAULT_API_BASE_URL = getDefaultApiBase();
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
 
 export function getWebSocketUrl(path: string): string {
   if (typeof window === 'undefined') {
-    return `ws://localhost:8200${path.startsWith('/') ? path : '/' + path}`;
+    return `ws://localhost:8300${path.startsWith('/') ? path : '/' + path}`;
   }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.port === '8200' || !window.location.port
+  const apiPort = window.location.port === '3003' ? '8300' : '8200';
+  const host = (window.location.port === '8200' || window.location.port === '8300' || !window.location.port)
     ? window.location.host
-    : `${window.location.hostname}:8200`;
+    : `${window.location.hostname}:${apiPort}`;
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   return `${protocol}//${host}${cleanPath}`;
 }
