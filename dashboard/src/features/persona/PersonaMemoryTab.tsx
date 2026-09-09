@@ -5,6 +5,7 @@ import { Brain, Save, CheckCircle2, AlertCircle, Upload } from "lucide-react";
 import { PersonaMemoryTabProps } from "./types";
 import { usePersonaMemory } from "./hooks/usePersonaMemory";
 import { PersonaCardEditor } from "./components/PersonaCardEditor";
+import { BoundariesEditor } from "./components/BoundariesEditor";
 import { WorldviewEditor } from "./components/WorldviewEditor";
 import { TopicsEditor } from "./components/TopicsEditor";
 import { DiaryTimeline } from "./components/DiaryTimeline";
@@ -92,8 +93,8 @@ export function PersonaMemoryTab({
         </div>
       )}
 
-      <div className="overflow-x-auto no-scrollbar flex gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/60 w-full sm:max-w-2xl scroll-smooth">
-        {(["identity", "stances", "topics", "diary", "learned"] as const).map((tab) => (
+      <div className="overflow-x-auto no-scrollbar flex gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/60 w-full sm:max-w-3xl scroll-smooth">
+        {(["identity", "boundaries", "stances", "topics", "diary", "learned"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setSubSection(tab)}
@@ -105,6 +106,8 @@ export function PersonaMemoryTab({
           >
             {tab === "identity"
               ? "Identity & Voice"
+              : tab === "boundaries"
+              ? "Reality & Boundaries"
               : tab === "stances"
               ? "Worldview & Stances"
               : tab === "topics"
@@ -118,6 +121,7 @@ export function PersonaMemoryTab({
       </div>
 
       {subSection === "identity" && <PersonaCardEditor persona={persona} setPersona={setPersona} />}
+      {subSection === "boundaries" && <BoundariesEditor persona={persona} setPersona={setPersona} />}
       {subSection === "stances" && <WorldviewEditor persona={persona} setPersona={setPersona} />}
       {subSection === "topics" && <TopicsEditor persona={persona} setPersona={setPersona} newPrimaryTopic={newPrimaryTopic} setNewPrimaryTopic={setNewPrimaryTopic} newAntiTopic={newAntiTopic} setNewAntiTopic={setNewAntiTopic} handleAddPrimaryTopic={handleAddPrimaryTopic} handleRemovePrimaryTopic={handleRemovePrimaryTopic} handleAddAntiTopic={handleAddAntiTopic} handleRemoveAntiTopic={handleRemoveAntiTopic} />}
       {subSection === "diary" && <DiaryTimeline diaryList={diaryList} selectedDiaryDate={selectedDiaryDate} setSelectedDiaryDate={setSelectedDiaryDate} diaryContent={diaryContent} setDiaryContent={setDiaryContent} />}

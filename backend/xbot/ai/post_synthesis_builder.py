@@ -111,12 +111,13 @@ def _build_clean_creator_prompt(
             "- Mobile Fold Hook: Keep opening curiosity hook strictly < 100 characters before the mobile fold\n"
             "- Explicit Subject Naming: Always explicitly state the specific person, project, movie, or brand from the researched topic so readers immediately know what is being discussed\n"
             "- Hashtags: STRICT MAXIMUM OF 2 HASHTAGS at the end. Keep them directly relevant to the topic (e.g. #OnePiece, #AppleEvent). Zero hashtags is fine too.\n"
-            "- Emojis: 0-3 contextual emojis max, chosen dynamically based on the emotion of the post. Place them naturally mid-sentence or inline where emotional punch fits, NOT predictably dumped at the end. Zero emojis is completely fine.\n"
-            "- Simple Everyday English: Write in plain, conversational language. NO heavy dictionary words (no 'moreover', 'delve', 'crucial', 'vital', 'robust', 'facilitate'). Talk like a normal human on X.\n"
+            "- Emojis: Natural contextual tone markers adhering to persona rules. Zero emojis is completely fine.\n"
+            "- Conversational Vocabulary: Write in plain, conversational language without corporate marketing fluff.\n"
             "- High-Utility & Variety: Match authentic human cadence (conversational takes, dry observations, witty one-liners)\n"
+            "- Bookmark & Discussion Value: Deliver insightful perspective or practical framing that compels readers to bookmark or reply\n"
             "- WHITESPACE & THE 2-SENTENCE RULE: Never write more than 2 sentences together without a double line break (\\n\\n). Create visual breathing room for mobile readability\n"
             "- Structure: Clear line breaks (\\n\\n) between setup, observation, and punchline for mobile readability\n"
-            "- Character count: Strictly <= 260 characters\n"
+            "- Pacing: Concise and punchy with organic human pacing for mobile feeds (no walls of text).\n"
             "- Native Text Only: DO NOT include external URLs in the post body (100% native text)."
         )
 

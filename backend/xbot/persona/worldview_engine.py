@@ -150,13 +150,6 @@ def build_worldview_prompt_section(
             )
             if st.talking_points:
                 stance_lines.append(f"  Key Themes to lean on: {', '.join(st.talking_points)}")
-    elif persona.stances:
-        active_stances = [s for s in persona.stances if s.is_active]
-        if active_stances:
-            stance_lines.append("🧠 GENERAL WORLDVIEW & ORIENTATION BIASES:")
-            for s in active_stances[:4]:
-                bias_summary = "/".join(f"{k}:{v}%" for k, v in (s.sentiment_split or {}).items())
-                stance_lines.append(f"- {s.name} ({s.archetype}): {bias_summary}. {s.behavioral_rule}")
 
     if stance_lines:
         sections.append("\n".join(stance_lines))

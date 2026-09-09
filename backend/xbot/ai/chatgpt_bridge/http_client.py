@@ -62,7 +62,7 @@ class BackendClient:
         async with httpx.AsyncClient(
             headers=headers,
             cookies=_cookie_map(cookies),
-            timeout=15.0,
+            timeout=60.0,
             transport=self._transport,
         ) as client:
             try:

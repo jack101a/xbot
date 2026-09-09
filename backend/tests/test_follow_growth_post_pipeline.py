@@ -8,8 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from xbot.ai.growth_post_generator import (
     GROWTH_ARCHETYPES,
+    compute_next_milestone,
+    enforce_hashtag_count,
     generate_growth_post_spec,
     generate_growth_post_with_image,
+    sanitize_growth_image_prompt,
 )
 from xbot.models.base import Base
 import xbot.models  # Register all models on Base.metadata
@@ -136,3 +139,61 @@ async def test_run_follow_growth_post_for_profile_flow():
             assert content is not None
             assert content.status == ContentStatus.POSTED
             assert content.ai_metadata["media_urls"] == ["/home/ubuntu/projects/xbot/data/media/mock_growth.png"]
+
+
+def test_compute_next_milestone():
+    assert compute_next_milestone(0) == 500
+    assert compute_next_milestone(250) == 500
+    assert compute_next_milestone(500) == 1000
+    assert compute_next_milestone(750) == 1000
+    assert compute_next_milestone(1200) == 2500
+    assert compute_next_milestone(3000) == 5000
+    assert compute_next_milestone(6500) == 10000
+    assert compute_next_milestone(12000) == 15000
+
+
+def test_enforce_hashtag_count_zero():
+    raw_text = "Building the future in public! #BuildInPublic #Tech #F4F"
+    result = enforce_hashtag_count(raw_text, target_count=0)
+    assert "#" not in result
+    assert "Building the future in public!" in result
+
+
+def test_enforce_hashtag_count_one_or_two():
+    raw_text = "Connecting with fellow creators today. Drop your current stack."
+    res_one = enforce_hashtag_count(raw_text, target_count=1)
+    assert res_one.count("#") == 1
+    assert any(tag.lower() in res_one.lower() for tag in ["#f4f", "#500followers", "follow", "#mutuals"])
+
+    res_two = enforce_hashtag_count(raw_text, target_count=2)
+    assert res_two.count("#") == 2
+
+
+def test_enforce_growth_hashtags_prioritized():
+    raw_text = "Let's grow together! #f4f #followforfollow #500followers"
+    res = enforce_hashtag_count(raw_text, target_count=1)
+    assert "#f4f" in res.lower()
+    assert res.count("#") == 1
+
+    res_two = enforce_hashtag_count(raw_text, target_count=2)
+    assert res_two.count("#") == 2
+
+
+def test_sanitize_growth_image_prompt_strips_humans_and_cinematic():
+    bad_prompt = "A photorealistic young woman smiling at camera in a cinematic film still with moody film grain"
+    sanitized = sanitize_growth_image_prompt(bad_prompt, include_milestone=False)
+
+    assert "young woman" not in sanitized.lower()
+    assert "photorealistic" not in sanitized.lower()
+    assert "cinematic film still" not in sanitized.lower()
+    assert "moody film grain" not in sanitized.lower()
+    assert "zero people, zero human faces" in sanitized.lower()
+    assert "no realistic humans" in sanitized.lower()
+
+
+def test_sanitize_growth_image_prompt_milestone_badge():
+    bad_prompt = "A man standing"
+    sanitized = sanitize_growth_image_prompt(bad_prompt, include_milestone=True, milestone_num=750)
+    assert "750" in sanitized
+    assert "milestone badge" in sanitized
+    assert "zero people, zero human faces" in sanitized.lower()

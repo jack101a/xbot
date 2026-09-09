@@ -78,11 +78,17 @@ celery_app.conf.beat_schedule = {
         "schedule": 600.0,
         "options": {"expires": 600.0},
     },
-    # 9. Follow Growth Visual Promotion Pipeline (every 90 min)
-    "follow-growth-post-pipeline-every-90m": {
+    # 9. Follow Growth Visual Promotion Pipeline (evaluates dynamic 40-120m random cadence every 5 min)
+    "follow-growth-post-pipeline-runner": {
         "task": "xbot.pipelines.follow_growth_post_pipeline.run_follow_growth_post",
-        "schedule": 5400.0,
-        "options": {"expires": 5400.0},
+        "schedule": 300.0,
+        "options": {"expires": 300.0},
+    },
+    # 10. Autonomous 3-day Follow Growth Idea Discovery Engine (checks hourly if 3-day window elapsed)
+    "f4f-growth-researcher-periodic": {
+        "task": "xbot.growth.growth_researcher.run_f4f_growth_research_task",
+        "schedule": 3600.0,
+        "options": {"expires": 3600.0},
     },
 }
 
@@ -97,6 +103,7 @@ celery_app.conf.imports = [
     "xbot.tasks.sentinel_tasks",
     "xbot.tasks.maintenance_tasks",
     "xbot.tasks.reflection_tasks",
+    "xbot.growth.growth_researcher",
     "xbot.pipelines.browser_queue",
     "xbot.pipelines.like_pipeline",
     "xbot.pipelines.reply_pipeline",
@@ -107,7 +114,7 @@ celery_app.conf.imports = [
     "xbot.pipelines.follow_growth_post_pipeline",
     "xbot.pipelines.notification_engagement_pipeline",
 ]
-celery_app.autodiscover_tasks(["xbot", "xbot.tasks", "xbot.pipelines"])
+celery_app.autodiscover_tasks(["xbot", "xbot.tasks", "xbot.pipelines", "xbot.growth"])
 
 
 from celery.signals import worker_process_init

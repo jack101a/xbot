@@ -52,38 +52,49 @@ def _build_trend_system_prompt(persona: Any) -> str:
     never_rules = _get_persona_field(persona, "rules", "never", default=[])
     system_prompt = _get_persona_field(persona, "system_prompt", default="")
 
-    prompt_parts = [
-        f"You are {display_name} (@{x_handle}). You are an elite domain expert and content strategist.",
-        "Your mission is to evaluate incoming industry news and trending stories, filter for relevance to your niche, and generate high-impact breaking takes for X (Twitter).\n",
-        "=== CHARACTER IDENTITY & VOICE ===",
-    ]
+    from xbot.persona.prompt_engine import build_character_master_prompt
+    master_char_prompt = ""
+    try:
+        master_char_prompt = build_character_master_prompt(persona, action_type="trend")
+    except Exception:
+        pass
 
-    if background:
-        prompt_parts.append(f"Background: {background}")
-    if occupation:
-        prompt_parts.append(f"Occupation: {occupation}")
-    if traits:
-        prompt_parts.append(f"Personality Traits: {', '.join(traits)}")
-    if comm_style:
-        prompt_parts.append(f"Communication Style: {comm_style}")
-    if tone:
-        prompt_parts.append(f"Tone: {tone}")
-    if primary_interests:
-        prompt_parts.append(f"Primary Niche / Interests: {', '.join(primary_interests)}")
-    if secondary_interests:
-        prompt_parts.append(f"Secondary Interests: {', '.join(secondary_interests)}")
-    if will_not_discuss:
-        prompt_parts.append(f"Taboo Topics (Strictly Skip): {', '.join(will_not_discuss)}")
-    if formatting:
-        prompt_parts.append("Formatting Rules:\n" + "\n".join(f"- {fmt}" for fmt in formatting))
-    if examples:
-        prompt_parts.append("Voice Examples:\n" + "\n".join(f"- \"{ex}\"" for ex in examples[:3]))
-    if always_rules:
-        prompt_parts.append("Always Rules:\n" + "\n".join(f"- {r}" for r in always_rules))
-    if never_rules:
-        prompt_parts.append("Never Rules:\n" + "\n".join(f"- {r}" for r in never_rules))
-    if system_prompt:
-        prompt_parts.append(f"\n=== CUSTOM MASTER PROMPT ===\n{system_prompt}")
+    prompt_parts = []
+    if master_char_prompt:
+        prompt_parts.append(master_char_prompt)
+        prompt_parts.append("\n=== TASK DIRECTIVE: TREND NEWS EVALUATION & BREAKING TAKES ===")
+    else:
+        prompt_parts.extend([
+            f"You are {display_name} (@{x_handle}). You are an elite domain expert and content strategist.",
+            "Your mission is to evaluate incoming industry news and trending stories, filter for relevance to your niche, and generate high-impact breaking takes for X (Twitter).\n",
+            "=== CHARACTER IDENTITY & VOICE ===",
+        ])
+        if background:
+            prompt_parts.append(f"Background: {background}")
+        if occupation:
+            prompt_parts.append(f"Occupation: {occupation}")
+        if traits:
+            prompt_parts.append(f"Personality Traits: {', '.join(traits)}")
+        if comm_style:
+            prompt_parts.append(f"Communication Style: {comm_style}")
+        if tone:
+            prompt_parts.append(f"Tone: {tone}")
+        if primary_interests:
+            prompt_parts.append(f"Primary Niche / Interests: {', '.join(primary_interests)}")
+        if secondary_interests:
+            prompt_parts.append(f"Secondary Interests: {', '.join(secondary_interests)}")
+        if will_not_discuss:
+            prompt_parts.append(f"Taboo Topics (Strictly Skip): {', '.join(will_not_discuss)}")
+        if formatting:
+            prompt_parts.append("Formatting Rules:\n" + "\n".join(f"- {fmt}" for fmt in formatting))
+        if examples:
+            prompt_parts.append("Voice Examples:\n" + "\n".join(f"- \"{ex}\"" for ex in examples[:3]))
+        if always_rules:
+            prompt_parts.append("Always Rules:\n" + "\n".join(f"- {r}" for r in always_rules))
+        if never_rules:
+            prompt_parts.append("Never Rules:\n" + "\n".join(f"- {r}" for r in never_rules))
+        if system_prompt:
+            prompt_parts.append(f"\n=== CUSTOM MASTER PROMPT ===\n{system_prompt}")
 
     prompt_parts.append(
         "\n=== EVALUATION & TAKE GENERATION RULES ===\n"

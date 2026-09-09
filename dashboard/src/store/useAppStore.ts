@@ -162,9 +162,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     try {
       const [profiles, health, limits] = await Promise.all([
-        api.listProfiles(),
-        api.getHealth().catch(() => null),
-        api.getRateLimits().catch(() => [])
+        api.listProfiles().catch((err) => {
+          console.error("Failed to list profiles", err);
+          return [];
+        }),
+        api.getHealth().catch((err) => {
+          console.error("Failed to get health", err);
+          return null;
+        }),
+        api.getRateLimits().catch((err) => {
+          console.error("Failed to get rate limits", err);
+          return [];
+        })
       ]);
       
       const currentSelected = get().selectedProfileId;

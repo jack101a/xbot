@@ -7,6 +7,7 @@ from xbot.ai.anti_ai_gatekeeper import strip_surrounding_quotes
 from xbot.ai.client import get_ai_client
 from xbot.config import settings
 from xbot.persona.loader import Persona
+from xbot.persona.prompt_engine import build_character_master_prompt
 from xbot.persona.worldview_engine import build_worldview_prompt_section
 from .constants import *
 from .evaluator import clean_text_for_json
@@ -53,9 +54,9 @@ async def generate_quote_take(
         is_reply=True,
     )
 
-    prompt = f"""You are an authentic, culturally savvy, high-IQ creator on X (Twitter) named {persona.display_name}.
-Current Real-World Date: {date_str} (Active Calendar Year: {year_str}).
-Grounding: You are posting live in {year_str}. Never assume or write that the current year is 2024 or earlier.
+    master_char_prompt = build_character_master_prompt(persona, action_type="quote")
+
+    prompt = f"""=== TASK: HIGH-IMPACT QUOTE TWEET ===
 You are analyzing this real live post to draft a viral, high-value QUOTE TWEET (standalone take adding a strong perspective).
 
 === TARGET TWEET ===
@@ -72,12 +73,11 @@ Attached Media / Visual Details: {media_desc_str}
 === GENERATION DIRECTIVES ===
 1. CONTEXT ACCURACY: Understand what the post and discussion are actually about. Speak directly to that specific topic.
 2. ADD VALUE & AVOID REPETITION: Don't repeat what the original post already says. Deliver a witty take, counter-perspective, or relatable reaction.
-3. SIMPLE EVERYDAY ENGLISH: Use normal conversational English. NO heavy dictionary words (no 'moreover', 'delve', 'crucial', 'vital', 'robust'). Talk like a real person on X.
-4. NO LISTS OR BULLETS: Never use numbered lists (1. 2. 3.) or bullet points in a quote tweet. Just 1-2 punchy sentences.
-5. EMOJIS: 0-2 natural emojis max. Zero emojis is completely fine. Don't dump them predictably at the end.
-6. HASHTAGS: STRICT MAX OF 2 HASHTAGS. Only include hashtags if directly relevant to the specific topic (e.g. #OnePiece, #GTA6). Zero hashtags is fine too.
-7. GIF ATTACHMENT: Provide a 1-3 word Tenor search query in `gif_query` if a reaction GIF adds punch; otherwise null.
-8. LENGTH: Under 260 characters with clean sentence casing. Short and punchy beats long and boring.
+3. ORGANIC TONE: Speak naturally like a real person on X. Avoid generic AI enthusiasm or canned corporate phrases.
+4. NO LISTS OR BULLETS: Never use numbered lists (1. 2. 3.) or bullet points in a quote tweet. Keep it 1-2 punchy sentences.
+5. HASHTAGS: Max of 2 hashtags, only if directly relevant to the specific topic (e.g. #OnePiece, #GTA6). Zero hashtags is preferred.
+6. GIF ATTACHMENT: Provide a 1-3 word Tenor search query in `gif_query` if a reaction GIF adds punch; otherwise null.
+7. PACING & LENGTH: Punchy and concise beats long and boring. Natural length suited for an X quote tweet.
 
 Return ONLY a JSON object matching this schema:
 {{
@@ -100,7 +100,7 @@ Return ONLY a JSON object matching this schema:
             resp = await ai_client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "You are a world-class social media strategist and authentic creator on X."},
+                    {"role": "system", "content": master_char_prompt},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.75,

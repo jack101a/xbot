@@ -32,5 +32,3 @@ class VisualPostSpec(BaseModel):
         return v
 
 
-from xbot.ai.visual_inference import infer_format_type, infer_simcluster, _build_visual_system_prompt, _build_visual_user_prompt
-

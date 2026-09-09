@@ -11,10 +11,10 @@ class Settings(BaseSettings):
     LITELLM_FAST_MODEL: str = "deepseek-v4-flash-0731"
     
     # Model configuration by work type / job
-    # Creative Writing (Heavy Models: ChatGPT Bridge Primary -> Gemini Flash -> DeepSeek Flash 0731)
-    MODEL_POST_CREATION: str = "chatgpt/auto,litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
-    MODEL_REPLY_ANALYSIS: str = "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
-    MODEL_HOOK_OPTIMIZER: str = "chatgpt/auto,litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
+    # Creative Writing (Heavy Models: ChatGPT Bridge Primary -> Gemini 3.7 Flash -> Gemini 3.6 Flash)
+    MODEL_POST_CREATION: str = "chatgpt/auto,litellm/gemini-3.7-flash,litellm/gemini-3.6-flash"
+    MODEL_REPLY_ANALYSIS: str = "chatgpt/auto,litellm/gemini-3.7-flash,litellm/gemini-3.6-flash"
+    MODEL_HOOK_OPTIMIZER: str = "chatgpt/auto,litellm/gemini-3.7-flash,litellm/gemini-3.6-flash"
     MODEL_POLL_GENERATOR: str = "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
     
     # Analysis & Planning (Primary DeepSeek Flash -> Fallback Gemini Flash Lite -> Fallback GPT-OSS-120B)

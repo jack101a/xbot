@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 from xbot.persona import LearnedState, Persona, Relationships, build_worldview_prompt_section
+from xbot.persona.prompt_engine import build_character_master_prompt
 
 
 def build_triage_prompts(
@@ -13,55 +14,13 @@ def build_triage_prompts(
     tweet_text: str,
     is_relationship: bool,
 ) -> tuple[str, str]:
-    import datetime
-    now_dt = datetime.datetime.now().astimezone()
+    master_char_prompt = build_character_master_prompt(persona, action_type="triage", learned_state=learned_state)
     triage_parts = [
+        master_char_prompt,
+        "",
+        "=== TASK DIRECTIVE: TWEET TRIAGE & ENGAGEMENT DECISION ===",
         triage_prompt,
-        f"You are {persona.display_name} (@{persona.x_handle}). Decide if you should engage with a tweet.",
-        f"Current Real-World Date: {now_dt.strftime('%A, %B %d, %Y')} (Active Calendar Year: {now_dt.year}). Grounding: Evaluate all topics in {now_dt.year}.",
     ]
-
-    if "characteristic" in triage_flags:
-        triage_parts.append(f"Always Do: {', '.join(persona.rules.always)}")
-        triage_parts.append(f"Never Do: {', '.join(persona.rules.never)}")
-        if learned_state.characteristics.behavioral_adaptations:
-            triage_parts.append(
-                "Learned Behavioral Adaptations:\n"
-                + "\n".join(f"- {b}" for b in learned_state.characteristics.behavioral_adaptations)
-            )
-    if "personality" in triage_flags:
-        triage_parts.append(f"Traits: {', '.join(persona.personality.traits)}")
-        if learned_state.personality.evolving_nuances:
-            triage_parts.append(
-                "Evolving Nuances:\n"
-                + "\n".join(f"- {n}" for n in learned_state.personality.evolving_nuances)
-            )
-    if "interests" in triage_flags:
-        triage_parts.append(f"Interests: {', '.join(persona.interests.primary)}")
-        if learned_state.interests.emerging_topics:
-            triage_parts.append(
-                f"Learned Emerging Interests: {', '.join(learned_state.interests.emerging_topics)}"
-            )
-    if "likes" in triage_flags:
-        if learned_state.likes.content_preferences:
-            triage_parts.append(
-                "Learned Likes / Content Preferences:\n"
-                + "\n".join(f"- {l}" for l in learned_state.likes.content_preferences)
-            )
-        if learned_state.likes.author_archetypes:
-            triage_parts.append(
-                "Favored Author Archetypes:\n"
-                + "\n".join(f"- {a}" for a in learned_state.likes.author_archetypes)
-            )
-    if "dislikes" in triage_flags:
-        triage_parts.append(
-            f"Will Not Discuss (Negative): {', '.join(persona.interests.will_not_discuss)}"
-        )
-        if learned_state.dislikes.learned_taboos:
-            triage_parts.append(
-                "Learned Dislikes / Taboos:\n"
-                + "\n".join(f"- {d}" for d in learned_state.dislikes.learned_taboos)
-            )
 
     system_prompt = "\n".join(triage_parts)
     user_prompt = (
@@ -91,88 +50,22 @@ def build_reply_prompts(
     tweet_text: str,
     is_relationship: bool,
 ) -> tuple[str, str]:
-    import datetime
-    now_dt = datetime.datetime.now().astimezone()
+    master_char_prompt = build_character_master_prompt(persona, action_type="reply", learned_state=learned_state)
     reply_parts = [
+        master_char_prompt,
+        "",
+        "=== TASK DIRECTIVE: FEED REPLY GENERATION ===",
         reply_prompt,
-        f"You are {persona.display_name} (@{persona.x_handle}). You are replying to a tweet.",
-        f"Current Real-World Date: {now_dt.strftime('%A, %B %d, %Y')} (Active Calendar Year: {now_dt.year}). Grounding: You are replying live in {now_dt.year}. Never assume the current year is 2024 or earlier.",
         "Write in your unique voice. Do NOT break character.\n",
-        "=== CHARACTER BRIEF ===",
     ]
-
-    if "characteristic" in reply_flags:
-        reply_parts.append(f"Occupation/Background: {persona.identity.background}")
-        reply_parts.append("Always Do:\n" + "\n".join(f"- {rule}" for rule in persona.rules.always))
-        reply_parts.append("Never Do:\n" + "\n".join(f"- {rule}" for rule in persona.rules.never))
-        if learned_state.characteristics.behavioral_adaptations:
-            reply_parts.append(
-                "Learned Behavioral Adaptations:\n"
-                + "\n".join(f"- {b}" for b in learned_state.characteristics.behavioral_adaptations)
-            )
-
-    if "personality" in reply_flags:
-        reply_parts.append(f"Personality Traits: {', '.join(persona.personality.traits)}")
-        reply_parts.append(f"Communication Style (Voice context): {persona.personality.communication_style}")
-        reply_parts.append(f"Tone: {persona.writing_style.tone}")
-        if learned_state.personality.evolving_nuances:
-            reply_parts.append(
-                "Evolving Nuances:\n"
-                + "\n".join(f"- {n}" for n in learned_state.personality.evolving_nuances)
-            )
-
-    if "habits" in reply_flags:
-        reply_parts.append("Writing Style Heuristics:\n" + "\n".join(f"- {fmt}" for fmt in persona.writing_style.formatting))
-        reply_parts.append("Examples of how you write:\n" + "\n".join(f"- \"{ex}\"" for ex in persona.writing_style.examples))
-        if learned_state.habits.learned_writing_patterns:
-            reply_parts.append(
-                "Learned Writing Patterns / Habits:\n"
-                + "\n".join(f"- {h}" for h in learned_state.habits.learned_writing_patterns)
-            )
-        if learned_state.habits.engagement_tactics:
-            reply_parts.append(
-                "Engagement Tactics:\n"
-                + "\n".join(f"- {t}" for t in learned_state.habits.engagement_tactics)
-            )
-
-    if "interests" in reply_flags:
-        reply_parts.append(f"Interests: {', '.join(persona.interests.primary)}")
-        if learned_state.interests.emerging_topics:
-            reply_parts.append(
-                f"Learned Emerging Interests: {', '.join(learned_state.interests.emerging_topics)}"
-            )
-        if learned_state.interests.decaying_topics:
-            reply_parts.append(
-                f"Avoid Decaying Topics: {', '.join(learned_state.interests.decaying_topics)}"
-            )
-
-    if "likes" in reply_flags:
-        if learned_state.likes.content_preferences:
-            reply_parts.append(
-                "Learned Likes / Content Preferences:\n"
-                + "\n".join(f"- {l}" for l in learned_state.likes.content_preferences)
-            )
-        if learned_state.likes.author_archetypes:
-            reply_parts.append(
-                "Favored Author Archetypes:\n"
-                + "\n".join(f"- {a}" for a in learned_state.likes.author_archetypes)
-            )
-
-    if "dislikes" in reply_flags:
-        reply_parts.append(f"Will Not Discuss: {', '.join(persona.interests.will_not_discuss)}")
-        if learned_state.dislikes.learned_taboos:
-            reply_parts.append(
-                "Learned Dislikes / Taboos:\n"
-                + "\n".join(f"- {d}" for d in learned_state.dislikes.learned_taboos)
-            )
 
     if is_relationship or "memory" in reply_flags:
         rel_notes = relationships.accounts.get(author, "")
         if rel_notes:
             reply_parts.append(f"Relationship with @{author}:\n- {rel_notes}")
-        reply_parts.append(
-            "Note: Draw on your long-term relationship memory and past experiences to influence your message."
-        )
+            reply_parts.append(
+                "Note: Draw on your long-term relationship memory and past experiences to influence your message."
+            )
 
     worldview_block = build_worldview_prompt_section(
         persona,
@@ -180,7 +73,7 @@ def build_reply_prompts(
         is_reply=True,
     )
     if worldview_block:
-        reply_parts.append(f"=== WORLDVIEW, STANCE & LINGUISTIC DIRECTIVES ===\n{worldview_block}")
+        reply_parts.append(f"=== SITUATIONAL WORLDVIEW & LINGUISTIC DIRECTIVES ===\n{worldview_block}")
 
     system_prompt = "\n".join(reply_parts)
     user_prompt = (

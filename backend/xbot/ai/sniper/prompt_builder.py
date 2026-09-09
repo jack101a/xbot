@@ -13,6 +13,7 @@ from xbot.ai.formatting_engine import (
 )
 from xbot.config import settings
 from xbot.persona.loader import Persona
+from xbot.persona.prompt_engine import build_character_master_prompt
 from xbot.persona.worldview_engine import build_worldview_prompt_section
 from .evaluator import _detect_language_vibe
 
@@ -20,62 +21,27 @@ def _build_sniper_system_prompt(persona: Persona, preferred_angle: str | None = 
     """Constructs the high-retention sniper system prompt supporting 6 dynamic modalities."""
     import datetime
     now_dt = datetime.datetime.now().astimezone()
+    master_char_prompt = build_character_master_prompt(persona, action_type="sniper_reply")
     prompt_parts = [
-        f"You are {persona.display_name} (@{persona.x_handle}). You are executing a high-impact Sniper Reply on X.",
-        f"Current Real-World Date: {now_dt.strftime('%A, %B %d, %Y')} (Active Calendar Year: {now_dt.year}).",
-        f"Real-Time Grounding: You are replying in {now_dt.year}. Never assume or say the current year is 2024 or earlier.",
-        "Your goal is to draft an immediate, high-value, high-retention reply to a target Key Opinion Leader (KOL) post.",
-        "You want your reply to command attention, earn organic engagement, and trigger replies from the author and audience.\n",
-        "=== CHARACTER IDENTITY & VOICE ===",
-        f"Background: {persona.identity.background}",
-    ]
-
-    if getattr(persona.identity, "occupation", None):
-        prompt_parts.append(f"Occupation: {persona.identity.occupation}")
-
-    prompt_parts.append(f"Personality Traits: {', '.join(persona.personality.traits)}")
-    prompt_parts.append(f"Communication Style: {persona.personality.communication_style}")
-    prompt_parts.append(f"Tone: {persona.writing_style.tone}")
-
-    if persona.writing_style.formatting:
-        prompt_parts.append("Formatting Rules:\n" + "\n".join(f"- {fmt}" for fmt in persona.writing_style.formatting))
-
-    if persona.writing_style.examples:
-        prompt_parts.append("Voice Examples:\n" + "\n".join(f"- \"{ex}\"" for ex in persona.writing_style.examples[:3]))
-
-    if persona.interests.primary:
-        prompt_parts.append(f"Primary Interests: {', '.join(persona.interests.primary)}")
-
-    if persona.rules.always:
-        prompt_parts.append("Always Rules:\n" + "\n".join(f"- {r}" for r in persona.rules.always))
-
-    if persona.rules.never:
-        prompt_parts.append("Never Rules:\n" + "\n".join(f"- {r}" for r in persona.rules.never))
-
-    if getattr(persona, "system_prompt", None):
-        prompt_parts.append("\n=== CUSTOM MASTER PROMPT ===")
-        prompt_parts.append(persona.system_prompt)
-
-    prompt_parts.append(f"\n{SNIPER_PROMPT_TEMPLATE}")
-
-    prompt_parts.append(
+        master_char_prompt,
+        f"\n{SNIPER_PROMPT_TEMPLATE}",
         "\n=== X ALGORITHM & RETENTION OPTIMIZATION RULES ===\n"
-        "1. STRICT TOPIC RELEVANCE (MANDATORY): You MUST directly address the EXACT topic, premise, claim, or joke of the target post. If the tweet is about tech, coding, AI, or startups, reply with witty commentary on tech/coding. If it is about cinema, talk about cinema. If it is about gaming/GTA, talk about gaming. NEVER bring up unrelated persona hobbies or forced metaphors.\n"
+        "1. STRICT TOPIC RELEVANCE (MANDATORY): You MUST directly address the EXACT topic, premise, claim, or joke of the target post. If the tweet is about tech, gadgets, or AI, reply with witty commentary on that topic. If it is about cinema, talk about cinema. If it is about gaming/GTA, talk about gaming. NEVER bring up unrelated persona hobbies or forced metaphors.\n"
         "2. MATCH ENERGY & SCALE: Match the vibe of the room. Keep your reply sharp, authentic, and human.\n"
         "3. NO FORCED QUESTIONS: Deliver statements, one-liners, and roasts with conviction. Do NOT force a closing question mark unless you are genuinely asking a debate question.\n"
         "4. DYNAMIC HOOK OPENINGS & EMOTIONAL VARIETY: Vary your opening structure dynamically with genuine human emotion, humor, shock, or sarcasm:\n"
         "   - Sarcastic Banter: 'Bro had 2 lines in 2019 and dipped', 'Rockstar is basically building a second life we have to pay $70 to enter'\n"
         "   - Shock & Hype: 'Masahide Fujii returning as Rocks is pure cinema. That laugh alone is carrying the entire arc'\n"
         "   - Dry Disbelief/Humor: 'The classic tired office worker vs coworker who makes HR mandatory dynamic'\n"
-        "   - Direct Punchy Observation: 'The draw distance alone is absurd. My GPU is sweating just looking at this'\n"
-        "5. DYNAMIC NATURAL LENGTH: Allow short takes, witty roasts, or nuanced breakdowns (up to 260 chars).\n"
+        "   - Direct Punchy Observation: 'The draw distance alone is absurd. Normal laptops are going to sound like a Boeing 747 trying to load this'\n"
+        "5. DYNAMIC NATURAL LENGTH: Allow short takes, witty roasts, or nuanced breakdowns.\n"
         "6. DYNAMIC EMOJIS (0-2 MAX, NO HASHTAGS IN REPLIES): Use 0-2 contextual emojis chosen dynamically to fit the emotion of the reply, or use zero emojis. Do NOT repeat or copy the same emojis repeatedly. NEVER use hashtags (#) in replies — hashtags look unnatural in reply threads.\n"
         "7. ZERO EXPENSIVE / FAKE ACADEMIC AI ENGLISH: STRICTLY BANNED: delve, tapestry, testament, supercharge, beacon, plethora, moreover, furthermore, in conclusion, game-changer, leverage, multifaceted, pivotal, foster, vital, crucial, endeavor. Speak in natural, grounded conversational voice.\n"
         "8. READ THE ROOM & POPULAR COMMENTS: Look at the tweet and top comments. If people are roasting or joking, join the banter with witty sarcasm. If it's a technical debate, bring empirical nuance.\n"
         "9. GIF / REACTION ATTACHMENT: For pure_gif mode or strong comedic timing/shock, provide a 1-3 word gif_query (e.g. 'side eye', 'facepalm', 'sweating nervous', 'tired sigh', 'this is fine fire', 'mind blown'). For analytical takes, return null.\n"
         "10. ABSOLUTE ZERO TOLERANCE FOR INDIAN POLITICS (HARD BAN): STRICTLY FORBIDDEN from discussing or mentioning Indian political parties or politicians.\n"
         "11. ANTI-BOT: NEVER use generic praise like 'Great post!', '100% agree!', 'Awesome thread!'. Stand out."
-    )
+    ]
 
     prompt_parts.append(
         "\n=== HIGH-IMPACT REPLY ANGLES ===\n"

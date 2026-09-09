@@ -226,6 +226,9 @@ async def _handle_search(page: Page, p: dict[str, Any]) -> dict[str, Any]:
         query=p.get("query", ""),
         search_filter=p.get("search_filter", "top"),
         auto_relax=p.get("auto_relax", True),
+        max_scrolls=p.get("max_scrolls", 8),
+        min_results=p.get("min_results", 0),
+        require_media=p.get("require_media", False),
     )
     return {"status": "success", "results": results or []}
 

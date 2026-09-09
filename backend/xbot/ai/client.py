@@ -158,6 +158,9 @@ class RoutingClient:
                             or "not found" in err_str
                             or "404" in err_str
                             or "410" in err_str
+                            or "429" in err_str
+                            or "quota" in err_str
+                            or "resource_exhausted" in err_str
                             or "timeout" in err_str
                             or "timed out" in err_str
                         )

@@ -24,6 +24,8 @@ class ProfileStatus(StrEnum):
     PAUSED = "paused"
     LOCKED = "locked"
     SUSPENDED = "suspended"
+    INACTIVE = "inactive"
+
 
 
 class Profile(Base):

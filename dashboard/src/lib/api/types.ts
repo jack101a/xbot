@@ -4,7 +4,7 @@ export interface Profile {
   profile_slug: string;
   x_handle: string;
   display_name: string;
-  status: 'active' | 'paused' | 'locked' | 'suspended';
+  status: 'active' | 'paused' | 'locked' | 'suspended' | 'inactive';
   persona_summary: any;
   config: any;
   proxy_url_encrypted?: string;

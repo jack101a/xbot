@@ -25,6 +25,7 @@ from xbot.ai.formatting_engine import (
 )
 from xbot.config import settings
 from xbot.persona.loader import Persona
+from xbot.persona.prompt_engine import build_character_master_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -95,12 +96,11 @@ async def synthesize_creator_post(
         context_summary=context_summary,
     )
 
+    master_char_prompt = build_character_master_prompt(persona, action_type=post_type)
     system_prompt = (
-        f"You are {persona.display_name} (@{persona.x_handle.lstrip('@')}).\n"
-        f"Tone: {persona.personality.communication_style}.\n"
-        f"Values: {', '.join(persona.personality.values)}.\n"
-        f"Primary Interests: {', '.join(persona.interests.primary)}.\n\n"
+        f"{master_char_prompt}\n\n"
         f"{ANTI_AI_TYPOGRAPHY_DIRECTIVE}\n\n"
+        "=== TASK INSTRUCTIONS: CREATOR POST / THREAD / POLL ===\n"
         "Return ONLY a JSON object matching this schema:\n"
         "{\n"
         "  \"content\": \"primary tweet text or thread hook text (strictly NO external links)\",\n"

@@ -46,10 +46,10 @@ ARCHETYPE_REGISTRY: dict[PostFormattingArchetype, ArchetypeSpec] = {
             "- Zero introductory filler and no trailing hashtags or trailing emojis."
         ),
         few_shot_examples=[
-            "The M4 Max efficiency gap is actually absurd. Intel needs a miracle.",
-            "90% of meetings could be replaced by a clean git diff.",
+            "The hype around every new phone launch dies the exact second you put a $5 plastic case on it.",
+            "90% of online arguments could be resolved if people actually watched the full 30-second clip.",
             "Cinema is so back.",
-            "Upgraded to an OLED monitor just to debug stack traces in 4K HDR.",
+            "Bought a high-end monitor for 'focus' and now I just watch 4K IMAX trailers with zero regrets.",
         ],
     ),
     PostFormattingArchetype.STACCATO_OBSERVATION: ArchetypeSpec(
@@ -67,9 +67,9 @@ ARCHETYPE_REGISTRY: dict[PostFormattingArchetype, ArchetypeSpec] = {
             "- No corporate transitions ('Furthermore', 'In conclusion')."
         ),
         few_shot_examples=[
-            "Open source won the model layer.\n\nProprietary moats collapsed into distribution and UI.\n\nNow the real war begins.",
-            "Shipped the MVP in 3 hours.\n\nSpent 4 days debugging Safari CSS.\n\nNature is healing.",
-            "Most startups don't die from competition.\n\nThey die from building 14 features nobody asked for.\n\nSales cures vanity.",
+            "Spent 4 hours setting up aesthetic lighting.\n\nEdited the color grade for 2 hours.\n\nBest performing post of the week was a 3-second blurry selfie.",
+            "Every platform is trying to become TikTok.\n\nTikTok is trying to become Amazon.\n\nNobody is having fun anymore.",
+            "Most trends don't die from lack of interest.\n\nThey die because brands start making corporate LinkedIn posts about them.\n\nCringe is lethal.",
         ],
     ),
     PostFormattingArchetype.SCENARIO_DIALOGUE: ArchetypeSpec(
@@ -85,9 +85,9 @@ ARCHETYPE_REGISTRY: dict[PostFormattingArchetype, ArchetypeSpec] = {
             "- Clean punctuation and natural creator tone."
         ),
         few_shot_examples=[
-            "Junior dev: 'Can we rewrite the entire backend in Rust?'\n\nSenior dev: 'We haven't validated the product in Python yet.'",
-            "Founder: 'We are launching stealth AI.'\n\nUsers: 'Can you please just fix the login page?'",
-            "Marketing: 'We need 5 approvals before posting.'\n\nCompetitor: *Ships a raw meme and gains 10k users*",
+            "Tech brand: 'We integrated generative AI into this blender.'\n\nConsumers: 'Can you please just make the motor last more than 18 months?'",
+            "Streamer: 'We need 4 cameras and studio soundproofing.'\n\nAudience: 'Can you please fix the echo on your mic?'",
+            "Studio: 'We spent $200M on CGI explosions.'\n\nAudience: 'Why is the dialogue inaudible under the bass?'",
         ],
     ),
     PostFormattingArchetype.MEDIA_SETUP_HOOK: ArchetypeSpec(
@@ -104,9 +104,9 @@ ARCHETYPE_REGISTRY: dict[PostFormattingArchetype, ArchetypeSpec] = {
             "- Never describe what is already obvious; let the visual deliver 80% of the punchline."
         ),
         few_shot_examples=[
-            "Look closely at the memory allocation curve in Q3.\n\nThis is where the entire architecture snapped.",
-            "the exact moment everything went downhill",
-            "One chart that explains why every developer is migrating to local inference.",
+            "Look closely at the background reflection in frame 2.\n\nPure unscripted chaos.",
+            "the exact moment everyone knew the trailer was going to break the internet",
+            "One photo that perfectly captures modern internet culture.",
             "no notes.",
         ],
     ),
@@ -123,9 +123,9 @@ ARCHETYPE_REGISTRY: dict[PostFormattingArchetype, ArchetypeSpec] = {
             "- Crisp, balanced symmetry."
         ),
         few_shot_examples=[
-            "What people think senior engineering is:\nWriting 10,000 lines of complex distributed code.\n\nWhat it actually is:\nDeleting 500 lines of dead code and going home early.",
-            "Building in 2022: 6 months to train a classifier.\n\nBuilding in 2026: 1 API call and 3 weeks arguing over system prompt formatting.",
-            "Amateurs optimize for output volume.\n\nPros optimize for iteration speed and feedback loops.",
+            "What people think content creation is:\nFilming aesthetic b-roll on a quiet balcony.\n\nWhat it actually is:\n4 hours arguing with video export codecs and audio syncing.",
+            "Streaming in 2020: One subscription for all the movies you love.\n\nStreaming in 2026: 7 different tiers to rent a 15-year-old movie with ads.",
+            "Amateurs optimize for vanity metrics.\n\nReal creators optimize for people who actually care when you post.",
         ],
     ),
     PostFormattingArchetype.MINI_LIST_FRAMEWORK: ArchetypeSpec(
@@ -142,9 +142,9 @@ ARCHETYPE_REGISTRY: dict[PostFormattingArchetype, ArchetypeSpec] = {
             "- 1 short closing rule."
         ),
         few_shot_examples=[
-            "The 3-step filter before shipping any new feature:\n\n- Does it reduce clicks for power users?\n- Can support explain it in 1 sentence?\n- Will it survive 10x traffic spikes without a refactor?",
-            "Why 95% of AI wrappers die within 60 days:\n\n- Zero proprietary data moat\n- Brittle prompt engineering\n- Commoditized user interface\n\nDistribution beats raw features.",
-            "Rules for high-signal technical writing:\n\n- Lead with the counter-intuitive result\n- Show the exact command or config\n- Cut every adjective that doesn't add data",
+            "The 3-stage cycle of modern social media:\n\n- Genuine creators build an authentic community\n- Algorithms force everyone into short-form engagement farming\n- Everyone migrates to group chats\n\nCycle repeats.",
+            "Why most aesthetic hardware setups fail after a week:\n\n- Cable management impossible to maintain\n- Matte surfaces show every fingerprint\n- Comfort sacrificed for minimalism\n\nUsability always wins.",
+            "Rules for watching a 3-hour cinema epic:\n\n- Zero liquids 1 hour before showtime\n- Center seat on the IMAX screen\n- Turn off your phone completely",
         ],
     ),
     PostFormattingArchetype.HOT_TAKE_PUNCH: ArchetypeSpec(
@@ -160,9 +160,9 @@ ARCHETYPE_REGISTRY: dict[PostFormattingArchetype, ArchetypeSpec] = {
             "- Decisive, confident conclusion with zero corporate waffle."
         ),
         few_shot_examples=[
-            "Code reviews are mostly theater.\n\nIf you need 4 engineers to spot syntax errors, your CI/CD is broken. Reviews should debate architecture, not linting.",
-            "Most productivity tools don't save time.\n\nThey just convert procrastination into a structured Kanban board.",
-            "The cleanest code is code you never had to write. Engineering discipline is about what you choose to omit.",
+            "Smartphone camera hardware peaked two years ago.\n\nNow brands are just adding heavier AI filters that make normal faces look like waxy oil paintings. Bring back optical honesty.",
+            "Most productivity apps do not save time.\n\nThey just convert normal procrastination into an aesthetically pleasing checklist.",
+            "The best movie sequels are the ones nobody asked for that completely subvert expectations.",
         ],
     ),
     PostFormattingArchetype.DEBATE_DILEMMA: ArchetypeSpec(
@@ -177,8 +177,8 @@ ARCHETYPE_REGISTRY: dict[PostFormattingArchetype, ArchetypeSpec] = {
             "- High-conviction debate question in line 2 ending with '?' compelling replies."
         ),
         few_shot_examples=[
-            "Most teams adopting microservices spend more hours debugging network latency than shipping features.\n\nAre microservices dead for 95% of startups in 2026?",
-            "Khan Market cold coffee vs starter home-brewed filter coffee.\n\nWhy do people pretend aesthetics taste better when they cost 450 rupees?",
+            "People spend 45 minutes scrolling Netflix menus only to fall asleep 10 minutes into a show.\n\nDid streaming platforms engineer choice paralysis on purpose?",
+            "Khan Market cold coffee vs home-brewed filter coffee.\n\nWhy do people pretend aesthetics taste better when they cost 450 rupees?",
         ],
     ),
 }

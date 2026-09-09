@@ -42,6 +42,14 @@ class Rules(BaseModel):
     never: list[str] = Field(default_factory=list)
 
 
+class ProfileBoundaries(BaseModel):
+    owns: list[str] = Field(default_factory=list, description="Items and tools the character owns and casually uses")
+    never_owns: list[str] = Field(default_factory=list, description="Items strictly forbidden from first-person ownership claims")
+    expert_in: list[str] = Field(default_factory=list, description="Topics/skills the character has genuine depth and confidence in")
+    spectator_only: list[str] = Field(default_factory=list, description="Topics where character speaks purely as a curious outsider or everyday consumer")
+    never_claim_to_be: list[str] = Field(default_factory=list, description="Professional identities or roles strictly forbidden from claiming")
+
+
 class KOLChannel(BaseModel):
     name: str = Field(..., description="Channel slug e.g. anime_manga, movies_cinema, consumer_tech, ai_ecosystem, growth_f4f")
     display_title: str = Field(..., description="User-facing channel title")
@@ -116,6 +124,7 @@ class Persona(BaseModel):
     expressiveness_config: ExpressivenessConfig = Field(default_factory=ExpressivenessConfig)
     system_prompt: str | None = None
     tone_prompt: str | None = None
+    boundaries: ProfileBoundaries = Field(default_factory=ProfileBoundaries)
     raw_character_card: Any = None
 
     model_config = ConfigDict(extra="allow")

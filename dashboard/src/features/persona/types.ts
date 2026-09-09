@@ -40,17 +40,31 @@ export interface ExpressivenessConfig {
   thread_media_rate: number;
 }
 
+export interface ProfileBoundaries {
+  owns?: string[];
+  never_owns?: string[];
+  expert_in?: string[];
+  spectator_only?: string[];
+  never_claim_to_be?: string[];
+}
+
 export interface PersonaState {
   display_name?: string;
   identity?: {
     background?: string;
+    location?: string;
+    age?: number;
+    education?: string;
+    occupation?: string;
   };
   personality?: {
     communication_style?: string;
   };
   writing_style?: {
     tone?: string;
+    typical_length?: string;
   };
+  boundaries?: ProfileBoundaries;
   goals?: {
     short_term?: string[];
     content_pillars?: string[];

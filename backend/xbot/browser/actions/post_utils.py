@@ -114,10 +114,17 @@ async def _attach_media_files(page: Page, media_paths: list[str] | None) -> bool
                 'img[alt*="Image"]'
             )
             try:
-                await page.wait_for_selector(attachment_sel, timeout=10000)
+                await page.wait_for_selector(attachment_sel, timeout=15000)
                 logger.info("Media attachment preview loaded successfully.")
             except Exception:
                 logger.warning("Attachment thumbnail selector timed out, proceeding.")
+
+            # Wait for X background media chunk upload to complete
+            try:
+                await page.wait_for_selector('div[role="progressbar"], [data-testid="progressBar"]', state="hidden", timeout=20000)
+            except Exception:
+                pass
+            await sleep_think_time(2500, 4000)
 
             return True
     except Exception as e:

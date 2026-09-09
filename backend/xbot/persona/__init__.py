@@ -27,6 +27,7 @@ from xbot.persona.loader import (
     LimitsConfig,
     Persona,
     Personality,
+    ProfileBoundaries,
     Relationships,
     Rules,
     ScheduleConfig,
@@ -48,6 +49,7 @@ from xbot.persona.loader import (
     save_strategy,
 )
 from xbot.persona.memory import MemoryManager
+from xbot.persona.prompt_engine import build_character_master_prompt
 from xbot.persona.worldview_engine import (
     build_worldview_prompt_section,
     detect_language_and_script,
@@ -71,6 +73,7 @@ __all__ = [
     "KOLChannel",
     "LanguageConfig",
     "LearnedCharacteristics",
+    "build_character_master_prompt",
     "build_worldview_prompt_section",
     "detect_language_and_script",
     "match_entity_stances",
@@ -84,6 +87,7 @@ __all__ = [
     "MemoryManager",
     "Persona",
     "Personality",
+    "ProfileBoundaries",
     "Relationships",
     "Rules",
     "ScheduleConfig",

@@ -115,12 +115,37 @@ class AntiAIGatekeeper:
     # 6. Sentence Splitter for Burstiness & Casing Analysis
     SENTENCE_SPLIT_REGEX = re.compile(r"(?<=[.!?])\s+|\n+")
 
-    def validate(self, text: str, max_emojis: int = 3) -> ValidationResult:
+    def validate(self, text: str, max_emojis: int = 3, persona: Any = None) -> ValidationResult:
         errors: list[str] = []
         cleaned = text.strip()
 
         if not cleaned:
             return ValidationResult(is_valid=False, errors=["Content is empty."], cleaned_text="")
+
+        # -------------------------------------------------------------
+        # Gatekeeper 0: Dynamic Persona Boundary Enforcement
+        # -------------------------------------------------------------
+        if persona and getattr(persona, "boundaries", None):
+            boundaries = persona.boundaries
+            # 1. Never owns check (e.g. "my gpu", "our server", "my macbook")
+            for item in getattr(boundaries, "never_owns", []):
+                core_item = item.split("(")[0].strip()
+                if core_item:
+                    keywords = [w.lower() for w in re.findall(r"\b[a-zA-Z0-9]+\b", core_item) if len(w) >= 3]
+                    for kw in keywords:
+                        kw_stem = kw[:-1] if kw.endswith("s") and len(kw) > 3 else kw
+                        pattern = rf"\b(?:my|our)\s+(?:new\s+|custom\s+)?{re.escape(kw_stem)}s?\b"
+                        if re.search(pattern, cleaned, flags=re.IGNORECASE):
+                            errors.append(f"Boundary violation: Claims first-person ownership of forbidden item '{kw}' from never_owns.")
+
+            # 2. Never claim to be check (e.g. "as a developer", "i am a software engineer")
+            for role in getattr(boundaries, "never_claim_to_be", []):
+                roles_split = [r.strip() for r in role.split("/") if r.strip()]
+                for r_item in roles_split:
+                    if len(r_item) > 2:
+                        pattern = rf"\b(?:as an?|i(?:'m| am) an?)\s+{re.escape(r_item.lower())}\b"
+                        if re.search(pattern, cleaned, flags=re.IGNORECASE):
+                            errors.append(f"Boundary violation: Claims forbidden professional role '{r_item}' from never_claim_to_be.")
 
         # -------------------------------------------------------------
         # Gatekeeper 1: Banned Buzzwords & Corporate AI Clichés
@@ -284,9 +309,9 @@ You write with the natural variety, cadence, and spontaneity of an authentic hum
    - NEVER use "TL;DR:", "TLDR:", "In conclusion:", or "Summary:". Conclude threads and thoughts organically.
 
 2. EMOJIS & HASHTAGS:
-   - Use 0 to 3 emojis MAX, chosen dynamically to fit the exact emotion and context of the post.
-   - DO NOT copy or repeat fixed emoji templates. Many posts should have ZERO emojis.
-   - Place emojis naturally where emotional emphasis fits, never dumped formulaically at the end of sentences or paragraphs.
+   - Use 0 to 2 emojis MAX (zero emojis is completely fine), chosen dynamically to fit the exact emotion and context.
+   - DO NOT copy or repeat fixed emoji templates.
+   - Place emojis naturally where emotional emphasis fits, never dumped formulaically at line ends.
    - STRICT LIMIT: MAXIMUM OF 2 HASHTAGS per post. Only use hashtags that directly match the specific topic entity. Zero hashtags is completely fine.
    - NEVER use emojis as bullet headers (no emojis at line starts).
 
@@ -296,23 +321,12 @@ You write with the natural variety, cadence, and spontaneity of an authentic hum
    - Break dense paragraphs into short, digestible 1-2 sentence thoughts.
    - Vary paragraph and sentence lengths (burstiness: mix a 4-word punchline with a 15-word thought).
 
-4. BANNED AI LEXICON (ZERO TOLERANCE):
-   Do NOT use any of the following words or phrases under any circumstance:
-   - "supercharge", "unleash", "harness", "delve", "elevate", "unlock", "revolutionize", "streamline"
-   - "game-changer", "tapestry", "landscape", "beacon", "testament", "paradigm shift", "pivotal"
-   - "moreover", "furthermore", "nevertheless", "subsequently", "utilize", "facilitate", "commence", "exemplify", "crucial", "vital", "robust"
-   - "in today's fast-paced world", "dive in", "let's explore", "look no further"
-   - "let that sink in", "read that again", "agree or disagree?", "drop your thoughts below"
-   - "it's not just about X, it's about Y", "not only X, but also Y"
-   - "TL;DR", "TLDR", "In conclusion", "To sum up"
+4. BANNED AI LEXICON & CLICHÉS (ZERO TOLERANCE):
+   Do NOT use formulaic corporate/AI buzzwords, heavy essay words, or engagement-bait CTAs:
+   - Buzzwords: "supercharge", "unleash", "harness", "delve", "elevate", "unlock", "revolutionize", "streamline", "game-changer", "tapestry", "landscape", "beacon", "testament", "paradigm shift", "pivotal", "plethora", "multifaceted", "bespoke"
+   - Cliché openers/closers: "in today's fast-paced world", "dive in", "let's explore", "look no further", "let that sink in", "read that again", "agree or disagree?", "drop your thoughts below", "it's not just about X, it's about Y", "TL;DR", "TLDR", "In conclusion"
+   - Heavy dictionary words: "moreover", "furthermore", "nevertheless", "subsequently", "utilize", "facilitate", "commence", "exemplify", "crucial", "vital", "robust", "comprehensive", "intricate", "profound", "imperative" (talk like a real person on X: "use" instead of "utilize", "start" instead of "commence", "help" instead of "facilitate").
 
 5. BANNED ROUTINE / BEVERAGE FILLER:
    - NEVER post about drinking chai, coffee vs matcha, tea stalls, sitting on terraces, or mundane desk/morning routines.
-
-6. LANGUAGE SIMPLICITY & NORMAL ENGLISH (MANDATORY):
-   - Write in simple, natural, conversational English — the way normal people talk on X.
-   - NO heavy dictionary words: NEVER use "moreover", "furthermore", "nevertheless", "subsequently", "utilize", "facilitate", "commence", "exemplify", "crucial", "vital", "robust", "comprehensive", "intricate", "profound", "imperative".
-   - Use everyday words: "use" instead of "utilize", "start" instead of "commence", "help" instead of "facilitate", "show" instead of "exemplify".
-   - If a 15-year-old wouldn't say it in a normal conversation, do NOT write it.
-   - Zero academic essay tone. Zero corporate marketing tone. Just talk normally.
 """

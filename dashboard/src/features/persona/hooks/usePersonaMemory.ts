@@ -5,12 +5,12 @@ import { PersonaState, LearnedState, DiaryEntry, MsgState } from "../types";
 export function usePersonaMemory(
   profileId: string, 
   onRefresh: () => void,
-  initialSubSection?: "identity" | "topics" | "stances" | "diary" | "learned",
-  onSubSectionChange?: (sub: "identity" | "topics" | "stances" | "diary" | "learned") => void
+  initialSubSection?: "identity" | "boundaries" | "topics" | "stances" | "diary" | "learned",
+  onSubSectionChange?: (sub: "identity" | "boundaries" | "topics" | "stances" | "diary" | "learned") => void
 ) {
-  const [internalSubSection, setInternalSubSection] = useState<"identity" | "topics" | "stances" | "diary" | "learned">(initialSubSection || "identity");
+  const [internalSubSection, setInternalSubSection] = useState<"identity" | "boundaries" | "topics" | "stances" | "diary" | "learned">(initialSubSection || "identity");
   const subSection = initialSubSection || internalSubSection;
-  const setSubSection = (s: "identity" | "topics" | "stances" | "diary" | "learned") => {
+  const setSubSection = (s: "identity" | "boundaries" | "topics" | "stances" | "diary" | "learned") => {
     setInternalSubSection(s);
     onSubSectionChange?.(s);
   };

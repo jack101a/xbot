@@ -3,6 +3,7 @@ from typing import Any
 from xbot.ai.anti_ai_gatekeeper import ANTI_AI_TYPOGRAPHY_DIRECTIVE
 from xbot.ai.visual_templates import VISUAL_FORMAT_TEMPLATES
 from xbot.persona.loader import Persona
+from xbot.persona.prompt_engine import build_character_master_prompt
 from xbot.ai.visual_models import VisualPostSpec
 
 def infer_format_type(topic: str) -> str:
@@ -57,25 +58,18 @@ def infer_simcluster(topic: str, format_type: str) -> str:
 
 
 def _build_visual_system_prompt(persona: Persona | None = None, format_type: str | None = None) -> str:
-    persona_context = ""
-    if persona:
-        persona_context = (
-            f"Creator Persona: {persona.display_name} (@{persona.x_handle.lstrip('@')})\n"
-            f"Tone & Voice: {persona.personality.communication_style}\n"
-            f"Values: {', '.join(persona.personality.values)}\n"
-            f"Interests: {', '.join(persona.interests.primary)}\n\n"
-        )
+    master_char_prompt = build_character_master_prompt(persona, action_type="visual") if persona else "You are an authentic creator on X (Twitter)."
 
     return (
-        "You are an expert Visual Post & Meme Virality Director for X (Twitter).\n"
-        "Your task is to design high-engagement visual post specifications utilizing the 'One-Two Punch' strategy:\n"
-        "1. Tweet Copy (Setup / Tension Hook / Reaction): Natural, flexible human length (from a punchy 1-word reaction like 'real 💯' or 'pure cinema 😭' to a 1-2 sentence tension setup up to 280 chars). Do NOT artificially force every post to be the exact same length.\n"
+        f"{master_char_prompt}\n\n"
+        "=== TASK INSTRUCTIONS: VISUAL POST SPECIFICATION ===\n"
+        "You are designing high-engagement visual post specifications utilizing the 'One-Two Punch' strategy:\n"
+        "1. Tweet Copy (Setup / Tension Hook / Reaction): Natural, flexible human length (from a punchy 1-word reaction like 'real 💯' or 'pure cinema 😭' to a 1-2 sentence tension setup). Do NOT artificially force every post to be the exact same length.\n"
         "2. Image Prompt (Visual Payoff / Punchline): Detailed visual generation prompt in 4:5 vertical portrait aspect ratio (1080x1350) for mobile viewport takeover (~74% mobile screen).\n"
         "   - Include lighting, color palette, camera/lens specs, high contrast, dark mode theme (#0D1117) where applicable, and zero distorted AI text.\n"
         "3. Aspect Ratio: Default to '4:5' (or '1:1').\n"
         "4. Format Types: 'storyboard_4panel', 'side_by_side', 'urban_lifestyle', 'dark_infographic'.\n"
         "5. Target SimClusters: 'Tech/AI', 'Cinema/Prestige', 'Urban/Creator', 'Anime/PopCulture'.\n\n"
-        f"{persona_context}"
         f"{ANTI_AI_TYPOGRAPHY_DIRECTIVE}\n\n"
         "Return ONLY a JSON object matching this schema:\n"
         "{\n"

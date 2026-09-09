@@ -1,16 +1,28 @@
-
-function getDefaultApiBase(): string {
-  if (typeof window === 'undefined') return 'http://localhost:8300';
-  if (window.location.port === '8200' || window.location.port === '8300' || !window.location.port) {
-    return '';
+export function getApiBaseUrl(): string {
+  if (typeof window !== 'undefined') {
+    if (window.location.port === '8200' || window.location.port === '8300' || !window.location.port) {
+      return '';
+    }
+    const apiPort = window.location.port === '3003' ? '8300' : '8200';
+    return `${window.location.protocol}//${window.location.hostname}:${apiPort}`;
   }
-  const apiPort = window.location.port === '3003' ? '8300' : '8200';
-  return `${window.location.protocol}//${window.location.hostname}:${apiPort}`;
+  return process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8300';
 }
 
-const DEFAULT_API_BASE_URL = getDefaultApiBase();
-
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
+export const API_BASE_URL = {
+  toString() {
+    return getApiBaseUrl();
+  },
+  valueOf() {
+    return getApiBaseUrl();
+  },
+  replace(pattern: string | RegExp, replacement: string) {
+    return getApiBaseUrl().replace(pattern, replacement);
+  },
+  startsWith(searchString: string, position?: number) {
+    return getApiBaseUrl().startsWith(searchString, position);
+  },
+} as unknown as string;
 
 export function getWebSocketUrl(path: string): string {
   if (typeof window === 'undefined') {
@@ -30,7 +42,8 @@ export interface RequestOptions extends RequestInit {
 }
 
 export async function request<T>(path: string, options?: RequestOptions): Promise<T> {
-  const url = `${API_BASE_URL}${path}`;
+  const baseUrl = getApiBaseUrl();
+  const url = `${baseUrl}${path}`;
   const controller = new AbortController();
   const timeoutMs = options?.timeoutMs ?? 180000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);

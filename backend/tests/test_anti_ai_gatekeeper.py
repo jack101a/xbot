@@ -89,3 +89,28 @@ def test_strip_surrounding_quotes() -> None:
     # Preserves inner quotes
     assert strip_surrounding_quotes('"Why they call it "serverless" makes no sense."') == 'Why they call it "serverless" makes no sense.'
 
+
+def test_rejects_persona_boundary_violations(gatekeeper: AntiAIGatekeeper) -> None:
+    from pathlib import Path
+    from xbot.persona.loader import load_persona
+
+    profile_dir = Path(__file__).resolve().parents[2] / "data" / "profiles" / "test_profile1"
+    persona = load_persona(profile_dir)
+
+    # Violation 1: Claiming ownership of forbidden item (e.g. dedicated GPUs / MacBooks)
+    gpu_tweet = "Just spun up my new dedicated GPU cluster and my RTX 4090 is running at 100% load."
+    res1 = gatekeeper.validate(gpu_tweet, persona=persona)
+    assert res1.is_valid is False
+    assert any("never_owns" in err for err in res1.errors)
+
+    # Violation 2: Claiming to be a software engineer / developer
+    dev_tweet = "As a software engineer and compiler dev, I optimize memory models every single day."
+    res2 = gatekeeper.validate(dev_tweet, persona=persona)
+    assert res2.is_valid is False
+    assert any("never_claim_to_be" in err for err in res2.errors)
+
+    # Valid human reaction (spectator / creator perspective)
+    valid_tweet = "Honestly, the wild part about these new local models is seeing everyone run them on phones instead of waiting for cloud APIs."
+    res3 = gatekeeper.validate(valid_tweet, persona=persona)
+    assert res3.is_valid is True
+

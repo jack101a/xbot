@@ -50,11 +50,41 @@ async def run_follow_growth_post_for_profile(
     clean_handle = profile.x_handle.lstrip("@")
     c = container or get_container()
 
+    import time
+    import random
+    r = getattr(guard, "r", None)
+    redis_key_next_due = f"xbot:growth_post:next_due:{profile_slug}"
+    next_due_ts_str = r.get(redis_key_next_due) if r else None
+    now_ts = int(time.time())
+
+    if next_due_ts_str:
+        try:
+            next_due_ts = int(next_due_ts_str)
+            if now_ts < next_due_ts:
+                remaining_m = max(1, (next_due_ts - now_ts) // 60)
+                logger.info(
+                    "FollowGrowthPost: @%s in randomized 40-120m cadence window (%d mins remaining)",
+                    clean_handle,
+                    remaining_m,
+                )
+                return {"status": "skipped", "reason": f"interval_cooldown_{remaining_m}m"}
+        except (ValueError, TypeError):
+            pass
+
     # 1. Rate Limit & Safety Check
     can_post = await guard.can_act(db, profile_slug, "growth_post")
     if not can_post:
         logger.info("FollowGrowthPost: Skipped for @%s (daily growth post rate limit reached)", clean_handle)
         return {"status": "skipped", "reason": "growth_post_rate_limit"}
+
+    # 1b. Check if 3-day F4F growth research is due; if so, dispatch background task
+    try:
+        from xbot.growth.growth_researcher import is_growth_research_due, run_f4f_growth_research_task
+        if is_growth_research_due(r):
+            logger.info("FollowGrowthPost: 3-day F4F research cycle is due. Dispatching background research task...")
+            run_f4f_growth_research_task.delay(profile_slug=profile_slug)
+    except Exception as res_trigger_err:
+        logger.debug("Could not dispatch F4F growth research task: %s", res_trigger_err)
 
     persona = None
     try:
@@ -116,6 +146,8 @@ async def run_follow_growth_post_for_profile(
                 "image_path": image_path,
                 "media_urls": [image_path],
                 "is_growth_promotion": True,
+                "target_milestone": growth_spec.target_milestone,
+                "hashtags_count": growth_spec.hashtags_count,
             },
             posted_at=datetime.datetime.utcnow(),
         )
@@ -134,7 +166,7 @@ async def run_follow_growth_post_for_profile(
                 "text": growth_spec.tweet_copy,
                 "media_paths": media_to_send,
             },
-            timeout_seconds=45,
+            timeout_seconds=120,
         )
         post_res = await c.browser.execute(post_req)
         post_success = post_res.status in ("success", "posted") or (post_res.action_result and post_res.action_result.status == "success")
@@ -236,6 +268,16 @@ async def run_follow_growth_post_for_profile(
         logger.error("FollowGrowthPost: Error in growth cycle for @%s: %s", clean_handle, e, exc_info=True)
         return {"status": "error", "error": str(e)}
 
+    # Schedule next random interval between 40 and 120 minutes (2400 to 7200 seconds)
+    next_gap_sec = random.randint(40 * 60, 120 * 60)
+    if r:
+        r.set(redis_key_next_due, str(now_ts + next_gap_sec), ex=86400)
+    logger.info(
+        "FollowGrowthPost: Scheduled next growth cycle for @%s in %d mins (random 40-120m cadence)",
+        clean_handle,
+        next_gap_sec // 60,
+    )
+
     return {
         "status": "success",
         "post_published": post_published,
@@ -262,10 +304,11 @@ def run_follow_growth_post() -> dict[str, Any]:
                 r = await run_follow_growth_post_for_profile(db, profile, guard, container=c)
                 results[profile.profile_slug] = r
 
+                run_status = "success" if r.get("status") == "success" else ("skipped" if r.get("status") == "skipped" else "failed")
                 prun = PipelineRun(
                     profile_id=profile.id,
                     pipeline_name="follow_growth_post",
-                    status="completed" if r.get("status") == "success" else "failed",
+                    status=run_status,
                     actions_count=(1 if r.get("post_published") else 0) + r.get("followed_commenters", 0),
                     details=r,
                 )

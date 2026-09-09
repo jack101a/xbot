@@ -3,6 +3,7 @@ import json
 import logging
 from typing import Any
 from xbot.ai.poll_models import GeneratedPoll
+from xbot.persona.prompt_engine import build_character_master_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -28,54 +29,13 @@ def _get_persona_field(obj: Any, *keys: str, default: Any = None) -> Any:
     return current if current is not None else default
 
 def _build_poll_system_prompt(persona: Any, topic: str | None = None) -> str:
-    display_name = _get_persona_field(persona, "display_name", default="Autonomous Creator")
-    x_handle = _get_persona_field(persona, "x_handle", default="creator")
-    background = _get_persona_field(persona, "identity", "background", default="")
-    occupation = _get_persona_field(persona, "identity", "occupation", default="")
-    traits = _get_persona_field(persona, "personality", "traits", default=[])
-    comm_style = _get_persona_field(persona, "personality", "communication_style", default="")
-    tone = _get_persona_field(persona, "writing_style", "tone", default="sharp, authentic, insightful")
-    formatting = _get_persona_field(persona, "writing_style", "formatting", default=[])
-    examples = _get_persona_field(persona, "writing_style", "examples", default=[])
-    primary_interests = _get_persona_field(persona, "interests", "primary", default=[])
-    secondary_interests = _get_persona_field(persona, "interests", "secondary", default=[])
-    always_rules = _get_persona_field(persona, "rules", "always", default=[])
-    never_rules = _get_persona_field(persona, "rules", "never", default=[])
-    system_prompt = _get_persona_field(persona, "system_prompt", default="")
+    master_char_prompt = build_character_master_prompt(persona, action_type="poll") if persona else "You are an authentic creator on X (Twitter)."
 
     prompt_parts = [
-        f"You are {display_name} (@{x_handle}). You are an expert at creating viral, debate-provoking Native X (Twitter) polls.",
-        "Your mission is to generate a highly engaging, curiosity-driven poll that drives votes, replies, and dwell time in your niche.\n",
-        "=== CHARACTER IDENTITY & VOICE ===",
+        master_char_prompt,
+        "\n=== TASK INSTRUCTIONS: NATIVE X (TWITTER) POLL ===",
+        "Your mission is to generate a highly engaging, curiosity-driven interactive poll that drives votes, replies, and dwell time in your niche.\n",
     ]
-
-    if background:
-        prompt_parts.append(f"Background: {background}")
-    if occupation:
-        prompt_parts.append(f"Occupation: {occupation}")
-    if traits:
-        traits_str = ", ".join(traits)
-        prompt_parts.append(f"Personality Traits: {traits_str}")
-    if comm_style:
-        prompt_parts.append(f"Communication Style: {comm_style}")
-    if tone:
-        prompt_parts.append(f"Tone: {tone}")
-    if primary_interests:
-        interests_str = ", ".join(primary_interests)
-        prompt_parts.append(f"Primary Niche / Interests: {interests_str}")
-    if secondary_interests:
-        sec_interests_str = ", ".join(secondary_interests)
-        prompt_parts.append(f"Secondary Interests: {sec_interests_str}")
-    if formatting:
-        prompt_parts.append("Formatting Rules:\n" + "\n".join(f"- {fmt}" for fmt in formatting))
-    if examples:
-        prompt_parts.append("Voice Examples:\n" + "\n".join(f"- \"{ex}\"" for ex in examples[:3]))
-    if always_rules:
-        prompt_parts.append("Always Rules:\n" + "\n".join(f"- {r}" for r in always_rules))
-    if never_rules:
-        prompt_parts.append("Never Rules:\n" + "\n".join(f"- {r}" for r in never_rules))
-    if system_prompt:
-        prompt_parts.append(f"\n=== CUSTOM MASTER PROMPT ===\n{system_prompt}")
 
     prompt_parts.append(
         "\n=== STRICT POLL CONSTRAINTS (X PLATFORM RULES) ===\n"

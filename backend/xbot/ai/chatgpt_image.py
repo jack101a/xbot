@@ -46,7 +46,7 @@ async def generate_and_save_chatgpt_image_async(
     ratio_directive = "4:5 portrait aspect ratio" if aspect_ratio == "4:5" else f"{aspect_ratio} aspect ratio"
     enhanced_prompt = (
         f"Generate a high-quality, professional image in {ratio_directive}: {prompt}. "
-        "High resolution, cinematic lighting, ultra-clean details."
+        "High resolution, clean crisp modern details, zero realistic humans, no human faces."
     )
 
     logger.info("Requesting image from ChatGPT Web Bridge (aspect: %s, prompt: %.60s...)", aspect_ratio, prompt)
