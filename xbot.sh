@@ -16,8 +16,10 @@ VENV_CELERY="${BACKEND_DIR}/.venv/bin/celery"
 
 mkdir -p "${PID_DIR}" "${LOG_DIR}"
 
-BACKEND_PORT="${LOCAL_API_PORT:-8300}"
-DASHBOARD_PORT="${LOCAL_DASHBOARD_PORT:-3003}"
+BACKEND_PORT="${LOCAL_API_PORT:-8200}"
+DASHBOARD_PORT="${LOCAL_DASHBOARD_PORT:-3002}"
+ALT_BACKEND_PORT="${ALT_API_PORT:-8300}"
+ALT_DASHBOARD_PORT="${ALT_DASH_PORT:-3003}"
 
 # ANSI Colors
 RED='\033[0;31m'
@@ -164,11 +166,21 @@ start_services() {
         fi
     fi
 
+    # Optional dual-port listener (forward 8300->8200 and 3003->3002 so both port pairs work seamlessly)
+    if command -v socat >/dev/null 2>&1; then
+        if ! is_port_in_use "${ALT_BACKEND_PORT}"; then
+            setsid socat TCP-LISTEN:${ALT_BACKEND_PORT},fork,reuseaddr TCP:127.0.0.1:${BACKEND_PORT} </dev/null >/dev/null 2>&1 &
+        fi
+        if ! is_port_in_use "${ALT_DASHBOARD_PORT}"; then
+            setsid socat TCP-LISTEN:${ALT_DASHBOARD_PORT},fork,reuseaddr TCP:127.0.0.1:${DASHBOARD_PORT} </dev/null >/dev/null 2>&1 &
+        fi
+    fi
+
     echo -e "\n${BOLD}${GREEN}======================================================${NC}"
     echo -e "${BOLD}${GREEN}            🎉 All Services Active!                   ${NC}"
     echo -e "${BOLD}${GREEN}======================================================${NC}"
-    echo -e "  🌐 ${BOLD}Dashboard UI (Local):${NC}    ${CYAN}http://localhost:${DASHBOARD_PORT}${NC}"
-    echo -e "  🔌 ${BOLD}Backend API (Local):${NC}     ${CYAN}http://localhost:${BACKEND_PORT}${NC}"
+    echo -e "  🌐 ${BOLD}Dashboard UI (Local):${NC}    ${CYAN}http://localhost:${DASHBOARD_PORT}${NC} (also: http://localhost:${ALT_DASHBOARD_PORT})"
+    echo -e "  🔌 ${BOLD}Backend API (Local):${NC}     ${CYAN}http://localhost:${BACKEND_PORT}${NC} (also: http://localhost:${ALT_BACKEND_PORT})"
     echo -e "  📖 ${BOLD}API Docs (Local):${NC}        ${CYAN}http://localhost:${BACKEND_PORT}/docs${NC}"
     echo -e "  📂 ${BOLD}Log Directory:${NC}          ${YELLOW}${LOG_DIR}/${NC}\n"
 }
@@ -260,12 +272,14 @@ stop_services() {
 
     # 4. Clean up any leftover processes by pattern and port
     echo -n "Cleaning up lingering processes... "
+    pkill -9 -f "socat TCP-LISTEN:${ALT_BACKEND_PORT}" 2>/dev/null || true
+    pkill -9 -f "socat TCP-LISTEN:${ALT_DASHBOARD_PORT}" 2>/dev/null || true
     pkill -9 -f "resource_monitor.py --record" 2>/dev/null || true
     pkill -9 -f "uvicorn xbot.main:app" 2>/dev/null || true
     pkill -9 -f "celery.*xbot" 2>/dev/null || true
     pkill -9 -f "next" 2>/dev/null || true
-    fuser -k "${DASHBOARD_PORT}/tcp" 2>/dev/null || true
-    fuser -k "${BACKEND_PORT}/tcp" 2>/dev/null || true
+    fuser -k "${DASHBOARD_PORT}/tcp" "${ALT_DASHBOARD_PORT}/tcp" 2>/dev/null || true
+    fuser -k "${BACKEND_PORT}/tcp" "${ALT_BACKEND_PORT}/tcp" 2>/dev/null || true
     echo -e "${GREEN}DONE${NC}"
 
     # 5. Clean up stale browser lock files if any
@@ -280,12 +294,14 @@ check_status() {
     echo -e "${BOLD}${BLUE}======================================================${NC}\n"
 
     # Docker Production Stack Notice
-    echo -e "${CYAN}🐳 Docker Production Stack:${NC}"
-    if is_port_in_use 8200 && is_port_in_use 3002; then
-        echo -e "  • Docker Stack (Ports 8200/3002):   ${GREEN}● ACTIVE & RUNNING (Docker/Portainer)${NC}"
+    echo -e "${CYAN}🐳 Docker Stack Status:${NC}"
+    if docker ps 2>/dev/null | grep -q "xbot"; then
+        echo -e "  • Docker Stack (Portainer):         ${GREEN}● ACTIVE & RUNNING${NC}"
+    else
+        echo -e "  • Docker Stack (Portainer):         ${YELLOW}○ STOPPED / INACTIVE${NC}"
     fi
     echo ""
-    echo -e "${CYAN}💻 Local Development Processes (Ports ${BACKEND_PORT}/${DASHBOARD_PORT}):${NC}"
+    echo -e "${CYAN}💻 Local Services (Primary: ${BACKEND_PORT}/${DASHBOARD_PORT} | Alt: ${ALT_BACKEND_PORT}/${ALT_DASHBOARD_PORT}):${NC}"
 
     # Local Backend
     if is_port_in_use "${BACKEND_PORT}"; then

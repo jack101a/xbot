@@ -108,7 +108,7 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                         from xbot.ai.topic_utils import extract_topic_tag
                         normalized_target = extract_topic_tag(str(topic_tag))
                         cooldown_minutes = random.randint(120, 180)
-                        cooldown_cutoff = now_utc - datetime.timedelta(minutes=cooldown_minutes)
+                        cooldown_cutoff = now_curr - datetime.timedelta(minutes=cooldown_minutes)
 
                         same_topic_stmt = (
                             select(Content)
@@ -125,7 +125,7 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                         for rp in recent_posted:
                             rp_tag = (rp.ai_metadata or {}).get("topic_tag") or (rp.ai_metadata or {}).get("topic") or (rp.ai_metadata or {}).get("trend_title")
                             if rp_tag and extract_topic_tag(str(rp_tag)) == normalized_target:
-                                elapsed_mins = int((now_utc - (rp.posted_at or now_utc)).total_seconds() / 60)
+                                elapsed_mins = int((now_curr - (rp.posted_at or now_curr)).total_seconds() / 60)
                                 logger.info(
                                     "Topic cooldown active for profile %s: skipping draft %s ('%s'). Same topic '%s' posted %d min ago (< %d min cooldown)",
                                     prof.profile_slug,
