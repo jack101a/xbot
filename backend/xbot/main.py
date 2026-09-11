@@ -91,6 +91,14 @@ async def _background_growth_scheduler_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure database schema is initialized and migrations applied
+    try:
+        from xbot.database import init_db
+        await init_db()
+        logger.info("Database schema initialized successfully.")
+    except Exception as db_init_err:
+        logger.warning("Database init error on startup: %s", db_init_err)
+
     # Startup cleanup: purge stale locks & dangling sessions
     try:
         import redis
