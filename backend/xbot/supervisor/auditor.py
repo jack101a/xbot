@@ -6,7 +6,10 @@ import os
 import time
 from typing import Any
 
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
 import redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -417,7 +420,7 @@ class PipelineAuditor:
         ctx = celery_ctx if celery_ctx is not None else self.get_active_celery_context()
 
         # Fail-safe: if any browser worker has active tasks, do not touch any Chromium process!
-        if ctx["browser_busy"]:
+        if ctx["browser_busy"] or psutil is None:
             return []
 
         zombies: list[dict[str, Any]] = []
@@ -448,7 +451,7 @@ class PipelineAuditor:
                             "age_minutes": age_minutes,
                             "reason": f"Headless Chromium process (PID {proc.info['pid']}) running idle for {age_minutes}m",
                         })
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except Exception:
                 continue
 
         return zombies
