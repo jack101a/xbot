@@ -74,8 +74,8 @@ async def _collect_analytics_snapshot_async(profile_id_str: str) -> dict[str, An
             following_val = 0
             
             if is_mock:
-                followers_val = profile.followers_count or 0
-                following_val = profile.following_count or 0
+                followers_val = getattr(profile, "followers_count", 0)
+                following_val = getattr(profile, "following_count", 0)
                 logger.info("🧪 [MOCK / DEMO MODE] Using existing actual counts for simulated analytics snapshot.")
             else:
                 timezone_str = config.schedule.timezone or "Asia/Kolkata"
@@ -90,8 +90,8 @@ async def _collect_analytics_snapshot_async(profile_id_str: str) -> dict[str, An
                 # Scrape Profile stats & live tweets
                 prof_action = ScrapeProfileTweets()
                 prof_stats = await prof_action.execute(page, profile.x_handle.lstrip("@"), limit=15)
-                followers_val = prof_stats.get("followers") or profile.followers_count or 0
-                following_val = prof_stats.get("following") or profile.following_count or 0
+                followers_val = prof_stats.get("followers") or getattr(profile, "followers_count", 0)
+                following_val = prof_stats.get("following") or getattr(profile, "following_count", 0)
                 scraped_tweets = prof_stats.get("tweets", [])
 
                 # Scrape Creator Studio
@@ -105,19 +105,23 @@ async def _collect_analytics_snapshot_async(profile_id_str: str) -> dict[str, An
             total_likes_val = sum(int(t.get("likes") or 0) for t in scraped_tweets) if not is_mock else 0
             total_retweets_val = sum(int(t.get("retweets") or 0) for t in scraped_tweets) if not is_mock else 0
             total_replies_val = sum(int(t.get("replies") or 0) for t in scraped_tweets) if not is_mock else 0
-            total_tweets_val = len(scraped_tweets) if scraped_tweets else (profile.posts_count or 0)
+            total_tweets_val = len(scraped_tweets) if scraped_tweets else getattr(profile, "posts_count", 0)
             eng_rate = round((total_engagements_val / total_impressions_val * 100), 2) if total_impressions_val > 0 else 0.0
 
-            # Update Profile columns
-            if followers_val > 0:
-                profile.followers_count = followers_val
-            if following_val > 0:
-                profile.following_count = following_val
-            if total_tweets_val > 0:
-                profile.posts_count = total_tweets_val
-            profile.impressions_24h = total_impressions_val
-            profile.engagements_24h = total_engagements_val
-            profile.engagement_rate = eng_rate
+            # Update Profile columns if present
+            for attr, val in [
+                ("followers_count", followers_val),
+                ("following_count", following_val),
+                ("posts_count", total_tweets_val),
+                ("impressions_24h", total_impressions_val),
+                ("engagements_24h", total_engagements_val),
+                ("engagement_rate", eng_rate),
+            ]:
+                if hasattr(profile, attr):
+                    try:
+                        setattr(profile, attr, val)
+                    except Exception:
+                        pass
 
             # Store Analytics Snapshot with real data
             snapshot = AnalyticsSnapshot(
