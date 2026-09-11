@@ -133,7 +133,14 @@ async def check_and_trigger_schedules(
     3. Triggers worker runs.
     """
     if now_utc is None:
-        now_utc = datetime.datetime.utcnow()
+        now_aware_utc = datetime.datetime.now(datetime.timezone.utc)
+        now_utc = now_aware_utc.replace(tzinfo=None)
+    else:
+        if now_utc.tzinfo is None:
+            now_aware_utc = now_utc.replace(tzinfo=datetime.timezone.utc)
+        else:
+            now_aware_utc = now_utc.astimezone(datetime.timezone.utc)
+            now_utc = now_aware_utc.replace(tzinfo=None)
 
     base_dir = Path(base_profile_dir or settings.BASE_PROFILE_DIR)
 
@@ -285,9 +292,14 @@ async def check_and_trigger_schedules(
         idle_minutes = 999999.0
         if last_session:
             end_time = last_session.ended_at or last_session.started_at
-            idle_minutes = (now_utc - end_time).total_seconds() / 60
+            if end_time:
+                from xbot.utils.time import now_ist
+                diff_ist = (now_ist() - end_time.replace(tzinfo=None)).total_seconds() / 60
+                diff_utc = (now_utc - end_time.replace(tzinfo=None)).total_seconds() / 60
+                candidates = [d for d in [diff_ist, diff_utc] if d >= 0]
+                idle_minutes = min(candidates) if candidates else 0.0
 
-        now_ts = now_utc.timestamp()
+        now_ts = now_aware_utc.timestamp()
         due_sessions = r.zrangebyscore(redis_key, min=0, max=now_ts)
 
         is_due = False

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import xbot.tasks as tasks
 from xbot.models.content import Content, ContentStatus, ContentType, ThreadItem
-from xbot.models.session import Action, ActionType, Session
+from xbot.models.session import Action, ActionStatus, ActionType, Session
 
 logger = logging.getLogger("xbot.tasks.session_poll_thread_handler")
 

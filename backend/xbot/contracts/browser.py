@@ -95,8 +95,11 @@ class NotificationData(BaseModel):
 
 class FollowListResult(BaseModel):
     """Normalized list of handles from followers/following/verified_followers tab."""
-    list_type: Literal["followers", "following", "verified_followers"]
+    list_type: str
     handles: list[str] = Field(default_factory=list)
+    unreciprocated_handles: list[str] = Field(default_factory=list)
+    verified_unreciprocated_handles: list[str] = Field(default_factory=list)
+    following_handles: list[str] = Field(default_factory=list)
 
 
 class ScrapeResult(BaseModel):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import random
+import re
 from playwright.async_api import Page
 from xbot.browser.actions.base import BaseAction
 from xbot.browser.actions.selectors import SELECTORS
@@ -78,8 +79,13 @@ class ScrapeTrends(BaseAction):
             await sleep_think_time(1000, 2000)
 
             from xbot.ai.sniper import BANNED_POLITICS_REGEX
+            from xbot.ai.smart_media_director import clean_topic_string
             trends: list[dict[str, str]] = []
             seen_topics: set[str] = set()
+
+            META_LINE_REGEX = re.compile(
+                r"(?i)^(?:trending(?:\s+now|\s+in\s+[\w\s]+)?|[\w\s]+·\s*trending|\d+\s*[·•]?\s*trending|[\w\s]+·\s*\d+[\d\.,]*\s*[kmb]?\s*posts?|\d+[\d\.,]*\s*[kmb]?\s*posts?)$"
+            )
 
             # 1. Try dedicated trend selector
             trend_elements = await page.query_selector_all("[data-testid='trend']")
@@ -101,13 +107,20 @@ class ScrapeTrends(BaseAction):
                 if len(lines) > 6 and any("final" in l.lower() or "today" in l.lower() for l in lines):
                     continue
 
-                topic = lines[1] if len(lines) > 1 and not lines[0].startswith("#") else lines[0]
-                context = lines[0] if len(lines) > 1 else "Trending on X"
-                volume = lines[2] if len(lines) > 2 else (lines[1] if len(lines) > 1 and "post" in lines[1].lower() else "")
+                substantive_lines = [l for l in lines if not META_LINE_REGEX.search(l) and len(clean_topic_string(l)) >= 2]
+                if not substantive_lines:
+                    continue
 
-                # Clean topic
-                topic = topic.strip()
-                if topic and topic.lower() not in seen_topics and len(topic) > 2:
+                # The first substantive non-metadata line is the genuine topic
+                topic = substantive_lines[0].strip()
+                clean_top = clean_topic_string(topic)
+                if not clean_top or len(clean_top) < 2:
+                    continue
+
+                context = lines[0] if lines[0] != topic else "Trending on X"
+                volume = next((l for l in lines if re.search(r"(?i)\d+[\d\.,]*\s*[kmb]?\s*posts?", l)), "")
+
+                if topic.lower() not in seen_topics and len(topic) > 2:
                     seen_topics.add(topic.lower())
                     trends.append({
                         "topic": topic,

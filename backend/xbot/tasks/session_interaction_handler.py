@@ -10,7 +10,9 @@ import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+import redis
 
+from xbot.config import settings
 import xbot.tasks as tasks
 from xbot.ai.growth_scorer import is_f4f_or_engagement_growth_post, score_tweet_opportunity
 from xbot.ai.sniper import generate_quote_take, generate_sniper_reply
@@ -50,10 +52,20 @@ async def handle_reply_action(
         db_action.error = f"Invalid reply target: '{p_action.target}' is not an X tweet status URL."
         return True
 
-    if await tasks.has_already_acted(db, profile_id, tweet_url, "reply", hours=48):
-        logger.info("Target tweet %s already replied to in last 48h. Skipping duplicate.", tweet_url)
+    tweet_id = tasks.extract_tweet_id_from_url(tweet_url) or ""
+    r = redis.from_url(settings.REDIS_URL)
+    inflight_key = f"xbot:inflight_tweet:{profile_id}:{tweet_id}" if tweet_id else None
+
+    if await tasks.has_already_acted(db, profile_id, tweet_url, "reply", hours=None, include_failed_cooldown_hours=12):
+        logger.info("Target tweet %s already replied to or in failure cooldown. Skipping duplicate.", tweet_url)
         db_action.status = ActionStatus.SKIPPED
-        db_action.error = "Already replied to this tweet in last 48 hours."
+        db_action.error = "Already replied to this tweet previously."
+        return True
+
+    if inflight_key and not r.set(inflight_key, "1", nx=True, ex=600):
+        logger.info("Target tweet %s is currently in-flight by another task. Skipping duplicate.", tweet_url)
+        db_action.status = ActionStatus.SKIPPED
+        db_action.error = "Tweet is currently in-flight in another worker/task."
         return True
 
     live_ctx = {}
@@ -86,6 +98,8 @@ async def handle_reply_action(
             db_action.error = f"Opportunity score skipped: {opp_score.reasoning}"
             db_action.result = {"opportunity_score": opp_score.model_dump()}
             await db.commit()
+            if inflight_key:
+                r.delete(inflight_key)
             return True
 
         sniper_res = await generate_sniper_reply(
@@ -107,6 +121,8 @@ async def handle_reply_action(
             db_action.status = ActionStatus.SKIPPED
             db_action.error = "Top-tier writing models busy/unavailable after retries. Discarded to prevent posting low quality."
             await db.commit()
+            if inflight_key:
+                r.delete(inflight_key)
             return True
     else:
         final_reply_text = p_action.content
@@ -116,29 +132,44 @@ async def handle_reply_action(
             db_action.status = ActionStatus.SKIPPED
             db_action.error = "No reply content available."
             await db.commit()
+            if inflight_key:
+                r.delete(inflight_key)
             return True
 
-    if page:
-        reply_action = tasks.ReplyToTweet()
-        return await reply_action.execute(
-            page,
-            reply_text=final_reply_text,
-            tweet_url=tweet_url,
-            tweet_index=0,
-            gif_query=final_gif_query,
-        )
-    elif browser:
-        post_resp = await browser.execute(BrowserRequest(
-            profile_slug=profile_slug,
-            action=BrowserActionType.REPLY,
-            params={
-                "reply_text": final_reply_text,
-                "tweet_url": tweet_url,
-                "gif_query": final_gif_query,
-            },
-        ))
-        return post_resp.status == "success"
-    return False
+    # Pre-flight check: ensure no other worker replied while AI was generating
+    if await tasks.has_already_acted(db, profile_id, tweet_url, "reply", hours=None, include_failed_cooldown_hours=12):
+        logger.warning("Pre-flight check: Target tweet %s already replied to during generation. Aborting duplicate.", tweet_url)
+        db_action.status = ActionStatus.SKIPPED
+        db_action.error = "Already replied to this tweet during generation window."
+        if inflight_key:
+            r.delete(inflight_key)
+        return True
+
+    try:
+        if page:
+            reply_action = tasks.ReplyToTweet()
+            return await reply_action.execute(
+                page,
+                reply_text=final_reply_text,
+                tweet_url=tweet_url,
+                tweet_index=0,
+                gif_query=final_gif_query,
+            )
+        elif browser:
+            post_resp = await browser.execute(BrowserRequest(
+                profile_slug=profile_slug,
+                action=BrowserActionType.REPLY,
+                params={
+                    "reply_text": final_reply_text,
+                    "tweet_url": tweet_url,
+                    "gif_query": final_gif_query,
+                },
+            ))
+            return post_resp.status == "success"
+        return False
+    finally:
+        if inflight_key:
+            r.delete(inflight_key)
 
 
 async def handle_quote_action(
@@ -161,9 +192,19 @@ async def handle_quote_action(
         db_action.error = f"Invalid quote target: '{p_action.target}' is not an X tweet status URL."
         return True
 
-    if await tasks.has_already_acted(db, profile_id, tweet_url, "quote", hours=48):
+    tweet_id = tasks.extract_tweet_id_from_url(tweet_url) or ""
+    r = redis.from_url(settings.REDIS_URL)
+    inflight_key = f"xbot:inflight_tweet:{profile_id}:{tweet_id}" if tweet_id else None
+
+    if await tasks.has_already_acted(db, profile_id, tweet_url, "quote", hours=None, include_failed_cooldown_hours=12):
         db_action.status = ActionStatus.SKIPPED
-        db_action.error = "Already quoted this tweet in last 48 hours."
+        db_action.error = "Already quoted this tweet previously."
+        return True
+
+    if inflight_key and not r.set(inflight_key, "1", nx=True, ex=600):
+        logger.info("Target tweet %s is currently in-flight by another task. Skipping duplicate quote.", tweet_url)
+        db_action.status = ActionStatus.SKIPPED
+        db_action.error = "Tweet is currently in-flight in another worker/task."
         return True
 
     if not is_mock:
@@ -183,6 +224,8 @@ async def handle_quote_action(
         if is_f4f_or_engagement_growth_post(target_text) or is_f4f_or_engagement_growth_post(p_action.content or ""):
             db_action.status = ActionStatus.SKIPPED
             db_action.error = "Quoting F4F / engagement-growth posts is forbidden. Synthesize original posts instead."
+            if inflight_key:
+                r.delete(inflight_key)
             return True
         quote_res = await generate_quote_take(persona=persona, target_tweet=live_ctx)
         quote_text = quote_res.quote_text
@@ -200,22 +243,37 @@ async def handle_quote_action(
         db_action.status = ActionStatus.SKIPPED
         db_action.error = "Quote generation failed or was generic template. Action skipped to maintain quality."
         await db.commit()
+        if inflight_key:
+            r.delete(inflight_key)
         return True
 
-    if page:
-        return await tasks.QuoteTweet().execute(page, quote_text=quote_text, tweet_url=tweet_url, gif_query=quote_gif_query)
-    elif browser:
-        resp = await browser.execute(BrowserRequest(
-            profile_slug=profile_slug,
-            action=BrowserActionType.QUOTE,
-            params={
-                "quote_text": quote_text,
-                "tweet_url": tweet_url,
-                "gif_query": quote_gif_query,
-            },
-        ))
-        return resp.status == "success"
-    return False
+    # Pre-flight check: ensure no other worker quoted while AI was generating
+    if await tasks.has_already_acted(db, profile_id, tweet_url, "quote", hours=None, include_failed_cooldown_hours=12):
+        logger.warning("Pre-flight check: Target tweet %s already quoted during generation window. Aborting duplicate.", tweet_url)
+        db_action.status = ActionStatus.SKIPPED
+        db_action.error = "Already quoted this tweet during generation window."
+        if inflight_key:
+            r.delete(inflight_key)
+        return True
+
+    try:
+        if page:
+            return await tasks.QuoteTweet().execute(page, quote_text=quote_text, tweet_url=tweet_url, gif_query=quote_gif_query)
+        elif browser:
+            resp = await browser.execute(BrowserRequest(
+                profile_slug=profile_slug,
+                action=BrowserActionType.QUOTE,
+                params={
+                    "quote_text": quote_text,
+                    "tweet_url": tweet_url,
+                    "gif_query": quote_gif_query,
+                },
+            ))
+            return resp.status == "success"
+        return False
+    finally:
+        if inflight_key:
+            r.delete(inflight_key)
 
 
 async def handle_follow_action(

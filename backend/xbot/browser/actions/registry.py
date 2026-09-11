@@ -154,22 +154,39 @@ async def _handle_scrape_notifications(page: Page, p: dict[str, Any]) -> dict[st
 async def _handle_scrape_follow_list(page: Page, p: dict[str, Any]) -> dict[str, Any]:
     action = ScrapeFollowList()
     list_type = p.get("list_type", "followers")
-    followers = await action.execute(
+    res = await action.execute(
         page,
         username=p.get("username", ""),
         list_type=list_type,
         limit=p.get("limit", 100),
         verified_only=p.get("verified_only", False),
+        unreciprocated_only=p.get("unreciprocated_only", False),
+        return_details=True,
     )
-    handles = followers or []
+    if isinstance(res, dict):
+        handles = res.get("handles", [])
+        unreciprocated = res.get("unreciprocated_handles", [])
+        verified_unreciprocated = res.get("verified_unreciprocated_handles", [])
+        following = res.get("following_handles", [])
+    else:
+        handles = res or []
+        unreciprocated = []
+        verified_unreciprocated = []
+        following = []
+
     return {
         "status": "success",
         "follow_list": {
             "list_type": list_type,
             "handles": handles,
+            "unreciprocated_handles": unreciprocated,
+            "verified_unreciprocated_handles": verified_unreciprocated,
+            "following_handles": following,
         },
         "followers": handles,
         "handles": handles,
+        "unreciprocated_handles": unreciprocated,
+        "verified_unreciprocated_handles": verified_unreciprocated,
     }
 
 
@@ -229,6 +246,7 @@ async def _handle_search(page: Page, p: dict[str, Any]) -> dict[str, Any]:
         max_scrolls=p.get("max_scrolls", 8),
         min_results=p.get("min_results", 0),
         require_media=p.get("require_media", False),
+        scrape_top_comments=p.get("scrape_top_comments", False),
     )
     return {"status": "success", "results": results or []}
 

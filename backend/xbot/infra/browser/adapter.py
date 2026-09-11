@@ -102,16 +102,25 @@ def _normalize_browser_output(req: BrowserRequest, raw: dict[str, Any]) -> Brows
             scrape_res.follow_list = FollowListResult(
                 list_type=fl.get("list_type", req.params.get("list_type", "followers")),
                 handles=fl.get("handles") or [],
+                unreciprocated_handles=fl.get("unreciprocated_handles") or [],
+                verified_unreciprocated_handles=fl.get("verified_unreciprocated_handles") or [],
+                following_handles=fl.get("following_handles") or [],
             )
         elif "followers" in raw and isinstance(raw["followers"], list):
             scrape_res.follow_list = FollowListResult(
                 list_type=req.params.get("list_type", "followers"),
                 handles=raw["followers"],
+                unreciprocated_handles=raw.get("unreciprocated_handles") or [],
+                verified_unreciprocated_handles=raw.get("verified_unreciprocated_handles") or [],
+                following_handles=raw.get("following_handles") or [],
             )
         elif "handles" in raw and isinstance(raw["handles"], list):
             scrape_res.follow_list = FollowListResult(
                 list_type=req.params.get("list_type", "followers"),
                 handles=raw["handles"],
+                unreciprocated_handles=raw.get("unreciprocated_handles") or [],
+                verified_unreciprocated_handles=raw.get("verified_unreciprocated_handles") or [],
+                following_handles=raw.get("following_handles") or [],
             )
 
         return BrowserResponse(

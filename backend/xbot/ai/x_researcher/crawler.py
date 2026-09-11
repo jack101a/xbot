@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 from typing import Any
 import urllib.parse
+import uuid
 
 from xbot.ai.client import get_ai_client
 from xbot.config import settings

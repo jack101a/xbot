@@ -100,7 +100,7 @@ start_services() {
     else
         echo -n "Starting Celery Task Worker & Beat (concurrency=3, queue=publish,celery)... "
         cd "${BACKEND_DIR}"
-        setsid "${VENV_CELERY}" -A xbot.celery_app worker --beat -Q publish,celery --concurrency=3 -n tasks@%h --loglevel=info </dev/null > "${LOG_DIR}/celery.log" 2>&1 &
+        setsid "${VENV_CELERY}" -A xbot.celery_app worker --beat -s "${PID_DIR}/celerybeat-schedule" -Q publish,celery --concurrency=3 -n tasks@%h --loglevel=info </dev/null > "${LOG_DIR}/celery.log" 2>&1 &
         echo $! > "${PID_DIR}/celery.pid"
         cd "${PROJECT_ROOT}"
         sleep 2
@@ -164,6 +164,21 @@ start_services() {
         fi
     fi
 
+    # 5. Start Out-of-Band Supervisor Sentinel (Watches the Fixer)
+    if is_pid_running "${PID_DIR}/sentinel.pid"; then
+        echo -e "${YELLOW}⚡ Supervisor Sentinel is already running.${NC}"
+    else
+        echo -n "Starting Out-of-Band Supervisor Sentinel (Guardian)... "
+        setsid "${VENV_PYTHON}" "${PROJECT_ROOT}/scripts/supervisor_sentinel.py" </dev/null > "${LOG_DIR}/sentinel.log" 2>&1 &
+        echo $! > "${PID_DIR}/sentinel.pid"
+        sleep 1
+        if is_pid_running "${PID_DIR}/sentinel.pid"; then
+            echo -e "${GREEN}DONE (PID: $(cat "${PID_DIR}/sentinel.pid"))${NC}"
+        else
+            echo -e "${RED}FAILED${NC} (Check logs/sentinel.log)"
+        fi
+    fi
+
     echo -e "\n${BOLD}${GREEN}======================================================${NC}"
     echo -e "${BOLD}${GREEN}            🎉 All Services Active!                   ${NC}"
     echo -e "${BOLD}${GREEN}======================================================${NC}"
@@ -207,7 +222,7 @@ stop_services() {
             fi
             echo -e "${GREEN}STOPPED${NC}"
         fi
-        rm -f "${PID_DIR}/celery.pid"
+        rm -f "${PID_DIR}/celery.pid" "${PID_DIR}/celerybeat-schedule"*
     fi
 
     # 2b. Stop Celery Browser PID
@@ -256,6 +271,22 @@ stop_services() {
             echo -e "${GREEN}STOPPED${NC}"
         fi
         rm -f "${PID_DIR}/monitor.pid"
+    fi
+
+    # 4. Stop Supervisor Sentinel PID
+    if [ -f "${PID_DIR}/sentinel.pid" ]; then
+        local pid
+        pid=$(cat "${PID_DIR}/sentinel.pid")
+        if kill -0 "${pid}" 2>/dev/null; then
+            echo -n "Stopping Supervisor Sentinel (PID: ${pid})... "
+            kill -15 "${pid}" 2>/dev/null || true
+            sleep 1
+            if kill -0 "${pid}" 2>/dev/null; then
+                kill -9 "${pid}" 2>/dev/null || true
+            fi
+            echo -e "${GREEN}STOPPED${NC}"
+        fi
+        rm -f "${PID_DIR}/sentinel.pid"
     fi
 
     # 4. Clean up any leftover processes by pattern and port
@@ -341,6 +372,13 @@ check_status() {
         echo -e "  • Resource Recorder (5m):           ${RED}○ STOPPED${NC}"
     fi
 
+    # Supervisor Sentinel Guardian
+    if is_pid_running "${PID_DIR}/sentinel.pid"; then
+        echo -e "  • Supervisor Sentinel (Guardian):   ${GREEN}● RUNNING${NC} (PID: $(cat "${PID_DIR}/sentinel.pid"))"
+    else
+        echo -e "  • Supervisor Sentinel (Guardian):   ${YELLOW}○ STOPPED${NC}"
+    fi
+
     echo ""
 }
 
@@ -371,6 +409,10 @@ monitor_resources() {
     "${VENV_PYTHON}" "${PROJECT_ROOT}/scripts/resource_monitor.py" --watch "${interval}"
 }
 
+run_supervisor() {
+    "${VENV_PYTHON}" "${PROJECT_ROOT}/scripts/supervisor_cli.py" "$@"
+}
+
 case "$1" in
     start)
         start_services
@@ -385,6 +427,13 @@ case "$1" in
         ;;
     status)
         check_status
+        ;;
+    supervisor|watchdog|health)
+        shift
+        run_supervisor "$@"
+        ;;
+    heal)
+        run_supervisor heal
         ;;
     stats|resources|usage)
         shift
@@ -405,7 +454,7 @@ case "$1" in
         show_logs "$2"
         ;;
     *)
-        echo -e "Usage: ${BOLD}$0${NC} {${GREEN}start${NC}|${RED}stop${NC}|${YELLOW}restart${NC}|${BLUE}status${NC}|${CYAN}stats${NC}|${CYAN}history [hours]${NC}|${CYAN}spikes${NC}|${CYAN}monitor [interval]${NC}|${CYAN}logs [backend|celery|dashboard]${NC}}"
+        echo -e "Usage: ${BOLD}$0${NC} {${GREEN}start${NC}|${RED}stop${NC}|${YELLOW}restart${NC}|${BLUE}status${NC}|${CYAN}supervisor [status|heal|events]${NC}|${CYAN}heal${NC}|${CYAN}stats${NC}|${CYAN}history [hours]${NC}|${CYAN}spikes${NC}|${CYAN}monitor [interval]${NC}|${CYAN}logs [backend|celery|dashboard]${NC}}"
         exit 1
         ;;
 esac

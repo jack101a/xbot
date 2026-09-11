@@ -10,7 +10,7 @@ import logging
 import math
 import re
 import statistics
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 logger = logging.getLogger(__name__)
 

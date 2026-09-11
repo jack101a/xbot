@@ -125,6 +125,11 @@ async def execute_on_demand_campaign(
         if text:
             verified_tag = " [VERIFIED]" if post.get("is_blue_tick") else ""
             master_context_snippets.append(f"- @{post.get('author', 'user')}{verified_tag}: {text}")
+            for c in post.get("top_comments", [])[:5]:
+                c_text = c.get("text", "").strip()
+                if c_text:
+                    likes_badge = f" ({c.get('likes')} likes)" if c.get("likes") else ""
+                    master_context_snippets.append(f"   [Community Debate Reply from @{c.get('author', 'fan')}{likes_badge}]: {c_text}")
 
     master_context_summary = "\n".join(master_context_snippets) if master_context_snippets else prompt
 
@@ -138,8 +143,27 @@ async def execute_on_demand_campaign(
         )
         downloaded_media_pool = await pkg._download_media_urls(media_urls_to_download[:8], campaign_media_dir)
 
+    # Track used media paths to prevent repeating any image across deliverables
+    used_media_paths: set[str] = set()
+    try:
+        from datetime import datetime, timedelta
+        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        recent_recs = (await db.execute(
+            select(Content.ai_metadata).where(
+                Content.profile_id == profile.id,
+                Content.created_at >= seven_days_ago,
+            )
+        )).scalars().all()
+        for meta in recent_recs:
+            if isinstance(meta, dict):
+                for p in meta.get("media_paths", []):
+                    used_media_paths.add(p)
+                for u in meta.get("media_urls", []):
+                    used_media_paths.add(u)
+    except Exception as db_err:
+        logger.warning("Could not load recent media history for deduplication: %s", db_err)
+
     # 3. Iterate through deliverables and synthesize with persona
-    media_pool_index = 0
     for idx, spec in enumerate(plan.deliverables):
         step_base = 50 + int((idx / max(1, total_delivs)) * 45)
         update_campaign_status(
@@ -148,36 +172,18 @@ async def execute_on_demand_campaign(
             progress_percent=step_base,
         )
 
-        # Distribute authentic matching media from pool based on deliverable format
-        deliverable_media: list[str] = []
-        if downloaded_media_pool:
-            if spec.type == DeliverableType.THREAD:
-                deliverable_media = downloaded_media_pool[:min(2, len(downloaded_media_pool))]
-            elif spec.type == DeliverableType.VISUAL:
-                v_idx = 1 if len(downloaded_media_pool) > 1 else 0
-                deliverable_media = [downloaded_media_pool[v_idx]]
-            elif spec.type != DeliverableType.POLL:
-                should_have_media = (
-                    spec.target_media_count > 0
-                    or any(k in spec.instructions.lower() for k in ("image", "photo", "media", "still", "visual"))
-                    or any(k in spec.topic.lower() for k in ("movie", "film", "nolan", "odyssey", "cinema", "trailer", "poster"))
-                )
-                if should_have_media or media_pool_index < len(downloaded_media_pool):
-                    deliverable_media = [downloaded_media_pool[media_pool_index % len(downloaded_media_pool)]]
-                    media_pool_index += 1
-
         context_summary = master_context_summary
 
         base_preview: dict[str, Any] = {
             "deliverable_id": spec.id,
             "type": spec.type.value if hasattr(spec.type, "value") else str(spec.type),
             "topic": spec.topic,
-            "media_paths": deliverable_media,
+            "media_paths": [],
         }
 
         if spec.type == DeliverableType.THREAD:
             content_record, preview_dict = await synthesize_thread_deliverable(
-                db, profile, spec, persona, context_summary, deliverable_media, campaign_id, profile_slug, pkg
+                db, profile, spec, persona, context_summary, downloaded_media_pool, campaign_id, profile_slug, pkg, used_media_paths
             )
         elif spec.type == DeliverableType.POLL:
             content_record, preview_dict = await synthesize_poll_deliverable(
@@ -185,11 +191,11 @@ async def execute_on_demand_campaign(
             )
         elif spec.type == DeliverableType.VISUAL:
             content_record, preview_dict = await synthesize_visual_deliverable(
-                db, profile, spec, persona, deliverable_media, campaign_id, profile_slug, pkg
+                db, profile, spec, persona, downloaded_media_pool, campaign_id, profile_slug, pkg, used_media_paths
             )
         else:
             content_record, preview_dict = await synthesize_post_deliverable(
-                db, profile, spec, persona, context_summary, deliverable_media, campaign_id, profile_slug, pkg
+                db, profile, spec, persona, context_summary, downloaded_media_pool, campaign_id, profile_slug, pkg, used_media_paths
             )
 
         base_preview.update(preview_dict)

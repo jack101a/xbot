@@ -127,6 +127,7 @@ async def publish_campaign_deliverables(
         pass
 
     try:
+        from xbot.pipelines.browser_queue import process_browser_queue
         process_browser_queue.delay()
     except Exception:
         pass

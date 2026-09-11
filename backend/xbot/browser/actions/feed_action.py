@@ -272,6 +272,7 @@ class SearchQuery(BaseAction):
         max_scrolls: int = 8,
         min_results: int = 0,
         require_media: bool = False,
+        scrape_top_comments: bool = False,
     ) -> list[dict[str, Any]]:
         try:
             from urllib.parse import quote_plus
@@ -354,6 +355,20 @@ class SearchQuery(BaseAction):
                     if results:
                         logger.info("Relaxed fallback '%s' succeeded! Recovered %d tweets.", rel_q, len(results))
                         break
+
+            if results and scrape_top_comments:
+                try:
+                    with_replies = [r for r in results if r.get("url") and r.get("replies", 0) > 0]
+                    target_candidate = with_replies[0] if with_replies else (results[0] if results[0].get("url") else None)
+                    if target_candidate and target_candidate.get("url"):
+                        logger.info("Scraping top comments for viral discourse from: %s", target_candidate["url"])
+                        from xbot.browser.actions.tweet_context_scraper import scrape_target_tweet_context
+                        c_res = await scrape_target_tweet_context(page, tweet_url=target_candidate["url"])
+                        if c_res and c_res.get("top_comments"):
+                            target_candidate["top_comments"] = c_res["top_comments"][:10]
+                            logger.info("Successfully harvested %d top comments for context", len(target_candidate["top_comments"]))
+                except Exception as sc_err:
+                    logger.warning("Error scraping top comments for search result: %s", sc_err)
 
             logger.info("Gathered %d total search results for query '%s'.", len(results), query)
             return results

@@ -1,7 +1,7 @@
 """
 Independent Follow Pipeline for XBot Pro.
 
-Runs every 10 minutes (during active hours: 6:00 AM - 2:00 AM IST):
+Runs nightly at 1:00 AM IST (during active hours: 6:00 AM - 2:00 AM IST):
 1. Audits live followers and notification events on X.
 2. Instantly executes reciprocal follow-backs for all new followers.
 3. Proactively follows high-reciprocity verified blue-tick creators in the target niche.
@@ -76,7 +76,27 @@ async def run_follow_pipeline_for_profile(
                 return raw["followers"]
         return []
 
+    def _extract_unreciprocated(resp: Any) -> tuple[list[str], list[str]]:
+        if not resp:
+            return [], []
+        unrecip = []
+        v_unrecip = []
+        if resp.scrape and resp.scrape.follow_list:
+            unrecip = resp.scrape.follow_list.unreciprocated_handles or []
+            v_unrecip = resp.scrape.follow_list.verified_unreciprocated_handles or []
+        elif resp.scrape and resp.scrape.raw:
+            raw = resp.scrape.raw
+            if isinstance(raw.get("follow_list"), dict):
+                unrecip = raw["follow_list"].get("unreciprocated_handles") or []
+                v_unrecip = raw["follow_list"].get("verified_unreciprocated_handles") or []
+            if not unrecip and isinstance(raw.get("unreciprocated_handles"), list):
+                unrecip = raw["unreciprocated_handles"]
+            if not v_unrecip and isinstance(raw.get("verified_unreciprocated_handles"), list):
+                v_unrecip = raw["verified_unreciprocated_handles"]
+        return unrecip, v_unrecip
+
     verified_followers = _extract_handles(verified_res)
+    verified_unrecip_vf, _ = _extract_unreciprocated(verified_res)
 
     followers_res = await c.browser.execute(
         BrowserRequest(
@@ -87,6 +107,7 @@ async def run_follow_pipeline_for_profile(
         )
     )
     current_followers = _extract_handles(followers_res)
+    followers_unrecip, followers_v_unrecip = _extract_unreciprocated(followers_res)
 
     following_res = await c.browser.execute(
         BrowserRequest(
@@ -138,15 +159,31 @@ async def run_follow_pipeline_for_profile(
         await db.commit()
 
     # 2. Reciprocal follow-backs (Priority 1: Verified Followers -> Priority 2: General Followers)
-    missing_verified = [f for f in verified_set if f not in following_set and f != clean_handle.lower()]
-    missing_general = [f for f in followers_set if f not in following_set and f != clean_handle.lower() and f not in missing_verified]
-    missing_reciprocal = missing_verified + missing_general
-
-    logger.info(
-        "FollowPipeline: Found %d users who follow us (including %d verified followers) whom we haven't followed back.",
-        len(missing_reciprocal),
-        len(missing_verified),
-    )
+    # Direct DOM detection takes precedence over lossy truncated set math
+    if followers_unrecip or followers_v_unrecip or verified_unrecip_vf:
+        combined_verified_unrecip = list(dict.fromkeys(
+            [u.lstrip("@").lower() for u in (followers_v_unrecip + verified_unrecip_vf) if u.lstrip("@").lower() != clean_handle.lower()]
+        ))
+        combined_general_unrecip = list(dict.fromkeys(
+            [u.lstrip("@").lower() for u in followers_unrecip if u.lstrip("@").lower() != clean_handle.lower() and u.lstrip("@").lower() not in combined_verified_unrecip]
+        ))
+        missing_verified = combined_verified_unrecip
+        missing_general = combined_general_unrecip
+        missing_reciprocal = missing_verified + missing_general
+        logger.info(
+            "FollowPipeline: Direct DOM detection identified %d unreciprocated followers (including %d verified).",
+            len(missing_reciprocal),
+            len(missing_verified),
+        )
+    else:
+        missing_verified = [f for f in verified_set if f not in following_set and f != clean_handle.lower()]
+        missing_general = [f for f in followers_set if f not in following_set and f != clean_handle.lower() and f not in missing_verified]
+        missing_reciprocal = missing_verified + missing_general
+        logger.info(
+            "FollowPipeline: Found %d users who follow us (including %d verified followers) via fallback set subtraction.",
+            len(missing_reciprocal),
+            len(missing_verified),
+        )
 
     for target_user in missing_reciprocal[:10]:
         can_follow = await guard.can_act(db, profile_slug, "follow", target_id=f"follow_{target_user}")

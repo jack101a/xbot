@@ -178,6 +178,22 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                         else:
                             tweets = [p.strip() for p in draft.body.split("\n\n") if p.strip()]
                         media_paths = draft.ai_metadata.get("media_paths") if draft.ai_metadata else None
+
+                        # Safety Invariant: Guarantee media & closer hashtags for threads
+                        topic = (draft.ai_metadata or {}).get("topic") or (draft.ai_metadata or {}).get("trend_title") or (tweets[0] if tweets else "")
+                        from xbot.ai.smart_media_director import resolve_post_media_waterfall, ensure_main_post_hashtags
+                        if tweets:
+                            tweets[-1] = ensure_main_post_hashtags(tweets[-1], topic)
+                        if not media_paths and tweets:
+                            logger.info("Auto-publish safety guard: thread %s has no media. Executing waterfall resolver...", draft.id)
+                            res_m, _, tweets[0] = await resolve_post_media_waterfall(topic, tweets[0], prof.profile_slug, allow_gif=False)
+                            if res_m:
+                                media_paths = res_m
+                                meta = dict(draft.ai_metadata or {})
+                                meta["media_paths"] = res_m
+                                draft.ai_metadata = meta
+                                await db.commit()
+
                         req = BrowserRequest(
                             profile_slug=prof.profile_slug,
                             action=BrowserActionType.THREAD,
@@ -186,7 +202,46 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                         )
                     else:
                         gif_q = draft.ai_metadata.get("gif_query") if draft.ai_metadata else None
-                        media_paths = draft.ai_metadata.get("media_paths") if draft.ai_metadata else None
+                        media_paths = None
+                        if draft.ai_metadata:
+                            if draft.ai_metadata.get("media_paths"):
+                                media_paths = [p for p in draft.ai_metadata["media_paths"] if os.path.exists(p)]
+                            elif draft.ai_metadata.get("image_path") and os.path.exists(draft.ai_metadata["image_path"]):
+                                media_paths = [draft.ai_metadata["image_path"]]
+                            elif draft.ai_metadata.get("media_urls"):
+                                media_paths = [u for u in draft.ai_metadata["media_urls"] if os.path.exists(u)]
+
+                        # Discard junk / generic gif_query
+                        if gif_q:
+                            from xbot.ai.smart_media_director import BLACK_LISTED_HASHTAGS
+                            g_clean = gif_q.strip().lower()
+                            if g_clean in BLACK_LISTED_HASHTAGS or any(j in g_clean for j in ("trending", "posts", "entertainment", "tech news", "news")):
+                                logger.info("Auto-publish safety guard: Discarding junk gif_query '%s' for draft %s", gif_q, draft.id)
+                                gif_q = None
+
+                        # Safety Invariant: Guarantee media & hashtags for standalone main posts
+                        topic = (draft.ai_metadata or {}).get("topic") or (draft.ai_metadata or {}).get("trend_title") or draft.body
+                        from xbot.ai.smart_media_director import resolve_post_media_waterfall, ensure_main_post_hashtags
+                        draft.body = ensure_main_post_hashtags(draft.body, topic)
+
+                        if not media_paths and not gif_q:
+                            logger.info("Auto-publish safety guard: standalone post %s has no valid media. Executing waterfall resolver...", draft.id)
+                            resolved_media, resolved_gif, draft.body = await resolve_post_media_waterfall(
+                                topic=topic,
+                                post_text=draft.body,
+                                profile_slug=prof.profile_slug,
+                                allow_gif=True,
+                            )
+                            if resolved_media:
+                                media_paths = resolved_media
+                            elif resolved_gif:
+                                gif_q = resolved_gif
+                            meta = dict(draft.ai_metadata or {})
+                            meta["media_paths"] = media_paths
+                            meta["gif_query"] = gif_q
+                            draft.ai_metadata = meta
+                            await db.commit()
+
                         req = BrowserRequest(
                             profile_slug=prof.profile_slug,
                             action=BrowserActionType.POST,

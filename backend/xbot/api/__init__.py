@@ -7,6 +7,7 @@ from xbot.api.instant_trend_routes import router as instant_trend_router
 from xbot.api.pipeline_status import router as pipeline_status_router
 from xbot.api.profiles import router as profiles_router
 from xbot.api.sessions import router as sessions_router
+from xbot.api.supervisor_routes import router as supervisor_router
 from xbot.api.system import router as system_router
 from xbot.api.tools import router as tools_router
 
@@ -21,5 +22,7 @@ api_router.include_router(campaigns_router)  # Already has /api/campaigns prefix
 api_router.include_router(pipeline_status_router, prefix="/api")
 api_router.include_router(pipeline_status_router)  # Also expose directly under /pipelines
 api_router.include_router(instant_trend_router, prefix="/api")
+api_router.include_router(supervisor_router, prefix="/api")
+api_router.include_router(supervisor_router)  # Also expose directly under /supervisor
 
 

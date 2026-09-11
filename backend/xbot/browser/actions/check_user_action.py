@@ -33,10 +33,41 @@ def _extract_tweet_id_from_url(url: str) -> str | None:
     return None
 
 
+def _is_tweet_fresh(created_at_str: str | None, max_age_minutes: int = 60) -> bool:
+    """Returns True if the tweet was posted within max_age_minutes."""
+    if not created_at_str:
+        return True
+    try:
+        from datetime import datetime, timezone
+        clean_str = created_at_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(clean_str)
+        now_dt = datetime.now(timezone.utc)
+        diff_minutes = (now_dt - dt).total_seconds() / 60.0
+        return diff_minutes <= max_age_minutes
+    except Exception:
+        pass
+
+    try:
+        s = created_at_str.strip().lower()
+        if s.endswith("s"):
+            return True
+        if s.endswith("m"):
+            mins = int(s[:-1])
+            return mins <= max_age_minutes
+        if s.endswith("h"):
+            hours = int(s[:-1])
+            return (hours * 60) <= max_age_minutes
+        if s.endswith("d"):
+            return False
+    except Exception:
+        pass
+    return True
+
+
 class CheckUserLatestTweet(BaseAction):
     """
     Navigates to a user's profile and extracts their latest tweet.
-    Handles pinned tweets by falling back to the next tweet if available.
+    Strictly skips pinned tweets and enforces max_age_minutes freshness.
     """
 
     async def _is_pinned(self, tweet_el: ElementHandle) -> bool:
@@ -116,12 +147,11 @@ class CheckUserLatestTweet(BaseAction):
         handle: str = "",
         username: str = "",
         base_url: str = "https://x.com",
-        max_age_minutes: int = 30,
+        max_age_minutes: int = 60,
         **kwargs: Any,
     ) -> dict[str, Any] | None:
         """
-        Navigates to a user's profile and extracts their latest tweet.
-        Handles pinned tweets by falling back to the next tweet if available.
+        Navigates to a user's profile and extracts their latest fresh, unpinned tweet.
         """
         target_handle = handle or username or ""
         clean_handle = target_handle.lstrip("@").strip()
@@ -130,7 +160,7 @@ class CheckUserLatestTweet(BaseAction):
             return None
 
         profile_url = f"{base_url.rstrip('/')}/{clean_handle}"
-        logger.info("Navigating to check latest tweet for @%s: %s", clean_handle, profile_url)
+        logger.info("Navigating to check latest tweet for @%s: %s (max_age=%dm)", clean_handle, profile_url, max_age_minutes)
 
         try:
             response = await page.goto(profile_url, wait_until="commit", timeout=20000)
@@ -163,31 +193,34 @@ class CheckUserLatestTweet(BaseAction):
                 logger.warning("No tweet elements found on @%s profile after 3 attempts", clean_handle)
                 return None
 
-            first_tweet = tweet_elements[0]
-            first_is_pinned = await self._is_pinned(first_tweet)
+            # Iterate through top 4 visible tweets to find first unpinned, fresh tweet
+            for idx, tweet_el in enumerate(tweet_elements[:4]):
+                is_pinned = await self._is_pinned(tweet_el)
+                if is_pinned:
+                    logger.info("Tweet %d on @%s is pinned; skipping.", idx + 1, clean_handle)
+                    continue
 
-            if first_is_pinned and len(tweet_elements) > 1:
-                logger.info("First tweet is pinned; falling back to second tweet for @%s", clean_handle)
-                target_tweet = tweet_elements[1]
-                target_is_pinned = await self._is_pinned(target_tweet)
-            else:
-                target_tweet = first_tweet
-                target_is_pinned = first_is_pinned
+                tweet_data = await self._extract_tweet_dict(
+                    tweet_el,
+                    clean_handle=clean_handle,
+                    base_url=base_url,
+                    is_pinned=False,
+                )
+                created_at = tweet_data.get("created_at")
+                if not _is_tweet_fresh(created_at, max_age_minutes=max_age_minutes):
+                    logger.info("Tweet %d on @%s (id=%s, created_at=%s) exceeds max_age of %dm; skipping.", idx + 1, tweet_data.get("tweet_id"), created_at, max_age_minutes)
+                    continue
 
-            tweet_data = await self._extract_tweet_dict(
-                target_tweet,
-                clean_handle=clean_handle,
-                base_url=base_url,
-                is_pinned=target_is_pinned,
-            )
+                logger.info(
+                    "Successfully extracted fresh latest tweet for @%s (tweet_id=%s, created_at=%s)",
+                    clean_handle,
+                    tweet_data.get("tweet_id"),
+                    created_at,
+                )
+                return tweet_data
 
-            logger.info(
-                "Successfully extracted latest tweet for @%s (tweet_id=%s, pinned=%s)",
-                clean_handle,
-                tweet_data.get("tweet_id"),
-                tweet_data.get("is_pinned"),
-            )
-            return tweet_data
+            logger.info("No unpinned tweets within max_age %dm found for @%s.", max_age_minutes, clean_handle)
+            return None
 
         except Exception as e:
             await self.capture_failure(page, f"check_user_{clean_handle}")

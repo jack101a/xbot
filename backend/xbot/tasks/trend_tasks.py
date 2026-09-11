@@ -137,6 +137,8 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
                             gif_query = None
                             media_paths = []
                             research_report_dict = None
+                            scraped_media_paths = []
+                            candidate_hashtags = []
                             try:
                                 from xbot.ai.x_researcher import research_topic_comprehensively
                                 r_report = await research_topic_comprehensively(
@@ -147,9 +149,29 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
                                 )
                                 if r_report:
                                     research_report_dict = r_report.model_dump()
-                                    # Note: Scraped search images are NOT attached to text posts
+                                    candidate_hashtags = getattr(r_report, "top_hashtags", []) or []
+                                    if getattr(r_report, "downloaded_media", None):
+                                        scraped_media_paths = [
+                                            m.local_path for m in r_report.downloaded_media
+                                            if getattr(m, "local_path", None) and os.path.exists(m.local_path)
+                                        ]
                             except Exception as r_err:
                                 logger.debug("Trend X media research skipped: %s", r_err)
+
+                            # Media Sourcing Waterfall & Hashtag Enforcement
+                            from xbot.ai.smart_media_director import resolve_post_media_waterfall
+                            res_media, res_gif, post_text = await resolve_post_media_waterfall(
+                                topic=item.title,
+                                post_text=post_text,
+                                profile_slug=profile_slug,
+                                candidate_images=scraped_media_paths,
+                                candidate_hashtags=candidate_hashtags,
+                                allow_gif=True,
+                            )
+                            if res_media:
+                                media_paths = res_media
+                            elif res_gif:
+                                gif_query = res_gif
 
                             metadata = {
                                 "trend_id": item.id,

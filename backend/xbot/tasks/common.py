@@ -114,29 +114,42 @@ async def has_already_acted(
     profile_id: uuid.UUID,
     target_url: str | None,
     action_type: Any,
-    hours: int = 168,
+    hours: int | None = None,
+    include_failed_cooldown_hours: int = 12,
 ) -> bool:
     """
     Checks if an action of the specified type has already been executed or queued
-    against the given target_url or canonical numeric tweet ID within the last `hours` (default 7 days).
-    Prevents duplicate likes, replies, and quotes on the exact same tweets.
+    against the given target_url or canonical numeric tweet ID.
+    
+    Invariants:
+    - For REPLY and QUOTE: Deduplication is permanent (Lifetime) unless hours is explicitly passed.
+      Once an account replies to or quotes a tweet, it must never touch that tweet again.
+    - Failure Cooldown (12h): If a reply/quote attempt failed within the last 12 hours,
+      it is also considered active to eliminate rapid-fire retry loops.
     """
     if not target_url:
         return False
     clean_target = target_url.strip().rstrip("/")
     t_id = extract_tweet_id_from_url(clean_target)
-    cutoff = now_ist() - datetime.timedelta(hours=hours)
-    act_type_str = action_type.value if hasattr(action_type, "value") else str(action_type)
+    act_type_str = action_type.value if hasattr(action_type, "value") else str(action_type).lower()
 
+    # Determine lifetime vs rolling window
+    is_interaction = act_type_str in ("reply", "quote", "actiontype.reply", "actiontype.quote")
+    effective_hours = hours if hours is not None else (None if is_interaction else 168)
+
+    # 1. Check Completed, Pending, or Staged actions
     stmt = (
         select(Action)
         .where(
             Action.profile_id == profile_id,
-            Action.action_type == act_type_str,
+            Action.action_type.in_([act_type_str.lower(), act_type_str.upper()]),
             Action.status.in_([ActionStatus.COMPLETED, ActionStatus.PENDING, ActionStatus.STAGED]),
-            Action.executed_at >= cutoff,
         )
     )
+    if effective_hours is not None:
+        cutoff = now_ist() - datetime.timedelta(hours=effective_hours)
+        stmt = stmt.where(Action.executed_at >= cutoff)
+
     res = await db.execute(stmt)
     actions = res.scalars().all()
     for act in actions:
@@ -144,8 +157,31 @@ async def has_already_acted(
             continue
         if t_id and extract_tweet_id_from_url(act.target_url) == t_id:
             return True
-        if act.target_url.strip().rstrip("/") == clean_target:
+        if act.target_url.strip().rstrip("/").lower() == clean_target.lower():
             return True
+
+    # 2. Check Failure Cooldown (prevents retrying failed targets within 12h)
+    if include_failed_cooldown_hours > 0 and is_interaction:
+        fail_cutoff = now_ist() - datetime.timedelta(hours=include_failed_cooldown_hours)
+        stmt_failed = (
+            select(Action)
+            .where(
+                Action.profile_id == profile_id,
+                Action.action_type.in_([act_type_str.lower(), act_type_str.upper()]),
+                Action.status == ActionStatus.FAILED,
+                Action.executed_at >= fail_cutoff,
+            )
+        )
+        res_failed = await db.execute(stmt_failed)
+        failed_actions = res_failed.scalars().all()
+        for act in failed_actions:
+            if not act.target_url:
+                continue
+            if t_id and extract_tweet_id_from_url(act.target_url) == t_id:
+                return True
+            if act.target_url.strip().rstrip("/").lower() == clean_target.lower():
+                return True
+
     return False
 
 def _parse_x_counts(text: str) -> int:

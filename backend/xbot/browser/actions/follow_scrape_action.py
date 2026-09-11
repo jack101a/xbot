@@ -19,7 +19,8 @@ from xbot.browser.actions.utils import (check_target_tweet_status, _navigate_hom
 class ScrapeFollowList(BaseAction):
     """
     Scrapes the list of followers or following handles for a given user,
-    with built-in detection and filtering for Verified Blue-Tick / Gold-Tick accounts.
+    with built-in detection for Verified Blue-Tick accounts and direct
+    DOM detection of unreciprocated 'Follow back' relationships.
     """
 
     async def execute(
@@ -29,67 +30,172 @@ class ScrapeFollowList(BaseAction):
         list_type: str = "followers",
         limit: int = 100,
         verified_only: bool = False,
-    ) -> list[str]:
+        unreciprocated_only: bool = False,
+        return_details: bool = False,
+    ) -> list[str] | dict[str, Any]:
         try:
             clean = username.lstrip("@")
-            url = f"https://x.com/{clean}/{list_type}"
-            logger.info("Scraping %s list for @%s (limit: %d, verified_only: %s)", list_type, clean, limit, verified_only)
-            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-            
+            actual_tab = "followers" if list_type in ("followers", "followers_unreciprocated") else list_type
+            if list_type == "followers_unreciprocated":
+                unreciprocated_only = True
+
+            url = f"https://x.com/{clean}/{actual_tab}"
+            logger.info(
+                "Scraping %s list for @%s (url=%s, limit=%d, verified_only=%s, unreciprocated_only=%s)",
+                list_type, clean, url, limit, verified_only, unreciprocated_only,
+            )
+            await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+
             try:
                 await page.wait_for_selector("[data-testid='UserCell']", timeout=15000)
             except Exception:
-                logger.warning("No UserCell selector loaded on follow list page.")
+                logger.warning("No UserCell selector loaded on %s page.", url)
+                if return_details:
+                    return {
+                        "handles": [],
+                        "unreciprocated_handles": [],
+                        "verified_unreciprocated_handles": [],
+                        "following_handles": [],
+                        "total_scanned": 0,
+                    }
                 return []
 
             await sleep_with_jitter(2000)
 
-            handles = []
-            seen_handles = set()
-            scroll_count = 0
-            max_scrolls = 20
+            handles: list[str] = []
+            unreciprocated_handles: list[str] = []
+            verified_unreciprocated_handles: list[str] = []
+            following_handles: list[str] = []
+            seen_handles: set[str] = set()
 
-            while len(handles) < limit and scroll_count < max_scrolls:
-                cells = await page.query_selector_all("[data-testid='UserCell']")
+            scroll_count = 0
+            max_scrolls = max(15, limit // 5)
+            stagnant_scrolls = 0
+
+            while scroll_count < max_scrolls:
+                # Query cells specifically within primaryColumn to avoid sidebar "Who to follow"
+                cells = await page.query_selector_all("[data-testid='primaryColumn'] [data-testid='UserCell']")
+                if not cells:
+                    cells = await page.query_selector_all("[data-testid='UserCell']")
+
+                new_found_in_scroll = 0
                 for cell in cells:
-                    # Check verified badge
+                    links = await cell.query_selector_all("a[role='link'], a")
+                    handle = None
+                    for link in links:
+                        href = await link.get_attribute("href")
+                        if href:
+                            h = href.strip("/")
+                            if (
+                                h
+                                and "/" not in h
+                                and h.lower() not in [
+                                    "home", "explore", "notifications", "messages",
+                                    "bookmarks", "lists", "profile", "settings", "i", clean.lower()
+                                ]
+                            ):
+                                handle = h
+                                break
+
+                    if not handle or handle in seen_handles:
+                        continue
+
+                    seen_handles.add(handle)
+                    new_found_in_scroll += 1
+
+                    # 1. Verified badge check
                     is_verified = bool(
                         await cell.query_selector(
                             "svg[data-testid='icon-verified'], [aria-label*='Verified'], svg[aria-label*='Verified']"
                         )
                     )
 
+                    # 2. Relationship button inspection in DOM
+                    unfollow_btn = await cell.query_selector(
+                        "button[data-testid$='-unfollow'], div[data-testid$='-unfollow']"
+                    )
+                    follow_btn = await cell.query_selector(
+                        "button[data-testid$='-follow'], div[data-testid$='-follow']"
+                    )
+
+                    btn_text = ""
+                    buttons = await cell.query_selector_all("[role='button']")
+                    for b in buttons:
+                        txt = (await b.inner_text()).strip()
+                        if txt in ("Follow", "Follow back", "Following", "Requested", "Pending"):
+                            btn_text = txt
+                            break
+
+                    is_following = bool(unfollow_btn) or ("Following" in btn_text)
+                    is_unreciprocated = (
+                        (bool(follow_btn) or btn_text in ("Follow back", "Follow"))
+                        and not is_following
+                    )
+
+                    if is_following:
+                        following_handles.append(handle)
+
+                    if is_unreciprocated:
+                        unreciprocated_handles.append(handle)
+                        if is_verified:
+                            verified_unreciprocated_handles.append(handle)
+
+                    # Filter based on flags
                     if verified_only and not is_verified:
                         continue
+                    if unreciprocated_only and not is_unreciprocated:
+                        continue
 
-                    links = await cell.query_selector_all("a")
-                    handle = None
-                    for link in links:
-                        href = await link.get_attribute("href")
-                        if href:
-                            h = href.strip("/")
-                            if h and "/" not in h and h not in ["home", "explore", "notifications", "messages", "bookmarks", "lists", "profile", "settings"]:
-                                handle = h
-                                break
-                    
-                    if handle and handle not in seen_handles:
-                        seen_handles.add(handle)
-                        handles.append(handle)
-                        if len(handles) >= limit:
-                            break
-                
-                if len(handles) >= limit:
+                    handles.append(handle)
+
+                    target_check = handles if not unreciprocated_only else unreciprocated_handles
+                    if len(target_check) >= limit:
+                        break
+
+                target_check = handles if not unreciprocated_only else unreciprocated_handles
+                if len(target_check) >= limit:
                     break
 
+                if new_found_in_scroll == 0:
+                    stagnant_scrolls += 1
+                    if stagnant_scrolls >= 3:
+                        logger.info("ScrapeFollowList: No new accounts detected for 3 scrolls. Reached bottom.")
+                        break
+                else:
+                    stagnant_scrolls = 0
+
                 scroll_count += 1
-                await human_scroll(page, random.randint(400, 700), "down")
+                await human_scroll(page, random.randint(500, 800), "down")
                 await sleep_with_jitter(1500)
-                
-            logger.info("Scraped %d %s handles from @%s (verified_only=%s)", len(handles), list_type, clean, verified_only)
-            return handles
+
+            logger.info(
+                "ScrapeFollowList: Scraped %d %s handles from @%s (unreciprocated=%d, verified_unreciprocated=%d, following=%d, total_seen=%d)",
+                len(handles), list_type, clean, len(unreciprocated_handles),
+                len(verified_unreciprocated_handles), len(following_handles), len(seen_handles)
+            )
+
+            if return_details:
+                return {
+                    "handles": handles,
+                    "unreciprocated_handles": unreciprocated_handles,
+                    "verified_unreciprocated_handles": verified_unreciprocated_handles,
+                    "following_handles": following_handles,
+                    "total_scanned": len(seen_handles),
+                }
+
+            return handles if not unreciprocated_only else unreciprocated_handles
+
         except Exception as e:
             await self.capture_failure(page, f"scrape_{list_type}_{username}")
             logger.error("Error scraping %s for %s: %s", list_type, username, e)
+            if return_details:
+                return {
+                    "handles": [],
+                    "unreciprocated_handles": [],
+                    "verified_unreciprocated_handles": [],
+                    "following_handles": [],
+                    "total_scanned": 0,
+                }
             return []
 
 class HarvestFollowBackThread(BaseAction):

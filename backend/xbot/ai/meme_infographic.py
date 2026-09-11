@@ -2,6 +2,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import textwrap
+from typing import Any
 from pathlib import Path
 from PIL import Image, ImageDraw
 from xbot.ai.meme_renderer import (

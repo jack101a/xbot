@@ -28,6 +28,7 @@ from xbot.container import Container, get_container
 from xbot.contracts.browser import BrowserActionType, BrowserRequest
 from xbot.growth.f4f_engine import record_follow_action
 from xbot.celery_app import celery_app
+from xbot.config import settings
 from xbot.database import AsyncSessionLocal
 from xbot.models.content import Content, ContentStatus, ContentType
 from xbot.models.follow_growth import FollowCandidate, FollowRelationship
@@ -125,41 +126,86 @@ async def run_follow_growth_post_for_profile(
             except Exception as snap_err:
                 logger.debug("Could not read analytics snapshot for %s: %s", profile_slug, snap_err)
 
-        # 3. Generate Dynamic Growth Copy & Image via AI
-        logger.info(
-            "FollowGrowthPost: Generating dynamic visual growth post for @%s (current followers: %d)...",
-            clean_handle,
-            followers_count,
+        # Check if an unposted growth post draft already exists with a valid generated image
+        pending_stmt = (
+            select(Content)
+            .where(
+                Content.profile_id == profile.id,
+                Content.status.in_([ContentStatus.APPROVED, ContentStatus.DRAFT]),
+                Content.content_type == ContentType.ORIGINAL,
+            )
+            .order_by(Content.created_at.desc())
+            .limit(1)
         )
-        growth_spec, image_path = await generate_growth_post_with_image(
-            persona=persona,
-            current_followers=followers_count,
-        )
-        if not growth_spec:
-            logger.warning("FollowGrowthPost: AI growth generation returned None for @%s", clean_handle)
-            return {"status": "failed", "reason": "generation_failed"}
+        existing_draft = (await db.execute(pending_stmt)).scalar_one_or_none()
+        content_record = None
+        tweet_text = None
+        image_path = None
 
-        content_record = Content(
-            profile_id=profile.id,
-            content_type=ContentType.ORIGINAL,
-            status=ContentStatus.APPROVED,
-            body=growth_spec.tweet_copy,
-            ai_metadata={
-                "archetype": growth_spec.archetype,
-                "cta_type": growth_spec.cta_type,
-                "image_prompt": growth_spec.image_prompt,
-                "image_path": image_path,
-                "media_urls": [image_path],
-                "is_growth_promotion": True,
-                "target_milestone": growth_spec.target_milestone,
-                "hashtags_count": growth_spec.hashtags_count,
-            },
-            posted_at=datetime.datetime.utcnow(),
-        )
-        db.add(content_record)
-        await db.commit()
-        await db.refresh(content_record)
-        new_post_id = content_record.id
+        if existing_draft and existing_draft.ai_metadata and existing_draft.ai_metadata.get("is_growth_promotion"):
+            existing_img = existing_draft.ai_metadata.get("image_path")
+            if existing_img and os.path.exists(existing_img):
+                logger.info(
+                    "FollowGrowthPost: Reusing existing queued growth draft %s (image already exists: %s)",
+                    existing_draft.id,
+                    existing_img,
+                )
+                content_record = existing_draft
+                new_post_id = content_record.id
+                tweet_text = content_record.body
+                image_path = existing_img
+
+        if not content_record:
+            # 3. Generate Dynamic Growth Copy & Image via AI
+            growth_lang_pref = None
+            if profile.config:
+                growth_lang_pref = profile.config.get("growth_language_mode")
+
+            growth_spec, image_path = await generate_growth_post_with_image(
+                persona=persona,
+                current_followers=followers_count,
+                language_mode=growth_lang_pref,
+            )
+            if not growth_spec:
+                logger.warning("FollowGrowthPost: AI growth generation returned None for @%s", clean_handle)
+                return {"status": "failed", "reason": "generation_failed"}
+
+            tweet_text = growth_spec.tweet_copy
+            content_record = Content(
+                profile_id=profile.id,
+                content_type=ContentType.ORIGINAL,
+                status=ContentStatus.APPROVED,
+                body=tweet_text,
+                ai_metadata={
+                    "archetype": growth_spec.archetype,
+                    "cta_type": growth_spec.cta_type,
+                    "language": growth_spec.language,
+                    "visual_theme": growth_spec.visual_theme,
+                    "length_tier": growth_spec.length_tier,
+                    "image_prompt": growth_spec.image_prompt,
+                    "image_path": image_path,
+                    "media_paths": [image_path] if image_path else [],
+                    "media_urls": [image_path] if image_path else [],
+                    "is_growth_promotion": True,
+                    "target_milestone": growth_spec.target_milestone,
+                    "hashtags_count": growth_spec.hashtags_count,
+                },
+                posted_at=datetime.datetime.utcnow(),
+            )
+            db.add(content_record)
+            await db.commit()
+            await db.refresh(content_record)
+            new_post_id = content_record.id
+            logger.info(
+                "FollowGrowthPost: Created dynamic visual growth draft %s for @%s [lang=%s, length=%s, theme=%s, archetype=%s, hashtags=%d]",
+                new_post_id,
+                clean_handle,
+                growth_spec.language,
+                growth_spec.length_tier,
+                growth_spec.visual_theme,
+                growth_spec.archetype,
+                growth_spec.hashtags_count,
+            )
 
         # 4. Launch Browser & Publish Post via BrowserPort
         logger.info("FollowGrowthPost: Publishing growth post with image on X via BrowserPort...")
@@ -168,7 +214,7 @@ async def run_follow_growth_post_for_profile(
             profile_slug=profile_slug,
             action=BrowserActionType.POST,
             params={
-                "text": growth_spec.tweet_copy,
+                "text": tweet_text,
                 "media_paths": media_to_send,
             },
             timeout_seconds=120,
@@ -188,8 +234,17 @@ async def run_follow_growth_post_for_profile(
             await guard.record_action(db, profile_slug, "growth_post", target_id=str(new_post_id))
             await db.commit()
         else:
-            content_record.status = ContentStatus.FAILED
-            logger.warning("FollowGrowthPost: Failed to publish post on X: %s", post_res.error)
+            # Leave in queue as APPROVED so auto_publish_pending_drafts will publish when session clears!
+            content_record.status = ContentStatus.APPROVED
+            ai_meta = dict(content_record.ai_metadata or {})
+            ai_meta["publish_attempts"] = ai_meta.get("publish_attempts", 0) + 1
+            ai_meta["last_error"] = str(post_res.error if post_res else "unknown error")
+            ai_meta["media_paths"] = media_to_send or []
+            content_record.ai_metadata = ai_meta
+            logger.warning(
+                "FollowGrowthPost: Browser post deferred (error: %s). Kept in post queue as APPROVED for auto-publishing.",
+                post_res.error if post_res else "unknown",
+            )
             await db.commit()
 
         # 5. Commenter Harvesting & Reciprocal Follows on Growth Posts
@@ -272,16 +327,17 @@ async def run_follow_growth_post_for_profile(
     except Exception as e:
         logger.error("FollowGrowthPost: Error in growth cycle for @%s: %s", clean_handle, e, exc_info=True)
         return {"status": "error", "error": str(e)}
-
-    # Schedule next random interval between 40 and 120 minutes (2400 to 7200 seconds)
-    next_gap_sec = random.randint(40 * 60, 120 * 60)
-    if r:
-        r.set(redis_key_next_due, str(now_ts + next_gap_sec), ex=86400)
-    logger.info(
-        "FollowGrowthPost: Scheduled next growth cycle for @%s in %d mins (random 40-120m cadence)",
-        clean_handle,
-        next_gap_sec // 60,
-    )
+    finally:
+        # Schedule next random interval between 40 and 120 minutes (2400 to 7200 seconds)
+        # Guarantees cooldown is set even if posting fails, preventing rapid repeated ChatGPT calls
+        next_gap_sec = random.randint(40 * 60, 120 * 60)
+        if r:
+            r.set(redis_key_next_due, str(now_ts + next_gap_sec), ex=86400)
+        logger.info(
+            "FollowGrowthPost: Scheduled next growth cycle for @%s in %d mins (random 40-120m cadence)",
+            clean_handle,
+            next_gap_sec // 60,
+        )
 
     return {
         "status": "success",
@@ -293,7 +349,7 @@ async def run_follow_growth_post_for_profile(
 
 
 @celery_app.task(name="xbot.pipelines.follow_growth_post_pipeline.run_follow_growth_post")
-def run_follow_growth_post() -> dict[str, Any]:
+def run_follow_growth_post(profile_slug: str | None = None) -> dict[str, Any]:
     """Celery entrypoint for periodic Follow Growth Promotion Pipeline."""
     async def _async_run():
         guard = CentralGuard()
@@ -302,6 +358,8 @@ def run_follow_growth_post() -> dict[str, Any]:
 
         async with AsyncSessionLocal() as db:
             stmt = select(Profile).where(Profile.status == ProfileStatus.ACTIVE)
+            if profile_slug:
+                stmt = stmt.where(Profile.profile_slug == profile_slug)
             res = await db.execute(stmt)
             profiles = res.scalars().all()
 

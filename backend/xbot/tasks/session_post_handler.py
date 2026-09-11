@@ -91,24 +91,52 @@ async def handle_post_action(
                     return True
 
     require_approval = getattr(config, "require_post_approval", False)
+    topic = getattr(p_action, "topic", None) or post_text
+
+    gif_query = getattr(p_action, "gif_query", None)
+    media_paths = getattr(p_action, "media_paths", None) or []
+    research_report_dict = None
+    scraped_media_paths = []
+    candidate_hashtags = []
+    try:
+        from xbot.ai.x_researcher import research_topic_comprehensively
+        r_report = await research_topic_comprehensively(
+            topic=post_text,
+            persona=persona,
+            max_tweets=25,
+            profile_slug=profile_slug,
+        )
+        if r_report:
+            research_report_dict = r_report.model_dump()
+            candidate_hashtags = getattr(r_report, "top_hashtags", []) or []
+            if getattr(r_report, "downloaded_media", None):
+                scraped_media_paths = [
+                    m.local_path for m in r_report.downloaded_media
+                    if getattr(m, "local_path", None) and os.path.exists(m.local_path)
+                ]
+    except Exception as r_err:
+        logger.debug("Topic media research on X skipped or failed: %s", r_err)
+
+    if not media_paths and not gif_query:
+        from xbot.ai.smart_media_director import resolve_post_media_waterfall
+        res_media, res_gif, post_text = await resolve_post_media_waterfall(
+            topic=topic,
+            post_text=post_text,
+            profile_slug=profile_slug,
+            candidate_images=scraped_media_paths,
+            candidate_hashtags=candidate_hashtags,
+            allow_gif=True,
+        )
+        if res_media:
+            media_paths = res_media
+        elif res_gif:
+            gif_query = res_gif
+    else:
+        from xbot.ai.smart_media_director import ensure_main_post_hashtags
+        post_text = ensure_main_post_hashtags(post_text, topic, candidate_hashtags=candidate_hashtags)
+
     if require_approval:
         logger.info("Staging new standalone post for user approval on dashboard: '%s'", post_text[:50])
-        gif_query = getattr(p_action, "gif_query", None)
-        media_paths = []
-        research_report_dict = None
-        try:
-            from xbot.ai.x_researcher import research_topic_comprehensively
-            r_report = await research_topic_comprehensively(
-                topic=post_text,
-                persona=persona,
-                max_tweets=25,
-                profile_slug=profile_slug,
-            )
-            if r_report:
-                research_report_dict = r_report.model_dump()
-        except Exception as r_err:
-            logger.debug("Topic media research on X skipped or failed: %s", r_err)
-
         draft_c = Content(
             profile_id=profile_id,
             content_type=ContentType.ORIGINAL,
@@ -146,7 +174,8 @@ async def handle_post_action(
         success = await tasks.ComposePost().execute(
             page,
             post_text,
-            gif_query=getattr(p_action, "gif_query", None),
+            media_paths=media_paths,
+            gif_query=gif_query,
         )
     elif browser:
         resp = await browser.execute(BrowserRequest(
@@ -154,7 +183,8 @@ async def handle_post_action(
             action=BrowserActionType.POST,
             params={
                 "text": post_text,
-                "gif_query": getattr(p_action, "gif_query", None),
+                "media_paths": media_paths,
+                "gif_query": gif_query,
             },
         ))
         success = resp.status == "success"

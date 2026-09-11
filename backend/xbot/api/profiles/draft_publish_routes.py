@@ -100,6 +100,18 @@ async def approve_and_publish_draft(
                 tweets = [p.strip() for p in draft.body.split("\n\n") if p.strip()]
             action = ComposeThread()
             media_paths = draft.ai_metadata.get("media_paths") if draft.ai_metadata else None
+            topic = (draft.ai_metadata or {}).get("topic") or (draft.ai_metadata or {}).get("trend_title") or (tweets[0] if tweets else "")
+            from xbot.ai.smart_media_director import resolve_post_media_waterfall, ensure_main_post_hashtags
+            if tweets:
+                tweets[-1] = ensure_main_post_hashtags(tweets[-1], topic)
+            if not media_paths and tweets:
+                res_m, _, tweets[0] = await resolve_post_media_waterfall(topic, tweets[0], profile_slug, allow_gif=False)
+                if res_m:
+                    media_paths = res_m
+                    meta = dict(draft.ai_metadata or {})
+                    meta["media_paths"] = res_m
+                    draft.ai_metadata = meta
+                    await db.commit()
             res = await action.execute(page, tweets=tweets, media_paths=media_paths)
             success = res.get("status") == "success"
             if success and res.get("root_tweet_id"):
@@ -108,6 +120,20 @@ async def approve_and_publish_draft(
             action = ComposePost()
             gif_q = draft.ai_metadata.get("gif_query") if draft.ai_metadata else None
             media_paths = draft.ai_metadata.get("media_paths") if draft.ai_metadata else None
+            topic = (draft.ai_metadata or {}).get("topic") or (draft.ai_metadata or {}).get("trend_title") or draft.body
+            from xbot.ai.smart_media_director import resolve_post_media_waterfall, ensure_main_post_hashtags
+            draft.body = ensure_main_post_hashtags(draft.body, topic)
+            if not media_paths and not gif_q:
+                res_m, res_gif, draft.body = await resolve_post_media_waterfall(topic, draft.body, profile_slug, allow_gif=True)
+                if res_m:
+                    media_paths = res_m
+                elif res_gif:
+                    gif_q = res_gif
+                meta = dict(draft.ai_metadata or {})
+                meta["media_paths"] = media_paths
+                meta["gif_query"] = gif_q
+                draft.ai_metadata = meta
+                await db.commit()
             success = await action.execute(page, text=draft.body, media_paths=media_paths, gif_query=gif_q)
 
         if success:

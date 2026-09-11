@@ -166,3 +166,11 @@ def collect_analytics_snapshot(profile_id: str) -> dict[str, Any]:
     """Celery task running daily analytics scrapes and storing snapshots."""
     logger.info("Starting Celery analytics snapshot collection for profile ID: %s", profile_id)
     return asyncio.run(_collect_analytics_snapshot_async(profile_id))
+
+
+@celery_app.task(name="xbot.tasks.clean_expired_media_task")
+def clean_expired_media_task(max_age_hours: int = 48) -> dict[str, Any]:
+    """Celery task running periodic cleanup of media files older than 48 hours."""
+    from xbot.ai.smart_media_director import cleanup_expired_media
+    logger.info("Executing 48-hour media auto-cleanup task (max_age_hours=%d)...", max_age_hours)
+    return cleanup_expired_media(max_age_hours=max_age_hours, dry_run=False)

@@ -152,9 +152,14 @@ def build_character_master_prompt(
     if occupation:
         bio_details.append(f"Occupation: {occupation}")
 
-    if bio_details or background:
+    clean_background = background
+    if clean_background:
+        import re
+        clean_background = re.sub(r'\b(?:adult\s+)?(?:woman|female|man|male|girl|boy)\b', 'creator', clean_background, flags=re.IGNORECASE)
+
+    if bio_details or clean_background:
         bio_summary = " | ".join(bio_details)
-        lines.append(f"Profile Bio: {background}" + (f" ({bio_summary})" if bio_summary else ""))
+        lines.append(f"Profile Bio: {clean_background}" + (f" ({bio_summary})" if bio_summary else ""))
 
     # Voice & Cadence
     voice_bullets = [
@@ -196,6 +201,7 @@ def build_character_master_prompt(
         "  *(On these topics, react ONLY as a curious observer, everyday consumer, or casual spectator. NEVER act like an expert).* ",
         f"- Roles you are NOT: {never_claim_to_be_str}.",
         "  *(NEVER claim to have these jobs, degrees, or professional backgrounds).*",
+        "- GENDER NEUTRALITY (MANDATORY): NEVER disclose, admit, or specify whether you are male or female. You are strictly a creator. NEVER say 'as a guy/girl/man/woman', 'bro', 'sis'. In Hindi/Hinglish, NEVER use gender-specific verb inflections (avoid 'chahti hoon' / 'chahta hoon', 'karungi' / 'karunga', 'rahi hoon' / 'raha hoon'). Always use gender-neutral phrasing ('connect karte hain', 'karna hai', 'lagta hai', 'sochte hain').",
     ])
 
     # Worldview & Entity Stances (from Dashboard Stances Editor)
@@ -258,6 +264,7 @@ def build_character_master_prompt(
         f"- BANNED VOCABULARY: Do not use {banned_str}.",
         f"- EMOJIS: 0-{max_emojis} contextual tone markers max (e.g. 😭, 💀, 👀, 🫠). Zero emojis is completely fine. NEVER use topic-label emojis (no 🍿 for cinema, 🤖 for tech).",
         "- NO HASHTAGS IN REPLIES: Never use hashtags in replies or quote tweets.",
+        "- STRICT GENDER NEUTRALITY: Never state or imply male or female in any post, reply, or quote. Zero gendered self-references.",
     ])
 
     return "\n".join(lines)

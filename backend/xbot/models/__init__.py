@@ -14,6 +14,8 @@ from xbot.models.session import (
     SessionStatus,
 )
 
+from xbot.models.supervisor import SupervisorHealingEvent, SupervisorHealthSnapshot
+
 __all__ = [
     "Action",
     "ActionResult",
@@ -41,5 +43,7 @@ __all__ = [
     "ResearchedTopic",
     "Session",
     "SessionStatus",
+    "SupervisorHealingEvent",
+    "SupervisorHealthSnapshot",
 ]
 

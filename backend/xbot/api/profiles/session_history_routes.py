@@ -22,6 +22,7 @@ from xbot.models.analytics import FollowerChangeLog
 from xbot.models.session import Action, Session
 from xbot.persona.loader import load_persona
 from xbot.browser.manager import BrowserManager
+from xbot.browser.auth import format_storage_state, parse_cookie_string
 
 logger = logging.getLogger('xbot.api.profiles')
 router = APIRouter()
@@ -117,7 +118,7 @@ async def import_profile_cookies(
             detail="Both auth_token and ct0 cookies are required to import session.",
         )
 
-    profile_dir = Path(BASE_PROFILE_DIR) / db_profile.profile_slug
+    profile_dir = Path(settings.BASE_PROFILE_DIR) / db_profile.profile_slug
     profile_dir.mkdir(parents=True, exist_ok=True)
     storage_state = format_storage_state(
         auth_token=auth_token.strip(),

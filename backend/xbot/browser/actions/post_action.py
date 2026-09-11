@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+from typing import Any
 from playwright.async_api import Page
 from xbot.browser.actions.base import BaseAction
 from xbot.browser.timing import (
@@ -26,8 +27,15 @@ class ComposePost(BaseAction):
         import asyncio
         captured_tweet_ids: list[str] = []
 
+        rate_limited_429 = False
+
         async def _handle_post_response(response: Any) -> None:
+            nonlocal rate_limited_429
             try:
+                if response.status == 429 and ("Viewer" in response.url or "graphql" in response.url or "CreateTweet" in response.url):
+                    rate_limited_429 = True
+                    logger.warning("Detected X GraphQL rate limit (HTTP 429) on: %s", response.url)
+
                 if "CreateTweet" in response.url or "CreateDraft" in response.url:
                     if response.status == 200:
                         data = await response.json()
@@ -81,12 +89,31 @@ class ComposePost(BaseAction):
                 'textarea[data-testid="tweetTextarea_0"]'
             )
 
-            # 1. Open the dedicated compose modal via SideNav or compose URL to avoid inline feed ambiguity
+            # 1. Open the dedicated compose modal via SideNav or compose URL
             current_url = getattr(page, "url", "")
             if not current_url.startswith("https://x.com") and not current_url.startswith("http://127.0.0.1"):
                 logger.info("Navigating to https://x.com/home...")
                 await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=30000)
-                await sleep_think_time(2000, 4000)
+                await sleep_think_time(2000, 3500)
+
+            # Check if stuck on splash screen / blank loading screen
+            splash_el = await page.query_selector('div[data-testid="splash-screen"], svg[aria-label="X"]')
+            main_ui = await page.query_selector('div[data-testid="primaryColumn"], nav[role="navigation"], [data-testid="tweetTextarea_0"]')
+            if splash_el and not main_ui:
+                if rate_limited_429:
+                    raise RuntimeError("X_RATE_LIMITED_429: Twitter returned HTTP 429 on GraphQL Viewer query. Post queued for auto-publish.")
+                logger.warning("X page stuck on initial splash screen; attempting reload & cache recovery...")
+                try:
+                    await page.evaluate("""() => {
+                        try { sessionStorage.clear(); } catch(e) {}
+                    }""")
+                    await page.reload(wait_until="domcontentloaded", timeout=20000)
+                    await sleep_think_time(2000, 3500)
+                except Exception as rec_err:
+                    logger.debug("Splash recovery reload failed: %s", rec_err)
+
+            if rate_limited_429:
+                raise RuntimeError("X_RATE_LIMITED_429: Twitter returned HTTP 429 on GraphQL Viewer query. Post queued for auto-publish.")
 
             # Check if compose modal/dialog is already open
             modal_el = await page.query_selector('div[role="dialog"], #compose-modal')
@@ -99,13 +126,19 @@ class ComposePost(BaseAction):
 
             if not modal_is_open:
                 # Open modal via SideNav Post button
-                side_nav_btn = await page.query_selector(
-                    'button[data-testid="SideNav_NewTweet_Button"], '
-                    'a[data-testid="SideNav_NewTweet_Button"], '
-                    'a[href="/compose/post"], '
-                    'a[href="/compose/tweet"], '
-                    '#nav-post-btn'
-                )
+                side_nav_btn = None
+                try:
+                    side_nav_btn = await page.wait_for_selector(
+                        'button[data-testid="SideNav_NewTweet_Button"], '
+                        'a[data-testid="SideNav_NewTweet_Button"], '
+                        'a[href="/compose/post"], '
+                        'a[href="/compose/tweet"], '
+                        '#nav-post-btn',
+                        timeout=8000,
+                    )
+                except Exception:
+                    pass
+
                 if side_nav_btn:
                     logger.info("Clicking SideNav compose button to open dedicated modal...")
                     await human_click(page, side_nav_btn, 300, 700)
@@ -114,12 +147,14 @@ class ComposePost(BaseAction):
                     if modal_el and await modal_el.is_visible():
                         modal_is_open = True
                 elif "127.0.0.1" not in current_url:
-                    logger.info("Navigating to https://x.com/compose/post...")
-                    await page.goto("https://x.com/compose/post", wait_until="domcontentloaded", timeout=30000)
-                    await sleep_think_time(2000, 3500)
-                    modal_el = await page.query_selector('div[role="dialog"]')
-                    if modal_el and await modal_el.is_visible():
-                        modal_is_open = True
+                    inline_el = await page.query_selector('div[data-testid="tweetTextarea_0"]')
+                    if not inline_el:
+                        logger.info("Navigating to https://x.com/compose/post...")
+                        await page.goto("https://x.com/compose/post", wait_until="domcontentloaded", timeout=30000)
+                        await sleep_think_time(2000, 3500)
+                        modal_el = await page.query_selector('div[role="dialog"]')
+                        if modal_el and await modal_el.is_visible():
+                            modal_is_open = True
 
             # 2. Locate composer textarea (in modal or fallback to inline)
             textarea_el = await page.wait_for_selector(textarea_sel, state="visible", timeout=25000)

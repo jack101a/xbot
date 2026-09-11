@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import random
+from typing import Any
 from playwright.async_api import Page
 from xbot.browser.actions.base import BaseAction
 from xbot.browser.actions.selectors import SELECTORS

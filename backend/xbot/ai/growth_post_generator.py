@@ -72,6 +72,112 @@ GROWTH_HASHTAG_POOL = [
     "#TeamFollowBack",
 ]
 
+GROWTH_LANGUAGES = ["english", "hinglish", "bilingual"]
+
+CREATIVE_VISUAL_MOTIFS = [
+    {
+        "id": "NEURAL_COMMUNITY_GRAPH",
+        "name": "Interconnected Community Constellation",
+        "description": "3D glowing network nodes and luminous connection beams forming an ascending neural constellation on dark glassmorphism.",
+    },
+    {
+        "id": "FUTURISTIC_METRIC_HUD",
+        "name": "Holographic Telemetry & Milestone HUD",
+        "description": "3D holographic telemetry display and laser-etched follower gauges with dynamic ascending metric arcs and neon telemetry rings.",
+    },
+    {
+        "id": "ASCENDING_GLASS_LADDER",
+        "name": "Surreal Floating Glass Staircase",
+        "description": "Minimalist surreal 3D staircase of floating translucent glass platforms rising into a digital horizon with glowing milestone achievements.",
+    },
+    {
+        "id": "HOLOGRAPHIC_ORBITAL_CORE",
+        "name": "Orbital Mutuals Gyroscope",
+        "description": "Futuristic 3D gyroscopic orbital device with concentric rotating metallic and glass rings orbiting a radiant energy core of mutual connections.",
+    },
+    {
+        "id": "CYBERPUNK_SYNTHWAVE_RADAR",
+        "name": "Cyberpunk Neon Creator Radar",
+        "description": "Sleek 3D radar grid with neon wireframe terrain, sweeping beams scanning for creators, and a luminous horizon milestone.",
+    },
+    {
+        "id": "CREATOR_STUDIO_ISOMETRIC",
+        "name": "3D Isometric Creator Command Studio",
+        "description": "Clean 3D isometric studio/command desk with floating holographic displays, illuminated creator tools, neon follow badge, and ambient lighting.",
+    },
+    {
+        "id": "TACTILE_3D_PILL",
+        "name": "Tactile Frosted Glass Interaction Pill",
+        "description": "Tactile, ultra-premium 3D glowing interaction pill button reading 'Follow' or 'Connect' with floating notification sparks and particle vectors.",
+    },
+]
+
+COLOR_PALETTES = [
+    ("electric cyan", "neon violet"),
+    ("radiant obsidian", "warm amber gold"),
+    ("emerald neon", "mint green"),
+    ("sunset magenta", "ultramarine blue"),
+    ("ice blue", "platinum silver"),
+]
+
+POST_LENGTH_TIERS = {
+    "ultra_punchy": {
+        "id": "ultra_punchy",
+        "name": "Ultra-Punchy & Direct",
+        "description": "1 to 2 short lines maximum (under 90 characters total). Extreme brevity, hook straight into the CTA. Absolutely NO filler, NO backstory.",
+        "char_limit": "under 90 chars",
+    },
+    "compact": {
+        "id": "compact",
+        "name": "Short & Compact",
+        "description": "2 to 3 short lines (around 100-150 characters total). Crisp, scannable, quick conversational thought + call-to-action.",
+        "char_limit": "100-150 chars",
+    },
+    "conversational": {
+        "id": "conversational",
+        "name": "Conversational Break",
+        "description": "3 to 4 lines with clean mobile whitespace (around 160-230 characters total). Relatable creator observation + open question or CTA.",
+        "char_limit": "160-230 chars",
+    },
+}
+
+
+def sanitize_gender_neutrality(text: str) -> str:
+    """
+    Deterministically cleans any accidental gender admissions or gendered Hindi/Hinglish inflections
+    to guarantee strict gender neutrality (never admitting or implying male or female).
+    """
+    replacements = [
+        # Hindi/Hinglish gendered verbs to neutral equivalents
+        (r'\b(?:karna\s+)?chahti\s+hoon\b', 'connect karna hai'),
+        (r'\b(?:karna\s+)?chahta\s+hoon\b', 'connect karna hai'),
+        (r'\bchahti\s+hoon\b', 'karna hai'),
+        (r'\bchahta\s+hoon\b', 'karna hai'),
+        (r'\bchahti\s+hai\b', 'chahiye'),
+        (r'\bchahta\s+hai\b', 'chahiye'),
+        (r'\bkarungi\b', 'karenge'),
+        (r'\bkarunga\b', 'karenge'),
+        (r'\bdekh\s+rahi\s+hoon\b', 'dekh rahe hain'),
+        (r'\bdekh\s+raha\s+hoon\b', 'dekh rahe hain'),
+        (r'\brahi\s+hoon\b', 'rahe hain'),
+        (r'\braha\s+hoon\b', 'rahe hain'),
+        (r'\bsochti\s+hoon\b', 'lagta hai'),
+        (r'\bsochta\s+hoon\b', 'lagta hai'),
+        (r'\bbolti\s+hoon\b', 'kehna hai'),
+        (r'\bbolta\s+hoon\b', 'kehna hai'),
+        (r'\bkarti\s+hoon\b', 'karte hain'),
+        (r'\bkarta\s+hoon\b', 'karte hain'),
+        # Gendered labels
+        (r'\b(?:as\s+a\s+)(?:girl|guy|man|woman|female|male|boy)\b', 'as a creator'),
+        (r'\bI(?:\'?m|\s+am)\s+(?:a\s+)?(?:girl|guy|man|woman|female|male|boy)\b', 'I am a creator'),
+        (r'\b(?:ladka|ladki)\s+hoon\b', 'creator hoon'),
+    ]
+    cleaned = text
+    for pattern, repl in replacements:
+        cleaned = re.sub(pattern, repl, cleaned, flags=re.IGNORECASE)
+    return cleaned
+
+
 IDEAS_CACHE_FILE = Path("data/growth_research/f4f_growth_ideas.json")
 
 FORBIDDEN_HUMAN_PATTERNS = [
@@ -210,6 +316,7 @@ def sanitize_growth_image_prompt(
     prompt: str,
     include_milestone: bool = False,
     milestone_num: int = 500,
+    fallback_prompt: str | None = None,
 ) -> str:
     """
     Guarantees:
@@ -241,31 +348,28 @@ def sanitize_growth_image_prompt(
     # 3. Verify presence of growth/following signals
     has_growth_keywords = any(
         kw in cleaned.lower()
-        for kw in ["follow", "growth", "network", "milestone", "connection", "nodes", "community", "trajectory", "momentum"]
+        for kw in [
+            "follow", "growth", "network", "milestone", "connection",
+            "nodes", "community", "trajectory", "momentum", "constellation",
+            "orbital", "radar", "studio", "pill", "telemetry", "staircase"
+        ]
     )
 
     if len(cleaned) < 30 or not has_growth_keywords:
-        # Check if we have discovered image concepts from X research
-        discovered = load_discovered_growth_ideas()
-        concepts = discovered.get("discovered_image_concepts", [])
-        if concepts and isinstance(concepts, list):
-            chosen_c = random.choice(concepts)
-            if isinstance(chosen_c, dict) and chosen_c.get("prompt"):
-                cleaned = chosen_c["prompt"]
+        if fallback_prompt and len(fallback_prompt.strip()) >= 30:
+            cleaned = fallback_prompt.strip()
+        else:
+            # Check if we have discovered image concepts from X research
+            discovered = load_discovered_growth_ideas()
+            concepts = discovered.get("discovered_image_concepts", [])
+            if concepts and isinstance(concepts, list):
+                chosen_c = random.choice(concepts)
+                if isinstance(chosen_c, dict) and chosen_c.get("prompt"):
+                    cleaned = chosen_c["prompt"]
 
-        if len(cleaned) < 30 or not any(kw in cleaned.lower() for kw in ["follow", "growth", "network", "milestone"]):
-            if include_milestone:
-                cleaned = (
-                    f"Modern 3D conceptual art of a glowing glassmorphic milestone badge displaying '{milestone_num}' target counter, "
-                    "surrounded by expanding interconnected glowing creator network nodes and an ascending glowing trajectory curve. "
-                    "Crisp studio lighting, vibrant neon cyan and amber accents, dark slate background (#0A0E17)."
-                )
-            else:
-                cleaned = (
-                    "Modern 3D conceptual art featuring a sleek floating glowing 'Follow' interaction pill button radiating electric cyan and violet light, "
-                    "connected via glowing digital data streams to interconnected community nodes and an ascending growth velocity curve. "
-                    "Clean isometric perspective, crisp modern studio lighting, dark minimalist background (#0A0E17)."
-                )
+            if len(cleaned) < 30 or not any(kw in cleaned.lower() for kw in ["follow", "growth", "network", "milestone"]):
+                motif = random.choice(CREATIVE_VISUAL_MOTIFS)
+                cleaned = f"Modern 3D conceptual art of {motif['name']}. {motif['description']} Crisp modern studio lighting, vibrant neon accents, dark slate background (#0A0E17)."
 
     # 4. Inject milestone badge if requested and not already present
     if include_milestone and str(milestone_num) not in cleaned:
@@ -292,6 +396,10 @@ class GrowthPostResult(BaseModel):
     cta_type: str = Field(default="open_question", description="Call-to-action type to drive comments")
     target_milestone: int | None = Field(default=None, description="Calculated next follower milestone")
     hashtags_count: int = Field(default=0, description="Exact number of hashtags in the tweet copy")
+    language: str = Field(default="english", description="Language used for the post: english, hinglish, bilingual")
+    visual_theme: str = Field(default="NEURAL_COMMUNITY_GRAPH", description="Visual theme motif identifier")
+    length_tier: str = Field(default="compact", description="Chosen post length tier: ultra_punchy, compact, conversational")
+
 
 
 async def generate_growth_post_spec(
@@ -300,6 +408,8 @@ async def generate_growth_post_spec(
     preferred_archetype: str | None = None,
     target_hashtags: int | None = None,
     include_milestone: bool | None = None,
+    language_mode: str | None = None,
+    preferred_length_tier: str | None = None,
     client: Any | None = None,
 ) -> GrowthPostResult | None:
     """
@@ -307,16 +417,65 @@ async def generate_growth_post_spec(
     Rooted in the persona's voice, worldview, and aesthetics.
     Strictly adheres to:
     1. Zero realistic humans (male/female/faces/bodies).
-    2. Creative image referencing following & growth (no heavy cinematic drama).
+    2. Creative image referencing following & growth with diverse visual motifs & dynamic color palettes.
     3. Exactly 0, 1, or 2 hashtags randomly from growth pool (#F4F, #500Followers, #FollowForFollow, etc.).
-    4. Dynamically refreshed with ideas from X search research.
+    4. Autonomous X research data injection (CTAs, insights, sample hooks).
+    5. Multi-language support: English, natural Romanized Hinglish, and Bilingual.
+    6. Strict Gender Neutrality: NEVER admit, state, or imply male or female (neutral verbs and phrasing).
+    7. Randomized Post Length: Varies across ultra-punchy micro, compact, and conversational lengths.
     """
     if client is None:
         client = get_ai_client()
 
     active_archetypes, archetype_prompts = get_active_archetypes()
 
-    # 1. Determine milestone and hashtag settings
+    # 1. Determine Language Mode (hinglish, english, bilingual)
+    if not language_mode or language_mode == "auto":
+        # 45% Hinglish, 45% English, 10% Bilingual
+        chosen_language = random.choices(["hinglish", "english", "bilingual"], weights=[0.45, 0.45, 0.10], k=1)[0]
+    else:
+        chosen_language = language_mode.lower().strip()
+        if chosen_language not in GROWTH_LANGUAGES:
+            chosen_language = "english"
+
+    # 2. Determine Post Length Tier (randomized variation: 40% ultra_punchy, 40% compact, 20% conversational)
+    if preferred_length_tier and preferred_length_tier in POST_LENGTH_TIERS:
+        chosen_length_tier = preferred_length_tier
+    else:
+        chosen_length_tier = random.choices(["ultra_punchy", "compact", "conversational"], weights=[0.40, 0.40, 0.20], k=1)[0]
+    length_spec = POST_LENGTH_TIERS[chosen_length_tier]
+
+    if chosen_language == "hinglish":
+        language_guidelines = (
+            "LANGUAGE DIRECTIVE: HINGLISH (HINDI-ENGLISH MIX IN LATIN/ROMAN SCRIPT)\n"
+            "- Write the tweet copy in natural, creator-friendly Hinglish (conversational mix of Hindi and English written strictly in the Latin alphabet).\n"
+            "- STRICT CONSTRAINT: DO NOT use Devanagari script (NO हिंदी characters). Use English/Latin alphabet only, exactly how Indian creators, builders, and founders tweet on X and chat on WhatsApp.\n"
+            "- STRICT GENDER NEUTRALITY: NEVER disclose, admit, or imply whether you are male or female. DO NOT use gendered verb inflections like 'chahti hoon' / 'chahta hoon', 'karungi' / 'karunga', 'rahi hoon' / 'raha hoon', 'sochti hoon' / 'sochta hoon'. Always use neutral phrasing like 'connect karna hai', 'connect karte hain', 'karna hai', 'lagta hai', 'sochte hain', 'drop karo'.\n"
+            "- Tone: Energetic, authentic, relatable community builder. Zero cringe, zero robotic or spammy phrases.\n"
+            "- Realistic Hinglish creator examples for inspiration:\n"
+            "  * 'Feed pe inactive ghost followers collect karke kya fayda? Looking for active mutuals. Drop your handle below! 🤝'\n"
+            "  * 'Chalo mutuals connect karte hain! Jo log actively build kar rahe hain, drop your @ below aur let us grow together 🚀'\n"
+            "  * 'Timeline pe ghost followers se badhiya 100 genuine mutuals hain. Drop what you are working on right now 👇'\n"
+            "  * 'Agla milestone hit karne se pehle want to connect with more builders. Drop a \"Hi\" below aur mutual bante hain! 🤝'"
+        )
+    elif chosen_language == "bilingual":
+        language_guidelines = (
+            "LANGUAGE DIRECTIVE: BILINGUAL (PUNCHY ENGLISH HOOK + HINGLISH CTA / PUNCHLINE)\n"
+            "- Open with a strong, clean English hook, then transition into an authentic Hinglish call-to-action or observation in Roman/Latin script.\n"
+            "- STRICT CONSTRAINT: DO NOT use Devanagari script. Use Roman/Latin script only.\n"
+            "- STRICT GENDER NEUTRALITY: Keep all verbs and pronouns 100% gender-neutral. No 'chahti/chahta', no 'he/she', no 'guy/girl'.\n"
+            "- Example:\n"
+            "  * 'Vanity metrics mean nothing without real community. Seedha connect karte hain: drop your handle below and let us support each other! 🤝'"
+        )
+    else:
+        language_guidelines = (
+            "LANGUAGE DIRECTIVE: ENGLISH (GLOBAL CREATOR COMMUNITY)\n"
+            "- Write in sharp, authentic modern creator English.\n"
+            "- STRICT GENDER NEUTRALITY: Never state or imply whether you are male or female (no 'as a guy/girl/woman/man').\n"
+            "- Conversational, human, high-signal community connection. No corporate or robotic phrasing."
+        )
+
+    # 3. Determine milestone and hashtag settings
     milestone_target = compute_next_milestone(current_followers)
     milestone_tag = f"#{milestone_target}Followers"
 
@@ -327,7 +486,79 @@ async def generate_growth_post_spec(
         # Randomly 0, 1, or 2 hashtags
         target_hashtags = random.choice([0, 1, 2])
 
-    # 2. Master Character Identity Anchor
+    # 4. Select Visual Theme & Dynamic Color Palette
+    chosen_palette = random.choice(COLOR_PALETTES)
+    primary_color, secondary_color = chosen_palette
+
+    discovered_data = load_discovered_growth_ideas()
+    discovered_concepts = discovered_data.get("discovered_image_concepts", [])
+
+    motif_pool: list[dict[str, Any]] = list(CREATIVE_VISUAL_MOTIFS)
+    if discovered_concepts and isinstance(discovered_concepts, list):
+        for idx, concept in enumerate(discovered_concepts):
+            if isinstance(concept, dict) and concept.get("title") and concept.get("prompt"):
+                motif_pool.append({
+                    "id": f"DISCOVERED_{idx + 1}",
+                    "name": concept["title"],
+                    "description": concept["prompt"],
+                })
+
+    chosen_motif = random.choice(motif_pool)
+    visual_theme_id = chosen_motif.get("id", "NEURAL_COMMUNITY_GRAPH")
+    visual_theme_name = chosen_motif.get("name", "Creator Community Constellation")
+    visual_theme_desc = chosen_motif.get("description", "")
+
+    # Aspect ratio: 80% 4:5 (vertical portrait for mobile screen dominance), 20% 1:1
+    chosen_aspect_ratio = "4:5" if random.random() < 0.8 else "1:1"
+
+    if include_milestone:
+        dynamic_visual_directive = (
+            f"Visual Theme: '{visual_theme_name}'. {visual_theme_desc}. "
+            f"Prominently feature an illuminated 3D glassmorphic milestone badge or telemetry counter displaying target '{milestone_target}' (or 'Road to {milestone_target}'). "
+            f"Color palette: glowing {primary_color} and {secondary_color} accents against sleek dark glassmorphism background (#0A0E17). "
+            f"Clean modern 3D conceptual art, crisp studio lighting, zero humans, zero cinematic gloom."
+        )
+    else:
+        dynamic_visual_directive = (
+            f"Visual Theme: '{visual_theme_name}'. {visual_theme_desc}. "
+            f"Focus on expanding network momentum, glowing mutual connections, and interactive digital elements. "
+            f"Color palette: glowing {primary_color} and {secondary_color} accents against sleek dark glassmorphism background (#0A0E17). "
+            f"Clean modern 3D conceptual art, crisp studio lighting, zero humans, zero cinematic gloom."
+        )
+
+    # 5. Dynamic Research Injection from Autonomous X Crawling
+    research_section = ""
+    high_converting_ctas = discovered_data.get("high_converting_ctas", [])
+    key_insights = discovered_data.get("key_insights", [])
+    sample_scraped = discovered_data.get("scraped_sample_posts", [])
+
+    sampled_ctas = random.sample(high_converting_ctas, min(3, len(high_converting_ctas))) if high_converting_ctas else []
+    sampled_insights = random.sample(key_insights, min(2, len(key_insights))) if key_insights else []
+    sampled_hooks: list[str] = []
+    if sample_scraped and isinstance(sample_scraped, list):
+        for post in random.sample(sample_scraped, min(2, len(sample_scraped))):
+            if isinstance(post, dict) and post.get("text"):
+                first_line = post["text"].split("\n")[0].strip()
+                if first_line:
+                    sampled_hooks.append(first_line)
+
+    if sampled_insights or sampled_ctas or sampled_hooks:
+        research_lines = ["\n=== PROVEN HIGH-CONVERTING RESEARCH (From Bot's Live X Growth Analysis) ==="]
+        if sampled_insights:
+            research_lines.append("- Strategic Insights to apply:")
+            for si in sampled_insights:
+                research_lines.append(f"  * {si}")
+        if sampled_ctas:
+            research_lines.append("- Tested High-Converting CTAs for Inspiration (adapt naturally to your voice & language):")
+            for cta in sampled_ctas:
+                research_lines.append(f"  * \"{cta}\"")
+        if sampled_hooks:
+            research_lines.append("- Top Performing Real Hooks observed on X:")
+            for hk in sampled_hooks:
+                research_lines.append(f"  * \"{hk}\"")
+        research_section = "\n".join(research_lines)
+
+    # 6. Master Character Identity Anchor
     master_char_prompt = ""
     try:
         from xbot.persona.prompt_engine import build_character_master_prompt
@@ -343,17 +574,26 @@ async def generate_growth_post_spec(
     chosen_archetype = preferred_archetype if preferred_archetype in active_archetypes else random.choice(active_archetypes)
     archetype_directive = archetype_prompts.get(chosen_archetype, "Create an authentic high-signal creator post.")
 
-    milestone_visual_directive = (
-        f"Feature a prominent 3D glowing milestone badge or progress card displaying the target '{milestone_target}' or 'Road to {milestone_target}', "
-        f"surrounded by glowing interconnected follower network nodes and an upward trajectory curve."
-        if include_milestone
-        else "Feature a prominent 3D glowing 'Follow' interaction pill button radiating electric cyan and violet light, surrounded by expanding interconnected creator network nodes and ascending momentum."
-    )
-
     system_prompt = f"""{master_char_prompt}
 
 === TASK DIRECTIVE: HIGH-CONVERTING CREATIVE GROWTH POST WITH 3D VISUAL ===
-You are creating an authentic, high-converting creator post paired with a 3D conceptual image prompt designed to attract active followers to your profile on X (Twitter).
+You are creating an authentic, high-converting creator post paired with a unique 3D conceptual image prompt designed to attract active followers and mutuals to your profile on X (Twitter).
+
+{language_guidelines}
+{research_section}
+
+STRICT GENDER NEUTRALITY DIRECTIVE (CRITICAL MANDATORY INVARIANT):
+- NEVER disclose, state, or hint whether you are male or female in any post.
+- NEVER say "as a guy/girl/man/woman/boy/female/male" or refer to yourself with gendered terms.
+- NEVER use gendered labels or salutations like "bro", "bhai", "sis", "behen", "ladka", "ladki".
+- IN HINGLISH / HINDI: NEVER use gender-specific verb inflections (e.g. FORBIDDEN: "chahti hoon", "chahta hoon", "karungi", "karunga", "rahi hoon", "raha hoon", "sochti hoon", "sochta hoon").
+  Instead, ALWAYS use neutral/plural/infinitive constructions: "connect karna hai", "connect karte hain", "lagta hai", "sochte hain", "chalo connect karein", "milke grow karte hain".
+
+POST LENGTH DIRECTIVE ({length_spec['name'].upper()}):
+- Target Length: {length_spec['char_limit']}.
+- Guideline: {length_spec['description']}
+- It is NOT necessary to write a long post every time. Keep it strictly matching this length tier!
+- If ultra_punchy: 1-2 short lines maximum! Hook + CTA directly, zero fluff.
 
 CORE GROWTH & HASHTAG PRINCIPLES:
 1. HIGH-ENERGY COMMUNITY GROWTH & MUTUALS CONNECTION:
@@ -370,31 +610,37 @@ CORE GROWTH & HASHTAG PRINCIPLES:
 
 IMAGE PROMPT DIRECTIVES (STRICT MANDATORY CONSTRAINTS):
 1. ZERO REALISTIC HUMANS: NEVER include a realistic person, man, woman, human face, human skin, hands, or photorealistic human figures. The image MUST be modern 3D conceptual art, futuristic UI graphics, or abstract geometric growth constructs.
-2. VISUAL THEME: FOLLOWING FOR GROWTH & NETWORK EXPANSION:
-   The visual must INSTANTLY signal to anyone scrolling that this is about FOLLOWING FOR GROWTH, COMMUNITY, and NETWORKING.
-   Directive: {milestone_visual_directive}
-3. NO HEAVY CINEMATIC DRAMA: Do NOT make a moody, dark, shadowy film-noir cinematic still. Keep the lighting clean, crisp, vibrant modern 3D studio lighting with sleek dark-mode glassmorphism (#0A0E17 backdrop, electric cyan, violet, or golden amber glow).
-4. Aspect ratio: '4:5' (vertical portrait for mobile screen dominance) or '1:1'.
+2. VISUAL THEME & MOTIF (MUST BE UNIQUE & NON-REPETITIVE):
+   {dynamic_visual_directive}
+3. NO HEAVY CINEMATIC DRAMA: Do NOT make a moody, dark, shadowy film-noir cinematic still. Keep the lighting clean, crisp, vibrant modern 3D studio lighting with sleek dark-mode glassmorphism (#0A0E17 backdrop, glowing accents).
+4. Aspect ratio: '{chosen_aspect_ratio}' (vertical portrait for mobile screen dominance or square).
 
 Return ONLY a JSON object matching this schema:
 {{
-  "tweet_copy": "Your complete high-converting post text (natural length, sentence case, exactly {target_hashtags} hashtags)",
-  "image_prompt": "Detailed 3D conceptual image prompt depicting following for growth (zero humans, no heavy cinematic)",
-  "aspect_ratio": "4:5",
+  "tweet_copy": "Your complete high-converting post text in {chosen_language} (length: {length_spec['char_limit']}, sentence case, strictly gender-neutral, exactly {target_hashtags} hashtags)",
+  "image_prompt": "Detailed 3D conceptual image prompt depicting '{visual_theme_name}' (zero humans, no heavy cinematic)",
+  "aspect_ratio": "{chosen_aspect_ratio}",
   "archetype": "{chosen_archetype}",
   "cta_type": "open_question" | "vibe_check" | "debate_prompt" | "insight_share" | "mutuals_call"
 }}
 """
 
-    user_prompt = f"""Archetype: {chosen_archetype}
+    user_prompt = f"""Language: {chosen_language.upper()}
+Post Length Tier: {length_spec['name']} ({length_spec['char_limit']})
+Archetype: {chosen_archetype}
 Archetype Focus: {archetype_directive}
+Visual Theme: {visual_theme_name} ({visual_theme_id})
+Colorway: {primary_color} + {secondary_color}
 Current Followers: {current_followers}
 Target Milestone: {milestone_target}
-Milestone Featured in Visual: {"YES (feature target milestone " + str(milestone_target) + " badge/card)" if include_milestone else "NO (focus on glowing 3D Follow button and expanding creator network nodes)"}
+Milestone Featured in Visual: {"YES (feature target milestone " + str(milestone_target) + " badge/counter)" if include_milestone else "NO (focus on expanding community nodes & interactive elements)"}
 Hashtag Target: {target_hashtags} hashtag(s) (use #F4F, {milestone_tag}, #FollowForFollow, etc.)
 
-Generate a fresh, authentic creator post and matching 3D growth visual prompt in your voice.
-Ensure the visual unmistakably signals following for growth with ZERO humans and NO heavy cinematic slop.
+Generate a fresh, authentic creator post in {chosen_language} with length '{length_spec['name']}' ({length_spec['char_limit']}) and matching 3D growth visual prompt.
+STRICT REQUIREMENTS:
+1. NEVER reveal or admit whether you are male or female. Keep all verbs, pronouns, and phrasing 100% gender-neutral.
+2. Adhere strictly to the chosen length tier: '{length_spec['name']}'. Do NOT write long posts when an ultra-punchy or compact length is chosen.
+3. Ensure the visual unmistakably embodies '{visual_theme_name}' with ZERO humans and NO heavy cinematic slop.
 """
 
     model_cascade = getattr(
@@ -449,7 +695,7 @@ Ensure the visual unmistakably signals following for growth with ZERO humans and
             data = {
                 "tweet_copy": tweet_match.group(1).replace(r'\"', '"').replace(r'\n', '\n').strip() if tweet_match else "",
                 "image_prompt": prompt_match.group(1).replace(r'\"', '"').replace(r'\n', '\n').strip() if prompt_match else "",
-                "aspect_ratio": aspect_match.group(1).strip() if aspect_match else "4:5",
+                "aspect_ratio": aspect_match.group(1).strip() if aspect_match else chosen_aspect_ratio,
                 "archetype": arch_match.group(1).strip() if arch_match else chosen_archetype,
                 "cta_type": cta_match.group(1).strip() if cta_match else "open_question",
             }
@@ -461,7 +707,7 @@ Ensure the visual unmistakably signals following for growth with ZERO humans and
         image_p = strip_surrounding_quotes((data.get("image_prompt") or "").strip())
         image_p = re.sub(r'^(?:\s*["\']?image_prompt["\']?\s*:\s*["\']?)', '', image_p, flags=re.IGNORECASE).strip()
         image_p = strip_surrounding_quotes(image_p)
-        ratio_val = (data.get("aspect_ratio") or "4:5").strip()
+        ratio_val = (data.get("aspect_ratio") or chosen_aspect_ratio).strip()
 
         # Fallback if tweet_text is still empty
         if not tweet_text:
@@ -480,28 +726,35 @@ Ensure the visual unmistakably signals following for growth with ZERO humans and
         if not tweet_text:
             raise ValueError(f"No tweet_copy extracted from AI response (raw: {content_str[:150]})")
 
-        # 4. Deterministic Post-Processing: Enforce growth hashtag count (#F4F, #500Followers, etc.)
+        # 6. Deterministic Post-Processing: Enforce gender neutrality (scrub any accidental gender admissions or verb inflections)
+        clean_gender_text = sanitize_gender_neutrality(tweet_text)
+
+        # 7. Deterministic Post-Processing: Enforce growth hashtag count (#F4F, #500Followers, etc.)
         final_tweet_copy = enforce_hashtag_count(
-            text=tweet_text,
+            text=clean_gender_text,
             target_count=target_hashtags,
             milestone_tag=milestone_tag,
         )
 
-        # 5. Deterministic Post-Processing: Sanitize image prompt
+        # 8. Deterministic Post-Processing: Sanitize image prompt
         final_image_prompt = sanitize_growth_image_prompt(
             prompt=image_p,
             include_milestone=include_milestone,
             milestone_num=milestone_target,
+            fallback_prompt=dynamic_visual_directive,
         )
 
         return GrowthPostResult(
             tweet_copy=final_tweet_copy,
             image_prompt=final_image_prompt,
-            aspect_ratio=ratio_val,
+            aspect_ratio=ratio_val or chosen_aspect_ratio,
             archetype=data.get("archetype", chosen_archetype),
             cta_type=data.get("cta_type", "open_question"),
             target_milestone=milestone_target if include_milestone else None,
             hashtags_count=target_hashtags,
+            language=chosen_language,
+            visual_theme=visual_theme_id,
+            length_tier=chosen_length_tier,
         )
     except Exception as e:
         logger.error("Growth post AI generation failed: %s", e)
@@ -514,6 +767,8 @@ async def generate_growth_post_with_image(
     output_dir: str | None = None,
     target_hashtags: int | None = None,
     include_milestone: bool | None = None,
+    language_mode: str | None = None,
+    preferred_length_tier: str | None = None,
     client: Any | None = None,
 ) -> tuple[GrowthPostResult | None, str | None]:
     """
@@ -525,6 +780,8 @@ async def generate_growth_post_with_image(
         current_followers=current_followers,
         target_hashtags=target_hashtags,
         include_milestone=include_milestone,
+        language_mode=language_mode,
+        preferred_length_tier=preferred_length_tier,
         client=client,
     )
     if not post_spec:
@@ -545,3 +802,4 @@ async def generate_growth_post_with_image(
         image_path = None
 
     return post_spec, image_path
+

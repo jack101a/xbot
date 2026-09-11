@@ -78,6 +78,68 @@ async def download_viral_media(
     max_images: int = 4,
 ) -> list[DownloadedMedia]:
     """
-    Disabled: Returns empty list to prevent downloading external images.
+    Downloads authentic images attached to high-engagement tweets on X.
+    Upgrades twimg URLs to large resolution and validates image dimensions.
     """
-    return []
+    downloaded: list[DownloadedMedia] = []
+    seen_urls: set[str] = set()
+
+    clean_slug = re.sub(r"[^\w]+", "_", topic_slug.lower()).strip("_")[:25] or "x_media"
+    MEDIA_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        for tw in tweets:
+            if len(downloaded) >= max_images:
+                break
+            for raw_url in tw.media_urls:
+                if not raw_url or raw_url in seen_urls:
+                    continue
+                seen_urls.add(raw_url)
+
+                # Upgrade twimg URL to large format
+                img_url = raw_url
+                if "pbs.twimg.com" in img_url:
+                    if "name=" in img_url:
+                        img_url = re.sub(r"name=[a-zA-Z0-9_]+", "name=large", img_url)
+                    else:
+                        img_url = f"{img_url}&name=large" if "?" in img_url else f"{img_url}?name=large"
+
+                try:
+                    resp = await client.get(
+                        img_url,
+                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+                    )
+                    if resp.status_code == 200 and len(resp.content) >= 15000:
+                        url_hash = hashlib.md5(img_url.encode()).hexdigest()[:8]
+                        ext = ".png" if ".png" in img_url.lower() else ".jpg"
+                        target_path = MEDIA_STORAGE_DIR / f"{clean_slug}_{url_hash}{ext}"
+                        target_path.write_bytes(resp.content)
+
+                        # Optional PIL dimension verification
+                        try:
+                            from PIL import Image
+                            import io
+                            with Image.open(io.BytesIO(resp.content)) as im:
+                                w, h = im.size
+                                if w < 300 or h < 300:
+                                    if target_path.exists():
+                                        target_path.unlink()
+                                    continue
+                        except Exception:
+                            pass
+
+                        downloaded.append(
+                            DownloadedMedia(
+                                local_path=str(target_path),
+                                source_url=img_url,
+                                caption=tw.text[:120],
+                                author_handle=tw.handle,
+                            )
+                        )
+                        logger.info("Successfully downloaded authentic X media: %s from @%s", target_path.name, tw.handle)
+                        if len(downloaded) >= max_images:
+                            break
+                except Exception as dl_err:
+                    logger.debug("Failed downloading X media %s: %s", img_url, dl_err)
+
+    return downloaded

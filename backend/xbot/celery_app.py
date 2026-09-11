@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 
 from xbot.config import settings
 
@@ -26,6 +27,7 @@ celery_app.conf.task_routes = {
     "xbot.pipelines.browser_queue.*": {"queue": "browser"},
     "xbot.tasks.auto_publish_pending_drafts": {"queue": "publish"},
     "xbot.tasks.publish_tasks.*": {"queue": "publish"},
+    "xbot.pipelines.follow_growth_post_pipeline.*": {"queue": "publish"},
 }
 
 # Celery Beat Periodic Schedule — Phase 0 Streamlined Core Cadence
@@ -42,11 +44,11 @@ celery_app.conf.beat_schedule = {
         "schedule": 300.0,
         "options": {"queue": "publish", "expires": 300.0},
     },
-    # 3. Sniper Check Targets (120/600 seconds)
-    "sniper-check-targets-every-120-seconds": {
+    # 3. Sniper Check Targets (600 seconds)
+    "sniper-check-targets-every-600-seconds": {
         "task": "xbot.tasks.sniper_check_targets",
-        "schedule": 120.0,
-        "options": {"expires": 120.0},
+        "schedule": 600.0,
+        "options": {"expires": 600.0},
     },
     # 4. Check Trend Radar (1800 seconds)
     "check-trend-radar-every-1800-seconds": {
@@ -72,17 +74,17 @@ celery_app.conf.beat_schedule = {
         "schedule": 60.0,
         "options": {"expires": 60.0},
     },
-    # 8. Follow-for-Follow & 500 Verified Follower Reciprocity Pipeline (every 10 min)
-    "follow-reciprocity-pipeline-every-10m": {
+    # 8. Follow-for-Follow & Reciprocity Pipeline (Nightly at 1:00 AM IST)
+    "follow-reciprocity-pipeline-nightly-1am": {
         "task": "xbot.pipelines.follow_pipeline.run_follow_pipeline",
-        "schedule": 600.0,
-        "options": {"expires": 600.0},
+        "schedule": crontab(hour=1, minute=0),
+        "options": {"expires": 3600.0},
     },
     # 9. Follow Growth Visual Promotion Pipeline (evaluates dynamic 40-120m random cadence every 5 min)
     "follow-growth-post-pipeline-runner": {
         "task": "xbot.pipelines.follow_growth_post_pipeline.run_follow_growth_post",
         "schedule": 300.0,
-        "options": {"expires": 300.0},
+        "options": {"queue": "publish", "expires": 300.0},
     },
     # 10. Autonomous 3-day Follow Growth Idea Discovery Engine (checks hourly if 3-day window elapsed)
     "f4f-growth-researcher-periodic": {
@@ -90,10 +92,29 @@ celery_app.conf.beat_schedule = {
         "schedule": 3600.0,
         "options": {"expires": 3600.0},
     },
+    # 11. 48-Hour Media Auto-Cleanup (runs every 6 hours)
+    "clean-expired-media-every-6-hours": {
+        "task": "xbot.tasks.clean_expired_media_task",
+        "schedule": 21600.0,
+        "options": {"expires": 3600.0},
+    },
+    # 12. Autonomous Supervisor Watchdog & Self-Healing Loop (runs every 60 seconds)
+    "supervisor-watchdog-every-60s": {
+        "task": "xbot.tasks.supervisor_tasks.run_supervisor_watchdog",
+        "schedule": 60.0,
+        "options": {"expires": 60.0},
+    },
+    # 13. Independent Quote Pipeline (runs every 45 min during active hours)
+    "quote-pipeline-periodic": {
+        "task": "xbot.pipelines.quote_pipeline.run_quote_pipeline",
+        "schedule": 2700.0,
+        "options": {"expires": 2700.0},
+    },
 }
 
 # Auto-discover and import tasks across all xbot packages
 celery_app.conf.imports = [
+    "xbot.tasks.supervisor_tasks",
     "xbot.tasks.sniper_tasks",
     "xbot.tasks.publish_tasks",
     "xbot.tasks.trend_tasks",

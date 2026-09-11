@@ -9,8 +9,10 @@ import logging
 import random
 from typing import Any
 import uuid
+import redis
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from xbot.config import settings
 
 import xbot.tasks as tasks
 
@@ -31,6 +33,8 @@ async def scan_session_feed(
 ) -> list[dict[str, Any]]:
     """Gathers live feed tweets, creator KOL opportunities, niche searches, and breaking trends."""
     from xbot.contracts.browser import BrowserActionType, BrowserRequest
+
+    r = redis.from_url(settings.REDIS_URL)
 
     if is_mock:
         feed_snapshot = [
@@ -109,28 +113,30 @@ async def scan_session_feed(
                     kol_tweet = None
                     if page:
                         checker = tasks.CheckUserLatestTweet()
-                        kol_tweet = await checker.execute(page, handle=clean_h)
+                        kol_tweet = await checker.execute(page, handle=clean_h, max_age_minutes=60)
                     elif browser:
                         resp = await browser.execute(BrowserRequest(
                             profile_slug=profile_slug,
                             action=BrowserActionType.CHECK_USER_LATEST,
-                            params={"username": clean_h},
+                            params={"username": clean_h, "max_age_minutes": 60},
                         ))
                         if resp.status == "success":
                             kol_tweet = (resp.action_result.raw if resp.action_result else None) or (resp.scrape.raw if resp.scrape else None) or {}
 
                     if kol_tweet and kol_tweet.get("text"):
                         t_url = kol_tweet.get("url") or f"https://x.com/{clean_h}"
+                        t_id = tasks.extract_tweet_id_from_url(t_url)
+                        is_inflight = bool(t_id and r.exists(f"xbot:inflight_tweet:{profile_id}:{t_id}"))
 
-                        # Deduplication: check if we already replied or liked in last 48h
-                        already_replied = await tasks.has_already_acted(db, profile_id, t_url, "reply", hours=48)
+                        # Deduplication: lifetime for replies, 48h for likes, and verify not currently in-flight
+                        already_replied = await tasks.has_already_acted(db, profile_id, t_url, "reply", hours=None, include_failed_cooldown_hours=12)
                         already_liked = await tasks.has_already_acted(db, profile_id, t_url, "like", hours=48)
 
-                        if already_replied or already_liked:
-                            logger.info("Skipping creator tweet %s: already replied/liked in last 48h", t_url)
+                        if already_replied or already_liked or is_inflight:
+                            logger.info("Skipping creator tweet %s: already replied (lifetime), liked (last 48h), or in-flight", t_url)
                             continue
 
-                        already_quoted = await tasks.has_already_acted(db, profile_id, t_url, "quote", hours=48)
+                        already_quoted = await tasks.has_already_acted(db, profile_id, t_url, "quote", hours=None, include_failed_cooldown_hours=12)
 
                         feed_snapshot.append({
                             "author": clean_h,
@@ -178,8 +184,10 @@ async def scan_session_feed(
 
             for nr in (niche_results or [])[:4]:
                 n_url = nr.get("url")
-                if n_url and await tasks.has_already_acted(db, profile_id, n_url, "reply", hours=168):
-                    continue
+                if n_url:
+                    n_id = tasks.extract_tweet_id_from_url(n_url)
+                    if (n_id and r.exists(f"xbot:inflight_tweet:{profile_id}:{n_id}")) or await tasks.has_already_acted(db, profile_id, n_url, "reply", hours=None, include_failed_cooldown_hours=12):
+                        continue
                 feed_snapshot.append({
                     "author": nr.get("author", "creator"),
                     "text": nr.get("text", ""),

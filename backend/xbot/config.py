@@ -103,6 +103,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "supersecretfernetkeyforlocaldev12="
     API_PORT: int = 8000
     WEBHOOK_URL: str | None = None
+    SEARXNG_BASE_URL: str = "https://search.ajaxhs.duckdns.org"
 
     model_config = SettingsConfigDict(
         env_file=(".env", "/app/data/.env"),

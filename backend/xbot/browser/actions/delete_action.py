@@ -43,13 +43,32 @@ class DeleteTweet(BaseAction):
             await page.goto(target_url, wait_until="domcontentloaded", timeout=20000)
             await sleep_with_jitter(2000)
 
-            # 1. Locate root tweet article with explicit wait
+            # 1. Locate tweet article (specifically matching user handle or tweet_id if present)
+            clean_user = (username or "").lstrip("@").strip().lower()
+            target_t_id = tweet_id or (target_url.split("/status/")[-1].split("?")[0] if "/status/" in target_url else "")
+            
+            target_article = None
             try:
-                target_article = await page.wait_for_selector(
-                    "[data-testid='tweet'], article[data-testid='tweet'], article",
-                    timeout=12000,
-                )
-            except Exception:
+                await page.wait_for_selector("[data-testid='tweet']", timeout=12000)
+                articles = await page.query_selector_all("[data-testid='tweet']")
+                for art in articles:
+                    # Check if tweet has link to target status id
+                    if target_t_id:
+                        link_match = await art.query_selector(f"a[href*='/status/{target_t_id}']")
+                        if link_match:
+                            target_article = art
+                            break
+                    # Check if user matches
+                    if clean_user:
+                        u_el = await art.query_selector("[data-testid='User-Name']")
+                        u_text = (await u_el.inner_text()).lower() if u_el else ""
+                        if f"@{clean_user}" in u_text or clean_user in u_text:
+                            target_article = art
+                            break
+                if not target_article and articles:
+                    target_article = articles[-1] if len(articles) > 1 else articles[0]
+            except Exception as e:
+                logger.debug("Error finding target tweet article for deletion: %s", e)
                 target_article = None
 
             if not target_article:

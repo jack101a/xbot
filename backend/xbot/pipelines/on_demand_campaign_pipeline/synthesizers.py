@@ -13,6 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from xbot.ai.anti_ai_gatekeeper import strip_surrounding_quotes
 from xbot.ai.campaign_planner import DeliverableSpec
 from xbot.ai.formatting_engine import format_content
+from xbot.ai.smart_media_director import (
+    classify_post_visual_intent,
+    ensure_main_post_hashtags,
+    resolve_post_media_waterfall,
+    select_best_authentic_media,
+    verify_image_with_vision,
+)
 from xbot.config import settings
 from xbot.models.content import Content, ContentStatus, ContentType, ThreadItem
 from xbot.models.profile import Profile
@@ -30,8 +37,12 @@ async def synthesize_thread_deliverable(
     campaign_id: str,
     profile_slug: str,
     pkg: Any,
+    used_media_paths: set[str] | None = None,
 ) -> tuple[Content, dict[str, Any]]:
     """Synthesizes a campaign thread deliverable."""
+    if used_media_paths is None:
+        used_media_paths = set()
+
     thread_res = await pkg.generate_thread(
         topic=f"{spec.topic} ({context_summary})",
         persona=persona,
@@ -46,25 +57,36 @@ async def synthesize_thread_deliverable(
         f_t = format_content(t, profile_slug=profile_slug, content_type="thread")
         formatted_tweets.append(strip_surrounding_quotes(f_t))
 
-    thread_media = list(downloaded_media) if downloaded_media else []
-    should_have_media = (
-        spec.target_media_count > 0
-        or any(k in spec.instructions.lower() for k in ("image", "photo", "media", "still", "visual"))
-        or any(k in spec.topic.lower() for k in ("movie", "film", "nolan", "odyssey", "cinema", "trailer", "poster"))
+    thread_media: list[str] = []
+    hook_text = formatted_tweets[0] if formatted_tweets else spec.topic
+
+    # Waterfall Media Resolution: X First -> SearXNG Precision -> GIF
+    resolved_media, _, hook_text = await resolve_post_media_waterfall(
+        topic=spec.topic,
+        post_text=hook_text,
+        profile_slug=profile_slug,
+        candidate_images=downloaded_media,
+        allow_gif=False,  # Threads require genuine static images on the hook
+        used_media_paths=used_media_paths,
     )
-    if should_have_media and not thread_media:
-        if getattr(settings, "CHATGPT_BRIDGE_ENABLED", False):
-            try:
-                from xbot.ai.chatgpt_image import generate_and_save_chatgpt_image_async
-                img_path = await generate_and_save_chatgpt_image_async(
-                    f"Cinematic aesthetic opening visual for: {spec.topic}. Epic IMAX cinematography, photorealistic film still, rich dark palette (#0D1117), ultra-clean composition, zero distorted text.",
-                    aspect_ratio="4:5",
-                    timeout_s=15,
-                )
-                if img_path and os.path.exists(img_path):
-                    thread_media = [img_path]
-            except Exception as img_err:
-                logger.warning("Thread deliverable ChatGPT image generation skipped: %s", img_err)
+    if resolved_media:
+        thread_media = resolved_media
+    elif getattr(settings, "CHATGPT_BRIDGE_ENABLED", False):
+        visual_plan = await classify_post_visual_intent(post_text=hook_text, campaign_topic=spec.topic)
+        c_prompt = visual_plan.get("creative_image_prompt") or f"Cinematic aesthetic opening visual for: {spec.topic}"
+        try:
+            from xbot.ai.chatgpt_image import generate_and_save_chatgpt_image_async
+            img_path = await generate_and_save_chatgpt_image_async(c_prompt, aspect_ratio="4:5", timeout_s=18)
+            if img_path and os.path.exists(img_path):
+                thread_media = [img_path]
+                used_media_paths.add(img_path)
+        except Exception as img_err:
+            logger.warning("Thread deliverable ChatGPT image generation skipped: %s", img_err)
+
+    if formatted_tweets:
+        formatted_tweets[0] = hook_text
+        # Enforce 1-2 community hashtags on the thread closer for search indexing
+        formatted_tweets[-1] = ensure_main_post_hashtags(formatted_tweets[-1], spec.topic)
 
     content_record = Content(
         profile_id=profile.id,
@@ -149,8 +171,12 @@ async def synthesize_visual_deliverable(
     campaign_id: str,
     profile_slug: str,
     pkg: Any,
+    used_media_paths: set[str] | None = None,
 ) -> tuple[Content, dict[str, Any]]:
     """Synthesizes an on-demand campaign visual meme / infographic deliverable."""
+    if used_media_paths is None:
+        used_media_paths = set()
+
     visual_spec = await pkg.generate_visual_post_spec(
         topic=spec.topic,
         persona=persona,
@@ -169,22 +195,36 @@ async def synthesize_visual_deliverable(
     raw_hook = strip_surrounding_quotes(visual_spec.tweet_copy)
     formatted_hook = strip_surrounding_quotes(format_content(raw_hook, profile_slug=profile_slug, content_type="post", has_media=True))
 
-    visual_media = list(downloaded_media) if downloaded_media else []
-    if not visual_media:
-        if getattr(settings, "CHATGPT_BRIDGE_ENABLED", False):
-            try:
-                from xbot.ai.chatgpt_image import generate_and_save_chatgpt_image_async
-                img_path = await generate_and_save_chatgpt_image_async(
-                    visual_spec.image_prompt or f"Cinematic 4:5 visual breakdown of {spec.topic}, dark aesthetic (#0D1117), ultra-realistic, 8k.",
-                    aspect_ratio="4:5",
-                    timeout_s=15,
-                )
-                if img_path and os.path.exists(img_path):
-                    visual_media = [img_path]
-            except Exception as img_err:
-                logger.warning("Visual deliverable ChatGPT image generation failed/skipped: %s", img_err)
+    visual_media: list[str] = []
+    gif_query = None
 
-
+    # Waterfall Media Resolution: X First -> SearXNG Precision -> AI Art/GIF
+    resolved_media, gif_query, formatted_hook = await resolve_post_media_waterfall(
+        topic=spec.topic,
+        post_text=formatted_hook,
+        profile_slug=profile_slug,
+        candidate_images=downloaded_media,
+        allow_gif=True,
+        used_media_paths=used_media_paths,
+    )
+    if resolved_media:
+        visual_media = resolved_media
+    elif getattr(settings, "CHATGPT_BRIDGE_ENABLED", False):
+        visual_plan = await classify_post_visual_intent(post_text=formatted_hook, campaign_topic=spec.topic)
+        prompt = visual_plan.get("creative_image_prompt") or visual_spec.image_prompt or f"Cinematic 4:5 visual breakdown of {spec.topic}"
+        try:
+            from xbot.ai.chatgpt_image import generate_and_save_chatgpt_image_async
+            img_path = await generate_and_save_chatgpt_image_async(
+                prompt,
+                aspect_ratio="4:5",
+                timeout_s=18,
+            )
+            if img_path and os.path.exists(img_path):
+                visual_media = [img_path]
+                used_media_paths.add(img_path)
+                gif_query = None
+        except Exception as img_err:
+            logger.warning("Visual deliverable ChatGPT image generation failed/skipped: %s", img_err)
 
     content_record = Content(
         profile_id=profile.id,
@@ -202,6 +242,7 @@ async def synthesize_visual_deliverable(
             "target_simcluster": visual_spec.target_simcluster,
             "image_prompt": visual_spec.image_prompt,
             "media_paths": visual_media,
+            "gif_query": gif_query,
             "instructions": spec.instructions,
         },
     )
@@ -210,6 +251,7 @@ async def synthesize_visual_deliverable(
         "text": formatted_hook,
         "visual_spec": visual_spec.model_dump(),
         "media_paths": visual_media,
+        "gif_query": gif_query,
     }
     return content_record, preview_payload
 
@@ -224,8 +266,12 @@ async def synthesize_post_deliverable(
     campaign_id: str,
     profile_slug: str,
     pkg: Any,
+    used_media_paths: set[str] | None = None,
 ) -> tuple[Content, dict[str, Any]]:
     """Synthesizes an on-demand campaign standalone post deliverable."""
+    if used_media_paths is None:
+        used_media_paths = set()
+
     synth_res = await pkg.synthesize_creator_post(
         topic=spec.topic,
         persona=persona,
@@ -237,7 +283,33 @@ async def synthesize_post_deliverable(
     opt_res = await pkg.optimize_post_for_virality(formatted_post)
     final_text = strip_surrounding_quotes(opt_res.full_optimized_text or formatted_post)
 
-    post_media = list(downloaded_media) if downloaded_media else []
+    # Waterfall Media Resolution: X First -> SearXNG Precision -> AI Art/GIF
+    post_media: list[str] = []
+    gif_query = None
+
+    resolved_media, gif_query, final_text = await resolve_post_media_waterfall(
+        topic=spec.topic,
+        post_text=final_text,
+        profile_slug=profile_slug,
+        candidate_images=downloaded_media,
+        allow_gif=True,
+        used_media_paths=used_media_paths,
+    )
+    if resolved_media:
+        post_media = resolved_media
+    elif getattr(settings, "CHATGPT_BRIDGE_ENABLED", False):
+        visual_plan = await classify_post_visual_intent(post_text=final_text, campaign_topic=spec.topic)
+        if visual_plan.get("visual_intent") == "CREATIVE_AI_ART" or spec.target_media_count > 0:
+            prompt = visual_plan.get("creative_image_prompt") or f"Cinematic 4:5 visual breakdown of {spec.topic}"
+            try:
+                from xbot.ai.chatgpt_image import generate_and_save_chatgpt_image_async
+                img_path = await generate_and_save_chatgpt_image_async(prompt, aspect_ratio="4:5", timeout_s=18)
+                if img_path and os.path.exists(img_path):
+                    post_media = [img_path]
+                    used_media_paths.add(img_path)
+                    gif_query = None
+            except Exception as img_err:
+                logger.warning("Post deliverable ChatGPT image generation skipped: %s", img_err)
 
     content_record = Content(
         profile_id=profile.id,
@@ -251,6 +323,7 @@ async def synthesize_post_deliverable(
             "extracted_link": opt_res.extracted_link,
             "first_reply_text": f"Link / source breakdown: {opt_res.extracted_link}" if opt_res.extracted_link else None,
             "media_paths": post_media,
+            "gif_query": gif_query,
             "instructions": spec.instructions,
         },
     )
@@ -259,5 +332,6 @@ async def synthesize_post_deliverable(
         "text": final_text,
         "extracted_link": opt_res.extracted_link,
         "media_paths": post_media,
+        "gif_query": gif_query,
     }
     return content_record, preview_payload

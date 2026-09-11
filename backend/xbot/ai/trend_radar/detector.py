@@ -332,6 +332,12 @@ async def fetch_x_trends(
             name = (t.get("name") or t.get("topic") or "").strip()
             if not name or len(name) < 3 or BANNED_POLITICS_REGEX.search(name):
                 continue
+            from xbot.ai.smart_media_director import clean_topic_string
+            cleaned_name = clean_topic_string(name)
+            if not cleaned_name or len(cleaned_name) < 2:
+                continue
+            if len(cleaned_name) >= 3 and cleaned_name.lower() != name.lower():
+                name = cleaned_name
             item_id = hashlib.sha256(f"x_trend:{name.lower()}".encode()).hexdigest()[:16]
             if item_id in seen_hashes:
                 continue

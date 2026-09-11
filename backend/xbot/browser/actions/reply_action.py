@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import random
+from typing import Any
 from playwright.async_api import Page
 from xbot.browser.actions.base import BaseAction
 from xbot.browser.actions.selectors import SELECTORS
@@ -49,15 +50,26 @@ class ReplyToTweet(BaseAction):
                 if "CreateTweet" in response.url or "CreateDraft" in response.url:
                     if response.status == 200:
                         data = await response.json()
-                        tweet_data = (
-                            data.get("data", {})
-                            .get("create_tweet", {})
-                            .get("tweet_results", {})
-                            .get("result", {})
-                        )
-                        rest_id = tweet_data.get("rest_id") or tweet_data.get("tweet", {}).get("rest_id")
+
+                        def _find_rest_id(obj: Any) -> str | None:
+                            if isinstance(obj, dict):
+                                if "rest_id" in obj and isinstance(obj["rest_id"], str) and obj["rest_id"]:
+                                    return obj["rest_id"]
+                                for v in obj.values():
+                                    found = _find_rest_id(v)
+                                    if found:
+                                        return found
+                            elif isinstance(obj, list):
+                                for item in obj:
+                                    found = _find_rest_id(item)
+                                    if found:
+                                        return found
+                            return None
+
+                        rest_id = _find_rest_id(data.get("data", {}))
                         if rest_id and rest_id not in captured_tweet_ids:
                             captured_tweet_ids.append(rest_id)
+                            logger.info("Captured published reply tweet ID via CreateTweet GraphQL: %s", rest_id)
             except Exception:
                 pass
 
@@ -172,28 +184,46 @@ class ReplyToTweet(BaseAction):
                 except Exception:
                     pass
 
-            # Verification 2: Check for error toast on X
+            # Verification 2: Check for error/success toast on X
+            confirmed_success = bool(captured_tweet_ids)
             toast = await page.query_selector('[data-testid="toast"]')
             if toast:
                 toast_text = (await toast.inner_text()).strip()
                 if any(err_kw in toast_text.lower() for err_kw in ["wasn't sent", "error", "failed", "something went wrong"]):
                     logger.error("Reply rejected by X with toast: %s", toast_text)
                     return False
-                if "your post was sent" in toast_text.lower() or "your reply was sent" in toast_text.lower():
+                if any(s_kw in toast_text.lower() for s_kw in ["your post was sent", "your reply was sent", "sent"]):
                     logger.info("Confirmed success toast on X: %s", toast_text)
+                    confirmed_success = True
 
-            # Verification 3: Wait for reply modal/textarea to close/clear
-            try:
-                await page.wait_for_selector(textarea_sel, state="hidden", timeout=10000)
-            except Exception:
-                pass
-
-            # If on live X and textarea is still visible and no tweet captured, fail
-            if "x.com" in getattr(page, "url", ""):
-                reply_check = await page.query_selector(textarea_sel)
-                if reply_check and await reply_check.is_visible() and not captured_tweet_ids:
-                    logger.error("Reply composer still open on live X and no tweet captured; aborting false success.")
-                    return False
+            # Verification 3: Verify composer dismissal or text clearing
+            is_tweet_detail_page = "/status/" in getattr(page, "url", "")
+            if not confirmed_success and "x.com" in getattr(page, "url", ""):
+                if is_tweet_detail_page:
+                    # On tweet status pages, the inline reply box is permanent and NEVER disappears.
+                    # Instead, it empties its content upon successful submission.
+                    await sleep_with_jitter(1500)
+                    reply_check = await page.query_selector(textarea_sel)
+                    if reply_check and await reply_check.is_visible():
+                        remaining_text = (await reply_check.inner_text()).strip()
+                        # Clean placeholder artifacts or linebreaks
+                        clean_remaining = remaining_text.replace("\n", "").strip()
+                        if clean_remaining:
+                            logger.error("Reply composer still contains unsent text on live X ('%s'); aborting.", clean_remaining[:40])
+                            return False
+                        else:
+                            logger.info("Confirmed reply submission: inline composer cleared.")
+                            confirmed_success = True
+                else:
+                    # On timeline modal popups, the modal should close
+                    try:
+                        await page.wait_for_selector(textarea_sel, state="hidden", timeout=8000)
+                        confirmed_success = True
+                    except Exception:
+                        reply_check = await page.query_selector(textarea_sel)
+                        if reply_check and await reply_check.is_visible() and not captured_tweet_ids:
+                            logger.error("Reply modal still open on live X and no tweet captured; aborting false success.")
+                            return False
 
             await sleep_with_jitter(2000)
             await _post_action_cooldown_browse(page, scrolls=random.randint(1, 2))

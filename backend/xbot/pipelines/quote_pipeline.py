@@ -29,7 +29,9 @@ from xbot.contracts.browser import BrowserActionType, BrowserRequest
 from xbot.database import AsyncSessionLocal
 from xbot.models.pipeline import PipelineRun
 from xbot.models.profile import Profile, ProfileStatus
+from xbot.pipelines.browser_queue import BrowserJob, enqueue_browser_job, get_browser_job_result
 from xbot.pipelines.central_guard import CentralGuard
+from xbot.utils.time import now_ist
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,7 @@ async def run_quote_pipeline_for_profile(
             profile_slug=profile_slug,
             action=BrowserActionType.SCRAPE_FEED,
             params={"scroll_count": 3, "collect_tweets": True},
-            timeout_seconds=45,
+            timeout_seconds=60,
         )
         scrape_res = await c.browser.execute(scrape_req)
         if scrape_res.status in ("success", "ok") and scrape_res.scrape:
@@ -202,7 +204,7 @@ async def run_quote_pipeline_for_profile(
                 "text": formatted_quote,
                 "gif_query": gif_query,
             },
-            timeout_seconds=30,
+            timeout_seconds=120,
         )
         quote_res = await c.browser.execute(quote_req)
 
@@ -217,7 +219,7 @@ async def run_quote_pipeline_for_profile(
                     content_type=ContentType.QUOTE,
                     status=ContentStatus.POSTED,
                     body=formatted_quote,
-                    posted_at=datetime.datetime.utcnow(),
+                    posted_at=now_ist(),
                     ai_metadata={
                         "topic": tweet_text[:100],
                         "topic_tag": extract_topic_tag(tweet_text),
@@ -248,7 +250,7 @@ async def run_quote_pipeline_for_profile(
 async def _run_quote_pipeline_async(container: Container | None = None) -> dict[str, Any]:
     c = container or get_container()
     guard = CentralGuard()
-    started_at = datetime.datetime.utcnow()
+    started_at = now_ist()
     total_quotes = 0
     results_by_profile: dict[str, Any] = {}
 
@@ -269,7 +271,7 @@ async def _run_quote_pipeline_async(container: Container | None = None) -> dict[
                     actions_count=res.get("quotes_executed", 0),
                     details=res,
                     started_at=started_at,
-                    completed_at=datetime.datetime.utcnow(),
+                    completed_at=now_ist(),
                 )
                 db.add(run_log)
                 await db.commit()
@@ -283,7 +285,7 @@ async def _run_quote_pipeline_async(container: Container | None = None) -> dict[
                     actions_count=0,
                     error_message=str(e),
                     started_at=started_at,
-                    completed_at=datetime.datetime.utcnow(),
+                    completed_at=now_ist(),
                 )
                 db.add(run_log)
                 await db.commit()
@@ -292,7 +294,7 @@ async def _run_quote_pipeline_async(container: Container | None = None) -> dict[
         "pipeline": "quote",
         "total_quotes": total_quotes,
         "profiles": results_by_profile,
-        "duration_seconds": (datetime.datetime.utcnow() - started_at).total_seconds(),
+        "duration_seconds": (now_ist() - started_at).total_seconds(),
     }
 
 

@@ -60,7 +60,7 @@ async def _search_and_scrape_x(query: str, profile_slug: str, search_filter: str
         job = BrowserJob(
             action_type="search_and_scrape",
             profile_slug=profile_slug,
-            params={"query": query, "search_filter": search_filter},
+            params={"query": query, "search_filter": search_filter, "scrape_top_comments": True},
             priority=0,  # Top priority interactive creator directive
         )
         job_id = enqueue_browser_job(job)

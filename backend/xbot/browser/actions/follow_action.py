@@ -59,9 +59,9 @@ class FollowUser(BaseAction):
                 follow_btn = await page.query_selector('button[data-testid*="-follow"], button[data-testid$="-follow"], [data-testid="placementTracking"]')
             if not follow_btn:
                 # Text fallback
-                for btn in await page.query_selector_all("button"):
+                for btn in await page.query_selector_all("button, [role='button']"):
                     txt = (await btn.inner_text()).strip()
-                    if txt == "Follow":
+                    if txt in ("Follow", "Follow back"):
                         follow_btn = btn
                         break
 
