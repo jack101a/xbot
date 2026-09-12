@@ -48,6 +48,24 @@ logger = logging.getLogger("xbot.tasks")
 
 from .common import broadcast_session_log, extract_tweet_id_from_url
 
+def _normalize_media_path(path_str: str | None) -> str | None:
+    """Normalizes media paths across Host and Docker container boundaries."""
+    if not path_str or not isinstance(path_str, str):
+        return None
+    if os.path.exists(path_str):
+        return path_str
+    # Docker <-> Host translation
+    if path_str.startswith("/home/ubuntu/projects/xbot/data/"):
+        candidate = path_str.replace("/home/ubuntu/projects/xbot/data/", "/app/data/")
+        if os.path.exists(candidate):
+            return candidate
+    elif path_str.startswith("/app/data/"):
+        candidate = path_str.replace("/app/data/", "/home/ubuntu/projects/xbot/data/")
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
 async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
     """
     Automated continuous draft publisher:
@@ -60,6 +78,15 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
     from xbot.models.content import Content, ContentStatus, ContentType
     from xbot.models.profile import Profile, ProfileStatus
     from xbot.safety.guard import SafetyGuard
+
+    import xbot.tasks as tasks
+    r = getattr(tasks, "redis", redis).from_url(settings.REDIS_URL)
+
+    # 1. Global Task Lock: Prevent concurrent workers from running auto-publish simultaneously
+    task_lock_key = "xbot:lock:auto_publish_running"
+    if not r.set(task_lock_key, "1", nx=True, ex=300):
+        logger.info("Auto-publish cycle already in progress by another worker, skipping duplicate execution.")
+        return {"status": "skipped", "reason": "already_running"}
 
     container = get_container()
     guard = SafetyGuard()
@@ -91,13 +118,46 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                 d_res = await db.execute(stmt_draft)
                 candidates = d_res.scalars().all()
                 draft = None
+                draft_lock_key = None
                 now_curr = now_ist()
                 for c in candidates:
+                    # 1. Distributed Draft Lock: Guarantee only one worker processes this draft
+                    c_lock = f"xbot:lock:draft:publishing:{c.id}"
+                    if not r.set(c_lock, "1", nx=True, ex=600):
+                        continue
+
+                    # 2. Content Deduplication Check: Prevent posting identical text if posted in last 24h
+                    dedup_cutoff = now_curr - datetime.timedelta(hours=24)
+                    recent_dup_stmt = (
+                        select(Content)
+                        .where(
+                            Content.profile_id == prof.id,
+                            Content.status == ContentStatus.POSTED,
+                            Content.body == c.body,
+                            Content.posted_at > dedup_cutoff,
+                        )
+                        .limit(1)
+                    )
+                    dup_posted = (await db.execute(recent_dup_stmt)).scalar_one_or_none()
+                    if dup_posted:
+                        logger.warning(
+                            "Auto-publish safety guard: Draft %s has identical body to recently posted tweet %s. Marking POSTED to prevent duplicate spam.",
+                            c.id,
+                            dup_posted.tweet_id,
+                        )
+                        c.status = ContentStatus.POSTED
+                        c.tweet_id = dup_posted.tweet_id
+                        c.posted_at = dup_posted.posted_at
+                        await db.commit()
+                        r.delete(c_lock)
+                        continue
+
                     sched_str = (c.ai_metadata or {}).get("scheduled_for")
                     if sched_str:
                         try:
                             sched_dt = datetime.datetime.fromisoformat(sched_str.replace("Z", "+00:00")).replace(tzinfo=None)
                             if sched_dt > now_curr:
+                                r.delete(c_lock)
                                 continue
                         except Exception:
                             pass
@@ -138,9 +198,11 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                                 topic_too_recent = True
                                 break
                         if topic_too_recent:
+                            r.delete(c_lock)
                             continue
 
                     draft = c
+                    draft_lock_key = c_lock
                     break
 
                 if not draft:
@@ -150,6 +212,8 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                 can_post = await guard.is_action_safe(db, prof.profile_slug, "post")
                 if not can_post:
                     logger.info("Auto-publish postponed for %s: rate limits/cooldown active.", prof.profile_slug)
+                    if draft_lock_key:
+                        r.delete(draft_lock_key)
                     continue
 
                 success = False
@@ -177,7 +241,10 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                             tweets = draft.ai_metadata["tweets"]
                         else:
                             tweets = [p.strip() for p in draft.body.split("\n\n") if p.strip()]
-                        media_paths = draft.ai_metadata.get("media_paths") if draft.ai_metadata else None
+                        raw_mp = draft.ai_metadata.get("media_paths") if draft.ai_metadata else None
+                        media_paths = None
+                        if raw_mp:
+                            media_paths = [_normalize_media_path(p) for p in raw_mp if _normalize_media_path(p)]
 
                         # Safety Invariant: Guarantee media & closer hashtags for threads
                         topic = (draft.ai_metadata or {}).get("topic") or (draft.ai_metadata or {}).get("trend_title") or (tweets[0] if tweets else "")
@@ -186,7 +253,19 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                             tweets[-1] = ensure_main_post_hashtags(tweets[-1], topic)
                         if not media_paths and tweets:
                             logger.info("Auto-publish safety guard: thread %s has no media. Executing waterfall resolver...", draft.id)
-                            res_m, _, tweets[0] = await resolve_post_media_waterfall(topic, tweets[0], prof.profile_slug, allow_gif=False)
+                            candidate_imgs = []
+                            if draft.ai_metadata:
+                                for k in ("top_media_urls", "media_urls"):
+                                    cand = draft.ai_metadata.get(k)
+                                    if isinstance(cand, list):
+                                        candidate_imgs.extend(cand)
+                            res_m, _, tweets[0] = await resolve_post_media_waterfall(
+                                topic,
+                                tweets[0],
+                                prof.profile_slug,
+                                candidate_images=candidate_imgs if candidate_imgs else None,
+                                allow_gif=False,
+                            )
                             if res_m:
                                 media_paths = res_m
                                 meta = dict(draft.ai_metadata or {})
@@ -205,11 +284,25 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                         media_paths = None
                         if draft.ai_metadata:
                             if draft.ai_metadata.get("media_paths"):
-                                media_paths = [p for p in draft.ai_metadata["media_paths"] if os.path.exists(p)]
-                            elif draft.ai_metadata.get("image_path") and os.path.exists(draft.ai_metadata["image_path"]):
-                                media_paths = [draft.ai_metadata["image_path"]]
-                            elif draft.ai_metadata.get("media_urls"):
-                                media_paths = [u for u in draft.ai_metadata["media_urls"] if os.path.exists(u)]
+                                valid = [_normalize_media_path(p) for p in draft.ai_metadata["media_paths"]]
+                                media_paths = [p for p in valid if p]
+                            if not media_paths and draft.ai_metadata.get("image_path"):
+                                norm = _normalize_media_path(draft.ai_metadata["image_path"])
+                                if norm:
+                                    media_paths = [norm]
+                            if not media_paths and draft.ai_metadata.get("downloaded_media"):
+                                valid = []
+                                for item in draft.ai_metadata["downloaded_media"]:
+                                    if isinstance(item, dict):
+                                        lp = item.get("local_path") or item.get("file_path")
+                                        norm = _normalize_media_path(lp)
+                                        if norm:
+                                            valid.append(norm)
+                                if valid:
+                                    media_paths = valid
+                            if not media_paths and draft.ai_metadata.get("media_urls"):
+                                valid = [_normalize_media_path(u) for u in draft.ai_metadata["media_urls"]]
+                                media_paths = [u for u in valid if u]
 
                         # Discard junk / generic gif_query
                         if gif_q:
@@ -226,10 +319,17 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
 
                         if not media_paths and not gif_q:
                             logger.info("Auto-publish safety guard: standalone post %s has no valid media. Executing waterfall resolver...", draft.id)
+                            candidate_imgs = []
+                            if draft.ai_metadata:
+                                for k in ("top_media_urls", "media_urls"):
+                                    cand = draft.ai_metadata.get(k)
+                                    if isinstance(cand, list):
+                                        candidate_imgs.extend(cand)
                             resolved_media, resolved_gif, draft.body = await resolve_post_media_waterfall(
                                 topic=topic,
                                 post_text=draft.body,
                                 profile_slug=prof.profile_slug,
+                                candidate_images=candidate_imgs if candidate_imgs else None,
                                 allow_gif=True,
                             )
                             if resolved_media:
@@ -335,11 +435,22 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                     if meta["publish_attempts"] >= 2:
                         draft.status = ContentStatus.FAILED
                     await db.commit()
+                finally:
+                    if draft_lock_key:
+                        try:
+                            r.delete(draft_lock_key)
+                        except Exception:
+                            pass
 
         return {"status": "success", "published_count": published_count, "errors": errors if errors else None}
     except Exception as e:
         logger.error("Failed auto-publish cycle: %s", e)
         return {"status": "failed", "error": str(e)}
+    finally:
+        try:
+            r.delete(task_lock_key)
+        except Exception:
+            pass
 
 
 @celery_app.task(name="xbot.tasks.auto_publish_pending_drafts")

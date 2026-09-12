@@ -11,7 +11,7 @@ try:
 except ImportError:
     psutil = None
 import redis
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xbot.celery_app import celery_app
@@ -411,6 +411,38 @@ class PipelineAuditor:
                             "idle_minutes": idle_minutes,
                             "reason": f"Profile has been idle for {idle_minutes}m during daytime active hours.",
                         })
+
+            # 3. Trend Generator Cadence Check
+            # If unprocessed ResearchedTopics exist and no draft has been created in >60m
+            trend_gen_cooldown = f"xbot:supervisor:cooldown:pipeline:trend_generator:{slug}"
+            if not self.r.exists(trend_gen_cooldown):
+                if not any("trend_generator" in t for t in ctx["task_names"]):
+                    from xbot.models.pipeline import ResearchedTopic
+                    unprocessed_res = await db.execute(
+                        select(func.count(ResearchedTopic.id)).where(
+                            ResearchedTopic.profile_id == prof.id,
+                            ResearchedTopic.processed == False,
+                        )
+                    )
+                    unproc_count = unprocessed_res.scalar() or 0
+                    if unproc_count > 0:
+                        last_draft_res = await db.execute(
+                            select(Content.created_at)
+                            .where(Content.profile_id == prof.id)
+                            .order_by(Content.created_at.desc())
+                            .limit(1)
+                        )
+                        last_draft_dt = last_draft_res.scalar_one_or_none()
+                        if last_draft_dt:
+                            draft_gap_m = int((now_ist().replace(tzinfo=None) - last_draft_dt.replace(tzinfo=None)).total_seconds() // 60)
+                            if draft_gap_m > 60:
+                                issues.append({
+                                    "type": "OVERDUE_TREND_GENERATOR",
+                                    "pipeline_name": "trend_generator",
+                                    "profile_slug": slug,
+                                    "overdue_minutes": draft_gap_m,
+                                    "reason": f"{unproc_count} researched topics available, but no draft created for {draft_gap_m}m.",
+                                })
 
         return issues
 

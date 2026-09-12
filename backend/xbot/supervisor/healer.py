@@ -232,6 +232,20 @@ class SelfHealingEngine:
                 logger.info("SelfHealing: %s", action)
                 return {"success": True, "action": action, "task_id": str(task.id)}
 
+            elif pipeline_name == "trend_generator":
+                from xbot.pipelines.trend_generator_pipeline import run_trend_generator
+                task = run_trend_generator.delay()
+                action = f"Re-triggered trend generator (Task ID: {task.id})"
+                logger.info("SelfHealing: %s", action)
+                return {"success": True, "action": action, "task_id": str(task.id)}
+
+            elif pipeline_name == "quote_pipeline":
+                from xbot.pipelines.quote_pipeline import run_quote_pipeline
+                task = run_quote_pipeline.delay(profile_slug=profile_slug)
+                action = f"Re-triggered quote pipeline for @{profile_slug} (Task ID: {task.id})"
+                logger.info("SelfHealing: %s", action)
+                return {"success": True, "action": action, "task_id": str(task.id)}
+
             return {"success": False, "error": f"Unknown pipeline {pipeline_name}"}
         except Exception as e:
             logger.error("SelfHealing: Failed re-dispatching overdue pipeline %s: %s", pipeline_name, e)

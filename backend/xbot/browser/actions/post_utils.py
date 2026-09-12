@@ -69,6 +69,33 @@ async def _attach_gif_if_requested(page: Page, gif_query: str | None) -> bool:
             pass
 
         gif_items = await page.query_selector_all(gif_result_sel)
+        if not gif_items:
+            # Fallback 1: Niche query failed, extract broad category or first word
+            words = [w for w in re.split(r'\s+', gif_query.strip()) if len(w) > 2]
+            broad_query = words[0] if words else "reaction"
+            if broad_query.lower() != gif_query.lower():
+                logger.info("No GIF for niche query '%s'; retrying with broad keyword '%s'...", gif_query, broad_query)
+                try:
+                    await page.click(search_input_sel, click_count=3)
+                    await page.keyboard.press("Backspace")
+                    await human_type(page, search_input_sel, broad_query)
+                    await sleep_think_time(1000, 2000)
+                    gif_items = await page.query_selector_all(gif_result_sel)
+                except Exception:
+                    pass
+
+        if not gif_items:
+            # Fallback 2: Universal reaction query
+            logger.info("Retrying with universal 'reaction' GIF fallback...")
+            try:
+                await page.click(search_input_sel, click_count=3)
+                await page.keyboard.press("Backspace")
+                await human_type(page, search_input_sel, "reaction")
+                await sleep_think_time(1000, 2000)
+                gif_items = await page.query_selector_all(gif_result_sel)
+            except Exception:
+                pass
+
         if gif_items:
             target_gif = gif_items[0] if len(gif_items) == 1 else random.choice(gif_items[:min(2, len(gif_items))])
             await human_click(page, target_gif, 300, 700)
@@ -82,11 +109,29 @@ async def _attach_gif_if_requested(page: Page, gif_query: str | None) -> bool:
         logger.warning("Could not attach GIF (falling back to text-only): %s", e)
         return False
 
+
+def _normalize_media_path(path_str: str | None) -> str | None:
+    """Normalizes media paths across Host and Docker container boundaries."""
+    if not path_str or not isinstance(path_str, str):
+        return None
+    if os.path.exists(path_str):
+        return path_str
+    if path_str.startswith("/home/ubuntu/projects/xbot/data/"):
+        candidate = path_str.replace("/home/ubuntu/projects/xbot/data/", "/app/data/")
+        if os.path.exists(candidate):
+            return candidate
+    elif path_str.startswith("/app/data/"):
+        candidate = path_str.replace("/app/data/", "/home/ubuntu/projects/xbot/data/")
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
 async def _attach_media_files(page: Page, media_paths: list[str] | None) -> bool:
     """Helper to upload local image/video files into X composer using input[type=file]."""
     if not media_paths:
         return False
-    valid_paths = [p for p in media_paths if os.path.exists(p)]
+    valid_paths = [_normalize_media_path(p) for p in media_paths if _normalize_media_path(p)]
     if not valid_paths:
         logger.warning("No valid media files found in paths: %s", media_paths)
         return False
