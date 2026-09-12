@@ -35,7 +35,8 @@ services:
     - CHATGPT_BRIDGE_STATE=/app/data/.chatgpt-bridge
     - CHATGPT_BRIDGE_HEADLESS=true
     env_file:
-    - .env
+    - path: .env
+      required: false
     volumes:
     - ${CONFIG_PATH}/xbot:/app/data
     depends_on:
@@ -75,7 +76,8 @@ services:
     - CHATGPT_BRIDGE_STATE=/app/data/.chatgpt-bridge
     - CHATGPT_BRIDGE_HEADLESS=true
     env_file:
-    - .env
+    - path: .env
+      required: false
     volumes:
     - ${CONFIG_PATH}/xbot:/app/data
     depends_on:
@@ -116,7 +118,8 @@ services:
     - CHATGPT_BRIDGE_STATE=/app/data/.chatgpt-bridge
     - CHATGPT_BRIDGE_HEADLESS=true
     env_file:
-    - .env
+    - path: .env
+      required: false
     volumes:
     - ${CONFIG_PATH}/xbot:/app/data
     depends_on:
@@ -146,7 +149,8 @@ services:
     - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
     - BASE_PROFILE_DIR=/app/data/profiles
     env_file:
-    - .env
+    - path: .env
+      required: false
     volumes:
     - /var/run/docker.sock:/var/run/docker.sock:rw
     - ${CONFIG_PATH}/xbot:/app/data
