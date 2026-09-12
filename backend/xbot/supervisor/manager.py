@@ -302,7 +302,7 @@ class SystemSupervisor:
         Reads the latest health snapshot from Redis.
         """
         try:
-            val = self.r.get("xbot:supervisor:latest_health")
+            val = self.r.get("xbot:supervisor:latest_health") or self.r.get("xbot:supervisor:live_state")
             if val:
                 return json.loads(val.decode("utf-8") if isinstance(val, bytes) else val)
         except Exception:

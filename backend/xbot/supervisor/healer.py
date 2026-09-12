@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import signal
@@ -16,6 +17,8 @@ from xbot.config import settings
 from xbot.models.content import Content, ContentStatus
 from xbot.models.pipeline import PipelineRun
 from xbot.models.session import Session, SessionStatus
+from xbot.models.supervisor import SupervisorHealingEvent
+from xbot.supervisor.docker_client import DockerSocketClient
 from xbot.utils.time import now_ist
 
 logger = logging.getLogger("xbot.supervisor.healer")
@@ -28,8 +31,13 @@ class SelfHealingEngine:
     orphaned locks, hung processes, and stalled pipeline states with zero collateral damage.
     """
 
-    def __init__(self, redis_client: redis.Redis | None = None) -> None:
+    def __init__(
+        self,
+        redis_client: redis.Redis | None = None,
+        docker_client: DockerSocketClient | None = None,
+    ) -> None:
         self.r = redis_client or redis.from_url(settings.REDIS_URL)
+        self.docker_client = docker_client or DockerSocketClient()
 
     def heal_orphan_lock(self, lock_key: str, profile_slug: str | None = None) -> dict[str, Any]:
         """
@@ -286,3 +294,123 @@ class SelfHealingEngine:
 
         action = f"Reaped {len(killed)} zombie headless Chromium process(es) (PIDs: {killed})"
         return {"success": True, "action": action, "reaped_pids": killed}
+
+    async def restart_container_with_circuit_breaker(
+        self, container_name: str, db: AsyncSession | None = None
+    ) -> dict[str, Any]:
+        """
+        Safely restarts a container guarded by an anti-flapping circuit breaker.
+        Invariants:
+        - Max 3 restarts per rolling hour (3600s).
+        - Minimum 300s (5m) cooldown between restarts of the same container.
+        - If limit exceeded, container is flagged in quarantine and restart is aborted to prevent boot-loops.
+        """
+        now_ts = time.time()
+        key = f"xbot:sentinel:restarts:{container_name}"
+        quarantine_key = f"xbot:sentinel:quarantine:{container_name}"
+
+        # 1. Read existing restart timestamps
+        raw = self.r.get(key)
+        timestamps: list[float] = []
+        if raw:
+            try:
+                data = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
+                if isinstance(data, list):
+                    timestamps = [float(t) for t in data]
+            except Exception as e:
+                logger.warning("Failed parsing restart timestamps for %s: %s", container_name, e)
+                timestamps = []
+
+        # Filter to rolling 1-hour window (3600s)
+        timestamps = [t for t in timestamps if now_ts - t < 3600]
+
+        # 2. Check 5-minute (300s) cooldown between restarts
+        if timestamps:
+            last_restart = timestamps[-1]
+            elapsed = now_ts - last_restart
+            if elapsed < 300:
+                cooldown_remaining = int(300 - elapsed)
+                reason = f"Cooldown active: {cooldown_remaining}s remaining before next permitted restart"
+                logger.warning("Circuit breaker: Skipping restart for container '%s'. %s", container_name, reason)
+                return {
+                    "success": False,
+                    "container": container_name,
+                    "quarantined": False,
+                    "reason": reason,
+                    "cooldown_remaining": cooldown_remaining,
+                }
+
+        # 3. Check rolling hourly limit (max 3 restarts)
+        if len(timestamps) >= 3:
+            try:
+                self.r.set(quarantine_key, "1", ex=3600)
+            except Exception:
+                pass
+            reason = f"Circuit breaker tripped: max restarts ({len(timestamps)}/3 per hour) exceeded"
+            logger.critical(
+                "CIRCUIT BREAKER TRIPPED for container '%s'. %s. Quarantining container to prevent boot-loops.",
+                container_name,
+                reason,
+            )
+            return {
+                "success": False,
+                "container": container_name,
+                "quarantined": True,
+                "reason": reason,
+                "restarts_in_last_hour": len(timestamps),
+            }
+
+        # 4. Invoke Docker restart via DockerSocketClient
+        logger.info(
+            "Circuit breaker: Initiating restart for container '%s' (restart %d of 3 in rolling hour)...",
+            container_name,
+            len(timestamps) + 1,
+        )
+        restarted = await self.docker_client.restart_container(container_name, timeout_seconds=30)
+        if not restarted:
+            logger.error("Failed executing Docker restart for container '%s'", container_name)
+            return {
+                "success": False,
+                "container": container_name,
+                "quarantined": False,
+                "reason": "Docker restart command failed or socket unavailable",
+            }
+
+        # 5. Record restart timestamp in Redis (3600s TTL)
+        timestamps.append(now_ts)
+        try:
+            self.r.set(key, json.dumps(timestamps), ex=3600)
+        except Exception as e:
+            logger.error("Failed recording restart timestamp for %s: %s", container_name, e)
+
+        action = f"Restarted container '{container_name}' via circuit breaker ({len(timestamps)}/3 in rolling hour)"
+        logger.warning("SelfHealing: %s", action)
+
+        # 6. Record SupervisorHealingEvent in database if db session provided
+        if db is not None:
+            try:
+                event = SupervisorHealingEvent(
+                    profile_slug=None,
+                    component="container_restart",
+                    issue_detected=f"Container {container_name} persistent anomaly / health check failure",
+                    action_taken=action,
+                    status="resolved",
+                    details={
+                        "container": container_name,
+                        "restarts_in_last_hour": len(timestamps),
+                        "restarted_at": now_ts,
+                    },
+                )
+                db.add(event)
+                await db.commit()
+            except Exception as e:
+                logger.error("Failed saving container restart healing event: %s", e)
+
+        return {
+            "success": True,
+            "container": container_name,
+            "quarantined": False,
+            "action": action,
+            "restarts_in_last_hour": len(timestamps),
+        }
+

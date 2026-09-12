@@ -72,18 +72,22 @@ class ChatGPT:
         Tries the backend HTTP path first; on :class:`ShapeChangedError`
         falls back to the UI driver.
         """
+        self.browser.touch()
         await self._ensure_started()
         try:
             result = await self.http.ask(prompt, conversation_id=conversation_id)
         except ShapeChangedError:
             result = await self.ui.ask(prompt, conversation_id=conversation_id)
+        self.browser.touch()
         await self._track(result.get("conversation_id"))
         return result
 
     async def generate_image(self, prompt: str, timeout_s: int = 180) -> dict:
         """Generate an image via the UI and return ``{"path", "prompt"}``."""
+        self.browser.touch()
         await self._ensure_started()
         result = await self.ui.generate_image(prompt, timeout_s=timeout_s)
+        self.browser.touch()
         await self._track(result.get("conversation_id"))
         return result
 
@@ -97,12 +101,47 @@ class ChatGPT:
         except Exception:
             pass
 
-    def close(self) -> None:
-        """Synchronously stop the browser."""
-        if self._started:
-            loop = self._get_loop()
-            loop.run_until_complete(self.browser.stop())
+    async def close_if_idle(self) -> bool:
+        """Close browser if idle and reset started state."""
+        closed = await self.browser.close_if_idle()
+        if closed:
             self._started = False
+        return closed
+
+    async def aclose(self) -> None:
+        """Asynchronously stop the browser and ensure clean teardown."""
+        try:
+            await self.browser.stop()
+        except Exception:
+            pass
+        finally:
+            self._started = False
+
+    def close(self) -> None:
+        """Synchronously stop the browser and ensure clean teardown."""
+        try:
+            if self._started or (hasattr(self, "browser") and self.browser._context is not None):
+                try:
+                    running_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    running_loop = None
+
+                if running_loop and running_loop.is_running():
+                    running_loop.create_task(self.browser.stop())
+                else:
+                    loop = self._get_loop()
+                    if not loop.is_closed():
+                        loop.run_until_complete(self.browser.stop())
+        except Exception:
+            pass
+        finally:
+            self._started = False
+            if self._loop is not None and not self._loop.is_closed():
+                try:
+                    self._loop.close()
+                except Exception:
+                    pass
+                self._loop = None
 
     # Sync sugar — all reuse one event loop (Playwright objects are loop-bound).
     def ask_sync(self, prompt: str, model: str | None = None, conversation_id: str | None = None) -> dict:

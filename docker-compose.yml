@@ -7,6 +7,7 @@ services:
       allkeys-lru
     environment:
     - TZ=${TZ:-Asia/Kolkata}
+    mem_limit: 64m
     deploy:
       resources:
         limits:
@@ -22,7 +23,8 @@ services:
     restart: unless-stopped
     ports:
     - 8200:8200
-    shm_size: 512mb
+    init: true
+    shm_size: 1gb
     environment:
     - PUID=${PUID}
     - PGID=${PGID}
@@ -33,12 +35,12 @@ services:
     - CHATGPT_BRIDGE_STATE=/app/data/.chatgpt-bridge
     - CHATGPT_BRIDGE_HEADLESS=true
     env_file:
-    - path: .env
-      required: false
+    - .env
     volumes:
     - ${CONFIG_PATH}/xbot:/app/data
     depends_on:
     - redis
+    mem_limit: 800m
     deploy:
       resources:
         limits:
@@ -56,12 +58,13 @@ services:
     - --beat
     - -Q
     - celery,publish
-    - --max-tasks-per-child=20
-    - --concurrency=4
+    - --max-tasks-per-child=10
+    - --concurrency=1
     - --loglevel=info
     - -n
     - tasks@%h
-    shm_size: 512mb
+    init: true
+    shm_size: 1gb
     environment:
     - PUID=${PUID}
     - PGID=${PGID}
@@ -72,13 +75,14 @@ services:
     - CHATGPT_BRIDGE_STATE=/app/data/.chatgpt-bridge
     - CHATGPT_BRIDGE_HEADLESS=true
     env_file:
-    - path: .env
-      required: false
+    - .env
     volumes:
     - ${CONFIG_PATH}/xbot:/app/data
     depends_on:
     - redis
     - backend
+    mem_limit: 800m
+    memswap_limit: 1200m
     deploy:
       resources:
         limits:
@@ -95,12 +99,13 @@ services:
     - worker
     - -Q
     - browser
-    - --max-tasks-per-child=20
+    - --max-tasks-per-child=10
     - --concurrency=1
     - --loglevel=info
     - -n
     - browser@%h
-    shm_size: 512mb
+    init: true
+    shm_size: 1gb
     environment:
     - PUID=${PUID}
     - PGID=${PGID}
@@ -111,18 +116,49 @@ services:
     - CHATGPT_BRIDGE_STATE=/app/data/.chatgpt-bridge
     - CHATGPT_BRIDGE_HEADLESS=true
     env_file:
-    - path: .env
-      required: false
+    - .env
     volumes:
     - ${CONFIG_PATH}/xbot:/app/data
     depends_on:
     - redis
     - backend
+    mem_limit: 1000m
+    memswap_limit: 1500m
     deploy:
       resources:
         limits:
           cpus: '1.0'
-          memory: 1G
+          memory: 1000M
+    logging: *id001
+  sentinel:
+    image: ghcr.io/jack101a/xbot-worker:latest
+    restart: unless-stopped
+    command:
+    - python
+    - -m
+    - xbot.supervisor.sentinel
+    init: true
+    environment:
+    - PUID=${PUID}
+    - PGID=${PGID}
+    - TZ=${TZ:-Asia/Kolkata}
+    - REDIS_URL=redis://redis:6379/0
+    - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
+    - BASE_PROFILE_DIR=/app/data/profiles
+    env_file:
+    - .env
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:rw
+    - ${CONFIG_PATH}/xbot:/app/data
+    depends_on:
+    - redis
+    - backend
+    mem_limit: 256m
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
     logging: *id001
   dashboard:
     image: ghcr.io/jack101a/xbot-dashboard:latest
@@ -133,6 +169,7 @@ services:
     - TZ=${TZ:-Asia/Kolkata}
     depends_on:
     - backend
+    mem_limit: 64m
     deploy:
       resources:
         limits:

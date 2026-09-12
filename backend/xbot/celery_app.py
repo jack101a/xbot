@@ -21,6 +21,8 @@ celery_app.conf.update(
     task_time_limit=1800,  # 30 minutes max execution time
     worker_prefetch_multiplier=1,
     task_acks_late=True,
+    worker_max_tasks_per_child=10,
+    worker_max_memory_per_child=300000,
 )
 
 celery_app.conf.task_routes = {
@@ -32,11 +34,11 @@ celery_app.conf.task_routes = {
 
 # Celery Beat Periodic Schedule — Phase 0 Streamlined Core Cadence
 celery_app.conf.beat_schedule = {
-    # 1. Central Browser Queue Worker (10s)
-    "browser-queue-worker-every-10s": {
+    # 1. Central Browser Queue Worker (60s)
+    "browser-queue-worker-every-60s": {
         "task": "xbot.pipelines.browser_queue.process_browser_queue",
-        "schedule": 10.0,
-        "options": {"queue": "browser", "expires": 10.0},
+        "schedule": 60.0,
+        "options": {"queue": "browser", "expires": 60.0},
     },
     # 2. Auto-Publish Approved/Pending Drafts (5 min)
     "auto-publish-pending-drafts-every-300-seconds": {
@@ -104,13 +106,7 @@ celery_app.conf.beat_schedule = {
         "schedule": 21600.0,
         "options": {"expires": 3600.0},
     },
-    # 12. Autonomous Supervisor Watchdog & Self-Healing Loop (runs every 60 seconds)
-    "supervisor-watchdog-every-60s": {
-        "task": "xbot.tasks.supervisor_tasks.run_supervisor_watchdog",
-        "schedule": 60.0,
-        "options": {"expires": 60.0},
-    },
-    # 13. Independent Quote Pipeline (runs every 45 min during active hours)
+    # 12. Independent Quote Pipeline (runs every 45 min during active hours)
     "quote-pipeline-periodic": {
         "task": "xbot.pipelines.quote_pipeline.run_quote_pipeline",
         "schedule": 2700.0,
@@ -144,7 +140,7 @@ celery_app.conf.imports = [
 celery_app.autodiscover_tasks(["xbot", "xbot.tasks", "xbot.pipelines", "xbot.growth"])
 
 
-from celery.signals import worker_process_init
+from celery.signals import worker_process_init, worker_process_shutdown
 
 @worker_process_init.connect
 def on_worker_process_init(**kwargs):
@@ -152,6 +148,15 @@ def on_worker_process_init(**kwargs):
     from xbot.database import engine
     try:
         engine.sync_engine.dispose()
+    except Exception:
+        pass
+
+
+@worker_process_shutdown.connect
+def on_worker_process_shutdown(**kwargs):
+    try:
+        from xbot.ai.chatgpt_adapter import reset_chatgpt_instance
+        reset_chatgpt_instance()
     except Exception:
         pass
 

@@ -7,6 +7,7 @@ so a logged-in session survives across runs.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -39,10 +40,18 @@ class BrowserManager:
         self.headless = headless
         self._playwright: Any = None
         self._context: Any = None
+        self._last_active_time: float = 0.0
+        self._idle_timeout_seconds: float = 300.0
+        self._idle_task: Any = None
+
+    def touch(self) -> None:
+        """Record activity timestamp."""
+        self._last_active_time = time.time()
 
     async def start(self) -> None:
         """Launch the persistent context at ``PROFILE_DIR``."""
         if self._context is not None:
+            self._last_active_time = time.time()
             return
         _ensure_virtual_display()
         PROFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -60,8 +69,18 @@ class BrowserManager:
         self._context = await self._playwright.chromium.launch_persistent_context(
             user_data_dir=str(PROFILE_DIR),
             headless=effective_headless,
-            args=["--disable-blink-features=AutomationControlled"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+                "--no-zygote",
+                "--disable-background-networking",
+                "--disable-renderer-backgrounding",
+            ],
         )
+        self._last_active_time = time.time()
 
     async def context(self):
         """Return the Playwright ``BrowserContext``, starting or recreating it if needed."""
@@ -85,6 +104,7 @@ class BrowserManager:
                     pass
                 self._playwright = None
             await self.start()
+        self._last_active_time = time.time()
         return self._context
 
     async def ensure_logged_in(self) -> None:
@@ -114,11 +134,30 @@ class BrowserManager:
         finally:
             await page.close()
 
+    async def close_if_idle(self) -> bool:
+        """Close context if idle for longer than _idle_timeout_seconds."""
+        if self._context is not None and (time.time() - self._last_active_time >= self._idle_timeout_seconds):
+            await self.stop()
+            return True
+        return False
+
     async def stop(self) -> None:
         """Close the context and stop Playwright."""
+        if self._idle_task is not None:
+            try:
+                self._idle_task.cancel()
+            except Exception:
+                pass
+            self._idle_task = None
         if self._context is not None:
-            await self._context.close()
+            try:
+                await self._context.close()
+            except Exception:
+                pass
             self._context = None
         if self._playwright is not None:
-            await self._playwright.stop()
+            try:
+                await self._playwright.stop()
+            except Exception:
+                pass
             self._playwright = None
