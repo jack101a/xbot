@@ -280,7 +280,7 @@ async def synthesize_post_deliverable(
     )
     raw_post = synth_res.content if synth_res and synth_res.content else spec.topic
     formatted_post = format_content(raw_post, profile_slug=profile_slug, content_type="post", has_media=bool(downloaded_media))
-    opt_res = await pkg.optimize_post_for_virality(formatted_post)
+    opt_res = await pkg.optimize_post_for_virality(formatted_post, persona=persona)
     final_text = strip_surrounding_quotes(opt_res.full_optimized_text or formatted_post)
 
     # Waterfall Media Resolution: X First -> SearXNG Precision -> AI Art/GIF

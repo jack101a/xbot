@@ -231,7 +231,7 @@ async def synthesize_post_topic(
         topic=topic.topic,
     )
 
-    opt_res = await pkg.optimize_post_for_virality(formatted_post)
+    opt_res = await pkg.optimize_post_for_virality(formatted_post, persona=persona)
     candidate_post_text = pkg.strip_surrounding_quotes(opt_res.full_optimized_text or formatted_post)
     final_post_text = pkg.format_content(
         raw_text=candidate_post_text,
