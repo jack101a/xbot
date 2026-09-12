@@ -100,14 +100,26 @@ async def handle_action_failure(
         )
         return
 
-    # C. Progressive Backoff: 429 rate limits
+    # C. X Daily Post Limit Drain: Platform posting restriction
+    if any(w in err_lower for w in ("daily post limit", "hit the daily post limit", "subscribe to premium for higher limits", "daily tweet limit", "daily limit")):
+        from .drain_lock import set_daily_post_limit_drained
+        logger.warning("Platform Limit: X Daily Post Limit detected for %s.", profile_slug)
+        set_daily_post_limit_drained(redis_client, profile_slug, reason=error_message)
+        send_webhook_alert(
+            title=f"ALERT: X Daily Post Limit Reached - {profile_slug}",
+            message=f"XBot detected that @{profile.x_handle} ({profile_slug}) reached X's daily post limit. Posts are paused until midnight UTC reset.",
+            level="warning",
+        )
+        return
+
+    # D. Progressive Backoff: 429 rate limits
     if any(w in err_lower for w in ("429", "rate limit", "too many requests", "shadowban")):
         logger.warning("Progressive Backoff: Rate limit / shadowban signal detected for %s.", profile_slug)
         backoff_key = f"backoff:{profile_slug}"
         redis_client.set(backoff_key, "1", ex=86400)
         return
 
-    # D. Circuit Breaker: consecutive fatal system-level auth crashes
+    # E. Circuit Breaker: consecutive fatal system-level auth crashes
     if any(w in err_lower for w in ("session invalidated", "cookie expired", "unauthorized", "login required", "generic connection error")):
         failure_key = f"failures:{profile_slug}"
         failures = redis_client.incr(failure_key)

@@ -102,6 +102,17 @@ class SafetyGuard:
             logger.warning("Rejecting action: profile %s is currently %s.", profile_slug, profile.status)
             return False
 
+        # Check X Daily Post Limit Drain Lock
+        if action_type in ("post", "quote", "thread", "growth_post"):
+            from xbot.safety.guard.drain_lock import is_daily_post_limit_drained
+            if is_daily_post_limit_drained(self.r, profile_slug):
+                logger.warning(
+                    "Rejecting action '%s': X Daily Post Limit is drained for %s until next reset.",
+                    action_type,
+                    profile_slug,
+                )
+                return False
+
         # B. Check Action Cooldown
         if not bypass_cooldown:
             limits_cfg = getattr(config, "limits", None) if config else None

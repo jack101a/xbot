@@ -15,7 +15,7 @@ from xbot.browser.timing import (
 logger = logging.getLogger(__name__)
 
 from xbot.browser.actions.post_utils import (_attach_gif_if_requested, _attach_media_files, smart_truncate_tweet_text)
-from xbot.browser.actions.utils import (check_target_tweet_status, _navigate_home_if_needed, _random_tab_detour, _post_action_cooldown_browse, _extract_tweet_id_from_url, human_scroll_to_tweet)
+from xbot.browser.actions.utils import (check_target_tweet_status, _navigate_home_if_needed, _random_tab_detour, _post_action_cooldown_browse, _extract_tweet_id_from_url, human_scroll_to_tweet, check_daily_post_limit)
 
 class ComposeThread(BaseAction):
     """
@@ -243,6 +243,19 @@ class ComposeThread(BaseAction):
             except Exception:
                 pass
 
+            # Check if modal is blocked by daily limit banner before clicking
+            pre_limit = await check_daily_post_limit(page)
+            if pre_limit:
+                await self.capture_failure(page, "x_daily_limit_reached")
+                logger.critical("Aborting thread: X Daily Post Limit detected (%s)", pre_limit)
+                return {
+                    "status": "failed",
+                    "error": f"You've hit the daily post limit on X ({pre_limit})",
+                    "reason": "daily_post_limit_reached",
+                    "daily_limit_reached": True,
+                    "tweet_ids": [],
+                }
+
             if submit_btn:
                 try:
                     await submit_btn.click(timeout=2500)
@@ -261,6 +274,19 @@ class ComposeThread(BaseAction):
 
             for sec in range(max_wait_seconds):
                 await asyncio.sleep(1)
+
+                # Check for daily limit banner in loop
+                loop_limit = await check_daily_post_limit(page)
+                if loop_limit:
+                    await self.capture_failure(page, "x_daily_limit_reached")
+                    logger.critical("Thread rejected: X Daily Post Limit banner detected (%s)", loop_limit)
+                    return {
+                        "status": "failed",
+                        "error": f"You've hit the daily post limit on X ({loop_limit})",
+                        "reason": "daily_post_limit_reached",
+                        "daily_limit_reached": True,
+                        "tweet_ids": captured_tweet_ids,
+                    }
 
                 # Condition A: All N tweets confirmed via CreateTweet GraphQL responses
                 if len(captured_tweet_ids) >= total_expected:
@@ -302,6 +328,16 @@ class ComposeThread(BaseAction):
             toast = await page.query_selector('[data-testid="toast"]')
 
             if not modal_closed and dialog_still_open and not root_id and not toast:
+                final_limit = await check_daily_post_limit(page)
+                if final_limit:
+                    await self.capture_failure(page, "x_daily_limit_reached")
+                    return {
+                        "status": "failed",
+                        "error": f"You've hit the daily post limit on X ({final_limit})",
+                        "reason": "daily_post_limit_reached",
+                        "daily_limit_reached": True,
+                        "tweet_ids": [],
+                    }
                 await self.capture_failure(page, "compose_thread_stuck")
                 logger.error("Thread modal remained open without tweet creation event.")
                 return {"status": "failed", "error": "Thread submission failed on X.", "tweet_ids": []}

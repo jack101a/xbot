@@ -142,13 +142,24 @@ class CentralGuard:
             )
             return False
 
+        # Check X Daily Post Limit Drain Lock
+        if action_type in ("post", "quote", "thread", "growth_post", "trend_generator"):
+            from xbot.safety.guard.drain_lock import is_daily_post_limit_drained
+            if is_daily_post_limit_drained(self.r, profile_slug):
+                logger.warning(
+                    "CentralGuard: Rejecting '%s' because X Daily Post Limit is drained for %s.",
+                    action_type,
+                    profile_slug,
+                )
+                return False
+
         # 3. SafetyGuard check
         sg_action_map = {
             "like": "like",
             "reply": "reply",
             "quote": "quote",
             "post": "post",
-            "growth_post": "growth_post",
+            "growth_post": "post",
             "follow": "follow",
             "unfollow": "unfollow",
             "trend_researcher": "post",

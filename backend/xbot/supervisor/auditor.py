@@ -315,6 +315,11 @@ class PipelineAuditor:
             if self.r.exists(cooldown_key):
                 continue
 
+            # Safeguard 3: Check if profile has drained X daily post limit (not stuck, paused by platform limit)
+            from xbot.safety.guard.drain_lock import is_daily_post_limit_drained
+            if is_daily_post_limit_drained(self.r, slug):
+                continue
+
             created_at = content_item.created_at
             if created_at:
                 diff_ist = (now_curr_ist - created_at.replace(tzinfo=None)).total_seconds() / 60

@@ -58,7 +58,16 @@ async def get_profile_config(
 
     profile_dir = Path(BASE_PROFILE_DIR) / db_profile.profile_slug
     config = load_config(profile_dir)
-    return config.model_dump()
+    res_dict = config.model_dump()
+    try:
+        import redis
+        from xbot.config import settings
+        from xbot.safety.guard.drain_lock import get_daily_post_limit_status
+        r = redis.from_url(settings.REDIS_URL)
+        res_dict["daily_post_limit_status"] = get_daily_post_limit_status(r, db_profile.profile_slug)
+    except Exception as e:
+        res_dict["daily_post_limit_status"] = {"drained": False, "reason": None, "resets_in_seconds": 0}
+    return res_dict
 
 @router.put("/{profile_id}/config", response_model=dict[str, Any])
 async def update_profile_config(
@@ -131,4 +140,46 @@ async def update_profile_config(
         logger.warning("Could not clear/realign Redis schedule cache for %s: %s", db_profile.profile_slug, e)
 
     return {"status": "success", "message": "Automation limits and schedule updated successfully.", "config": config.model_dump()}
+
+
+@router.get("/{profile_id}/daily-post-limit", response_model=dict[str, Any])
+async def get_profile_daily_post_limit(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Returns whether the profile has hit X's daily post limit and seconds remaining until reset."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if db_profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
+
+    import redis
+    from xbot.config import settings
+    from xbot.safety.guard.drain_lock import get_daily_post_limit_status
+    r = redis.from_url(settings.REDIS_URL)
+    status_data = get_daily_post_limit_status(r, db_profile.profile_slug)
+    return {"status": "success", "profile_slug": db_profile.profile_slug, **status_data}
+
+
+@router.post("/{profile_id}/clear-daily-post-limit", response_model=dict[str, Any])
+async def clear_profile_daily_post_limit(
+    profile_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Manually clears the daily post limit drain lock for a profile."""
+    result = await db.execute(select(Profile).where(Profile.id == profile_id))
+    db_profile = result.scalar_one_or_none()
+    if db_profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
+
+    import redis
+    from xbot.config import settings
+    from xbot.safety.guard.drain_lock import clear_daily_post_limit_drained
+    r = redis.from_url(settings.REDIS_URL)
+    cleared = clear_daily_post_limit_drained(r, db_profile.profile_slug)
+    return {
+        "status": "success",
+        "message": f"Daily post limit lock {'cleared' if cleared else 'was not active'}.",
+        "cleared": cleared,
+    }
 

@@ -26,6 +26,7 @@ from xbot.browser.actions.utils import (
     _post_action_cooldown_browse,
     _extract_tweet_id_from_url,
     human_scroll_to_tweet,
+    check_daily_post_limit,
 )
 
 class QuoteTweet(BaseAction):
@@ -146,6 +147,19 @@ class QuoteTweet(BaseAction):
                 logger.warning("Could not find Post button in quote composer.")
                 return False
 
+            # Check if modal is blocked by daily limit banner before clicking
+            pre_limit = await check_daily_post_limit(page)
+            if pre_limit:
+                await self.capture_failure(page, "x_daily_limit_reached")
+                logger.critical("Aborting quote: X Daily Post Limit detected (%s)", pre_limit)
+                return {
+                    "status": "failed",
+                    "quoted": False,
+                    "reason": "daily_post_limit_reached",
+                    "error": f"You've hit the daily post limit on X ({pre_limit})",
+                    "daily_limit_reached": True,
+                }
+
             # Submit via direct DOM click to ensure submission through overlays
             if post_btn:
                 logger.info("Clicking quote submit button...")
@@ -158,10 +172,21 @@ class QuoteTweet(BaseAction):
                         await page.evaluate('(btn) => btn.click()', post_btn)
             await sleep_with_jitter(1500)
 
-            # Verification 1: If quote dialog is still open, try direct click and shortcuts
+            # Verification 1: If quote dialog is still open, check daily limit and try fallback shortcuts
             dialog_sel = '[role="dialog"]'
             dialog = await page.query_selector(dialog_sel)
             if dialog and await dialog.is_visible():
+                limit_chk = await check_daily_post_limit(page)
+                if limit_chk:
+                    await self.capture_failure(page, "x_daily_limit_reached")
+                    logger.critical("Quote tweet rejected: X Daily Post Limit detected (%s)", limit_chk)
+                    return {
+                        "status": "failed",
+                        "quoted": False,
+                        "reason": "daily_post_limit_reached",
+                        "error": f"You've hit the daily post limit on X ({limit_chk})",
+                        "daily_limit_reached": True,
+                    }
                 logger.info("Quote dialog still open; trying fallback shortcuts...")
                 if post_btn:
                     try:
@@ -200,6 +225,16 @@ class QuoteTweet(BaseAction):
             if "x.com" in getattr(page, "url", ""):
                 dialog = await page.query_selector(dialog_sel)
                 if dialog and await dialog.is_visible() and not captured_tweet_ids:
+                    final_limit = await check_daily_post_limit(page)
+                    if final_limit:
+                        await self.capture_failure(page, "x_daily_limit_reached")
+                        return {
+                            "status": "failed",
+                            "quoted": False,
+                            "reason": "daily_post_limit_reached",
+                            "error": f"You've hit the daily post limit on X ({final_limit})",
+                            "daily_limit_reached": True,
+                        }
                     logger.error("Quote modal still open on live X and no tweet captured; aborting false success.")
                     return False
 

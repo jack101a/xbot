@@ -12,7 +12,7 @@ from xbot.browser.timing import (
 logger = logging.getLogger(__name__)
 
 from xbot.browser.actions.post_utils import (_attach_gif_if_requested, _attach_media_files, smart_truncate_tweet_text)
-from xbot.browser.actions.utils import (check_target_tweet_status, _navigate_home_if_needed, _random_tab_detour, _post_action_cooldown_browse, _extract_tweet_id_from_url, human_scroll_to_tweet)
+from xbot.browser.actions.utils import (check_target_tweet_status, _navigate_home_if_needed, _random_tab_detour, _post_action_cooldown_browse, _extract_tweet_id_from_url, human_scroll_to_tweet, check_daily_post_limit)
 
 class ComposePost(BaseAction):
     """Composes and publishes a new post (tweet), optionally with attached images/GIF."""
@@ -156,6 +156,19 @@ class ComposePost(BaseAction):
                         if modal_el and await modal_el.is_visible():
                             modal_is_open = True
 
+            # Early check: Verify if X has already greeted the composer with a daily limit banner
+            limit_msg = await check_daily_post_limit(page)
+            if limit_msg:
+                await self.capture_failure(page, "x_daily_limit_reached")
+                logger.critical("Aborting post: X Daily Post Limit is currently active on account (%s)", limit_msg)
+                return {
+                    "status": "failed",
+                    "posted": False,
+                    "reason": "daily_post_limit_reached",
+                    "error": f"You've hit the daily post limit on X ({limit_msg})",
+                    "daily_limit_reached": True,
+                }
+
             # 2. Locate composer textarea (in modal or fallback to inline)
             textarea_el = await page.wait_for_selector(textarea_sel, state="visible", timeout=25000)
             if not textarea_el:
@@ -209,6 +222,19 @@ class ComposePost(BaseAction):
             if not submit_btn:
                 raise RuntimeError("Could not locate post submit button")
 
+            # Check if modal or composer is blocked by daily limit banner before clicking
+            pre_limit = await check_daily_post_limit(page)
+            if pre_limit:
+                await self.capture_failure(page, "x_daily_limit_reached")
+                logger.critical("Aborting click: X Daily Post Limit detected (%s)", pre_limit)
+                return {
+                    "status": "failed",
+                    "posted": False,
+                    "reason": "daily_post_limit_reached",
+                    "error": f"You've hit the daily post limit on X ({pre_limit})",
+                    "daily_limit_reached": True,
+                }
+
             logger.info("Clicking enabled Post button...")
             try:
                 await submit_btn.click(timeout=3000)
@@ -222,6 +248,19 @@ class ComposePost(BaseAction):
             post_confirmed = False
             for sec in range(25):
                 await asyncio.sleep(1)
+
+                # Check for daily limit banner immediately
+                loop_limit = await check_daily_post_limit(page)
+                if loop_limit:
+                    await self.capture_failure(page, "x_daily_limit_reached")
+                    logger.critical("Post rejected: X Daily Post Limit banner detected during verification (%s)", loop_limit)
+                    return {
+                        "status": "failed",
+                        "posted": False,
+                        "reason": "daily_post_limit_reached",
+                        "error": f"You've hit the daily post limit on X ({loop_limit})",
+                        "daily_limit_reached": True,
+                    }
 
                 # A. Tweet ID captured from CreateTweet GraphQL network response
                 if captured_tweet_ids:
@@ -256,6 +295,17 @@ class ComposePost(BaseAction):
                     try:
                         cur_text = (await textarea_el.inner_text()).strip()
                         if not cur_text:
+                            # Verify that inline didn't clear due to error/limit
+                            inline_limit = await check_daily_post_limit(page)
+                            if inline_limit:
+                                await self.capture_failure(page, "x_daily_limit_reached")
+                                return {
+                                    "status": "failed",
+                                    "posted": False,
+                                    "reason": "daily_post_limit_reached",
+                                    "error": f"You've hit the daily post limit on X ({inline_limit})",
+                                    "daily_limit_reached": True,
+                                }
                             logger.info("Inline composer text cleared after %ds.", sec + 1)
                             post_confirmed = True
                             break
@@ -288,6 +338,16 @@ class ComposePost(BaseAction):
                         pass
 
             if not post_confirmed and not captured_tweet_ids:
+                final_limit = await check_daily_post_limit(page)
+                if final_limit:
+                    await self.capture_failure(page, "x_daily_limit_reached")
+                    return {
+                        "status": "failed",
+                        "posted": False,
+                        "reason": "daily_post_limit_reached",
+                        "error": f"You've hit the daily post limit on X ({final_limit})",
+                        "daily_limit_reached": True,
+                    }
                 await self.capture_failure(page, "compose_post_timeout")
                 logger.error("Post composer still open and unconfirmed after timeout.")
                 return False

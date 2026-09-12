@@ -73,13 +73,33 @@ async def execute_job_on_page(
         )
         page = await context.new_page()
         action_result = await execute_browser_action(page, job.action_type, job.params)
+
+        # Check if action encountered daily post limit
+        is_daily_limit = (
+            isinstance(action_result, dict) and (
+                action_result.get("daily_limit_reached")
+                or action_result.get("reason") == "daily_post_limit_reached"
+                or "daily post limit" in str(action_result.get("error", "")).lower()
+            )
+        )
+        if is_daily_limit:
+            from xbot.safety.guard.drain_lock import set_daily_post_limit_drained
+            err_detail = action_result.get("error") if isinstance(action_result, dict) else "Hit X daily post limit"
+            set_daily_post_limit_drained(r, job.profile_slug, reason=str(err_detail))
+            logger.critical(
+                "[%s] AUTO-SET X DAILY POST LIMIT DRAIN LOCK for profile %s: %s",
+                lane_name.upper(),
+                job.profile_slug,
+                err_detail,
+            )
+
         set_browser_job_result(job.job_id, action_result, r)
         logger.info(
             "[%s] Completed browser job %s (%s): %s",
             lane_name.upper(),
             job.job_id,
             job.action_type,
-            action_result.get("status"),
+            action_result.get("status") if isinstance(action_result, dict) else action_result,
         )
         return action_result
 
@@ -92,6 +112,10 @@ async def execute_job_on_page(
             e,
             exc_info=True,
         )
+        err_str = str(e).lower()
+        if "daily post limit" in err_str or "hit the daily post limit" in err_str:
+            from xbot.safety.guard.drain_lock import set_daily_post_limit_drained
+            set_daily_post_limit_drained(r, job.profile_slug, reason=str(e))
         err_result = {"status": "error", "error": str(e), "action_type": job.action_type}
         set_browser_job_result(job.job_id, err_result, r)
         return err_result

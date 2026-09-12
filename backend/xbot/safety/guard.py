@@ -6,8 +6,12 @@ from xbot.safety.guard import (
     SafetyGuard,
     calculate_adjusted_limits,
     calculate_warmup_multiplier,
+    clear_daily_post_limit_drained,
+    get_daily_post_limit_status,
     handle_action_failure,
+    is_daily_post_limit_drained,
     send_webhook_alert,
+    set_daily_post_limit_drained,
 )
 
 __all__ = [
@@ -15,6 +19,10 @@ __all__ = [
     "SafetyGuard",
     "calculate_adjusted_limits",
     "calculate_warmup_multiplier",
+    "clear_daily_post_limit_drained",
+    "get_daily_post_limit_status",
     "handle_action_failure",
+    "is_daily_post_limit_drained",
     "send_webhook_alert",
+    "set_daily_post_limit_drained",
 ]

@@ -99,6 +99,11 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
             profiles = p_res.scalars().all()
 
             for prof in profiles:
+                from xbot.safety.guard.drain_lock import is_daily_post_limit_drained, set_daily_post_limit_drained
+                if is_daily_post_limit_drained(r, prof.profile_slug):
+                    logger.info("Auto-publish skipped for %s: X Daily Post Limit is currently drained until reset.", prof.profile_slug)
+                    continue
+
                 cfg_path = Path(settings.BASE_PROFILE_DIR) / prof.profile_slug
                 config = load_config(cfg_path) if cfg_path.exists() else None
                 require_approval = getattr(config, "require_post_approval", False) if config else False
@@ -419,6 +424,23 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                             except Exception as link_e:
                                 logger.warning("Failed to post 1st-reply link injection: %s", link_e)
                     else:
+                        is_daily_limit = (
+                            getattr(resp.action_result, "daily_limit_reached", False)
+                            or (isinstance(getattr(resp, "action_result", None), dict) and getattr(resp, "action_result", {}).get("daily_limit_reached"))
+                            or (isinstance(getattr(resp, "data", None), dict) and getattr(resp, "data", {}).get("daily_limit_reached"))
+                            or "daily post limit" in str(getattr(resp, "error", "")).lower()
+                            or "daily post limit" in str(getattr(resp, "action_result", "")).lower()
+                        )
+                        if is_daily_limit:
+                            set_daily_post_limit_drained(r, prof.profile_slug, reason="Auto-publish hit X daily post limit")
+                            logger.critical(
+                                "Auto-publish: X Daily Post Limit reached for %s! Preserving draft %s for tomorrow.",
+                                prof.profile_slug,
+                                draft.id,
+                            )
+                            # Do NOT mark FAILED, leave draft intact for reset tomorrow
+                            break
+
                         meta = dict(draft.ai_metadata or {})
                         meta["publish_attempts"] = meta.get("publish_attempts", 0) + 1
                         draft.ai_metadata = meta
@@ -429,6 +451,11 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                 except Exception as ex:
                     logger.error("Error auto-publishing draft for %s: %s", prof.profile_slug, ex)
                     errors.append(f"{prof.profile_slug}: {ex}")
+                    ex_str = str(ex).lower()
+                    if "daily post limit" in ex_str or "hit the daily post limit" in ex_str:
+                        set_daily_post_limit_drained(r, prof.profile_slug, reason=str(ex))
+                        logger.critical("Auto-publish: X Daily Post Limit exception for %s. Preserving draft %s.", prof.profile_slug, draft.id)
+                        break
                     meta = dict(draft.ai_metadata or {})
                     meta["publish_attempts"] = meta.get("publish_attempts", 0) + 1
                     draft.ai_metadata = meta

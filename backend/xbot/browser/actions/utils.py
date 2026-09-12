@@ -147,3 +147,54 @@ async def human_scroll_to_tweet(page: Page, tweet_el: Any) -> None:
     await tweet_el.scroll_into_view_if_needed()
     await sleep_think_time(800, 2500)
 
+
+async def check_daily_post_limit(page: Page) -> str | None:
+    """
+    Checks if X (Twitter) has displayed a daily post limit error or modal:
+    - 'You've hit the daily post limit. Subscribe to Premium for higher limits.'
+    - 'Upgrade to unlock'
+    - 'Daily limit reached'
+    Returns the detected warning string, or None if no limit banner is found.
+    """
+    try:
+        # Check inside modal dialog, alert boxes, toasts, and floating error banners
+        selectors = [
+            'div[role="dialog"]',
+            '[data-testid="toast"]',
+            'div[role="alert"]',
+            '[data-testid="error-detail"]',
+            'div[data-testid="SheetDialog"]',
+        ]
+        limit_keywords = [
+            "hit the daily post limit",
+            "daily post limit",
+            "subscribe to premium for higher limits",
+            "daily tweet limit",
+            "you are unable to post",
+            "you are unable to tweet",
+        ]
+
+        for sel in selectors:
+            elements = await page.query_selector_all(sel)
+            for el in elements:
+                try:
+                    if await el.is_visible():
+                        txt = (await el.inner_text()).lower()
+                        for kw in limit_keywords:
+                            if kw in txt:
+                                logger.critical("Detected X Daily Post Limit banner: '%s'", kw)
+                                return kw
+                except Exception:
+                    pass
+
+        # Fallback: check whole page body text if suspicious keywords match
+        body_text = await page.evaluate("() => document.body ? document.body.innerText.toLowerCase() : ''")
+        for kw in limit_keywords:
+            if kw in body_text:
+                logger.critical("Detected X Daily Post Limit in page body: '%s'", kw)
+                return kw
+
+    except Exception as e:
+        logger.debug("check_daily_post_limit error: %s", e)
+    return None
+

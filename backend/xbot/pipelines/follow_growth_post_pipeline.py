@@ -84,6 +84,11 @@ async def run_follow_growth_post_for_profile(
             pass
 
     # 1. Rate Limit & Safety Check
+    from xbot.safety.guard.drain_lock import is_daily_post_limit_drained, set_daily_post_limit_drained
+    if is_daily_post_limit_drained(r, profile_slug):
+        logger.info("FollowGrowthPost: Skipped for @%s (X Daily Post Limit is currently drained until reset)", clean_handle)
+        return {"status": "skipped", "reason": "daily_post_limit_drained"}
+
     can_post = await guard.can_act(db, profile_slug, "growth_post")
     if not can_post:
         logger.info("FollowGrowthPost: Skipped for @%s (daily growth post rate limit reached)", clean_handle)
@@ -245,6 +250,17 @@ async def run_follow_growth_post_for_profile(
             await guard.record_action(db, profile_slug, "growth_post", target_id=str(new_post_id))
             await db.commit()
         else:
+            is_daily_limit = (
+                getattr(post_res.action_result, "daily_limit_reached", False)
+                or (isinstance(getattr(post_res, "action_result", None), dict) and getattr(post_res, "action_result", {}).get("daily_limit_reached"))
+                or (isinstance(getattr(post_res, "data", None), dict) and getattr(post_res, "data", {}).get("daily_limit_reached"))
+                or "daily post limit" in str(getattr(post_res, "error", "")).lower()
+                or "daily post limit" in str(getattr(post_res, "action_result", "")).lower()
+            )
+            if is_daily_limit:
+                set_daily_post_limit_drained(r, profile_slug, reason="FollowGrowthPost hit X daily post limit")
+                logger.critical("FollowGrowthPost: X Daily Post Limit reached for %s. Set drain lock.", profile_slug)
+
             # Leave in queue as APPROVED so auto_publish_pending_drafts will publish when session clears!
             content_record.status = ContentStatus.APPROVED
             ai_meta = dict(content_record.ai_metadata or {})
