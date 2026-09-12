@@ -68,6 +68,15 @@ class ContainerHealthTier:
                 continue
             container_name = names[0].lstrip("/")
 
+            # Ensure we do not audit third-party containers (e.g. immich_redis or paperless-broker)
+            is_xbot_related = (
+                "xbot" in container_name.lower()
+                or container_name in ("redis", "worker", "browser-worker", "backend")
+                or container_name.startswith(("worker", "browser-worker", "backend", "redis"))
+            )
+            if not is_xbot_related:
+                continue
+
             # Check if container matches target stack patterns
             if not any(pattern in container_name for pattern in self.target_patterns):
                 continue
