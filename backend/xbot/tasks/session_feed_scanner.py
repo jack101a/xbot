@@ -203,7 +203,6 @@ async def scan_session_feed(
     # 3. Live Trends Ingestion: Fetch breaking trends and viral discussions (with 24h deduplication)
     try:
         import hashlib
-        from xbot.config import settings
         from xbot.ai.trend_radar import fetch_rss_trends
         import redis.asyncio as aioredis
         r_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)

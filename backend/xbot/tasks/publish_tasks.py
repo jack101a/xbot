@@ -255,8 +255,40 @@ async def _auto_publish_pending_drafts_async() -> dict[str, Any]:
                     if success:
                         draft.status = ContentStatus.POSTED
                         draft.posted_at = now_ist()
+                        tweet_url = getattr(resp.action_result, "url", None)
                         if resp.action_result and resp.action_result.target_id:
                             draft.tweet_id = resp.action_result.target_id
+                            if not tweet_url:
+                                tweet_url = f"https://x.com/{prof.x_handle.lstrip('@')}/status/{resp.action_result.target_id}"
+
+                        # Record in Action table so Dashboard Live Activities feed displays it immediately
+                        from xbot.models.session import Action, ActionStatus, ActionType, Session, SessionStatus
+                        s_stmt = select(Session).where(Session.profile_id == prof.id).order_by(Session.started_at.desc()).limit(1)
+                        latest_sess = (await db.execute(s_stmt)).scalar_one_or_none()
+                        if not latest_sess:
+                            pub_sess = Session(
+                                profile_id=prof.id,
+                                status=SessionStatus.COMPLETED,
+                                started_at=now_ist(),
+                                ended_at=now_ist(),
+                                summary={"type": "auto_publish"},
+                            )
+                            db.add(pub_sess)
+                            await db.flush()
+                            latest_sess = pub_sess
+
+                        act_type = ActionType.THREAD if draft.content_type == ContentType.THREAD else ActionType.POST
+                        action_rec = Action(
+                            profile_id=prof.id,
+                            session_id=latest_sess.id,
+                            action_type=act_type,
+                            target_url=tweet_url,
+                            content=draft.body,
+                            status=ActionStatus.COMPLETED,
+                            result={"tweet_id": draft.tweet_id, "url": tweet_url, "source": "auto_publish"},
+                            executed_at=now_ist(),
+                        )
+                        db.add(action_rec)
                         await db.commit()
                         await guard.record_action_success(prof.profile_slug, "post")
                         published_count += 1
