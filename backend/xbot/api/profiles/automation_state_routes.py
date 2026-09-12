@@ -91,7 +91,7 @@ async def update_profile_config(
     if "schedule" in payload and isinstance(payload["schedule"], dict):
         for k, v in payload["schedule"].items():
             if hasattr(config.schedule, k):
-                if k in ("min_sessions_per_day", "max_sessions_per_day", "interval_minutes"):
+                if k in ("min_sessions_per_day", "max_sessions_per_day", "interval_minutes", "follow_growth_interval_minutes"):
                     try:
                         setattr(config.schedule, k, int(v))
                     except (ValueError, TypeError):
@@ -99,17 +99,36 @@ async def update_profile_config(
                 else:
                     setattr(config.schedule, k, str(v))
 
+    if "follow_growth_interval_minutes" in payload:
+        try:
+            config.schedule.follow_growth_interval_minutes = int(payload["follow_growth_interval_minutes"])
+        except (ValueError, TypeError):
+            pass
+
     save_config(profile_dir, config)
 
     try:
-        import redis, datetime
+        import redis, datetime, time
         from xbot.config import settings
-        r = redis.from_url(settings.REDIS_URL)
+        r = redis.from_url(settings.REDIS_URL, decode_responses=True)
         today_str = datetime.date.today().isoformat()
         redis_key = f"schedule:{db_profile.profile_slug}:{today_str}"
         r.delete(redis_key)
+
+        # If follow growth interval was updated, realign next due timestamp if existing cooldown exceeds new interval
+        target_growth_m = getattr(config.schedule, "follow_growth_interval_minutes", 60)
+        due_key = f"xbot:growth_post:next_due:{db_profile.profile_slug}"
+        curr_due_str = r.get(due_key)
+        if curr_due_str:
+            try:
+                curr_due = int(curr_due_str)
+                now_ts = int(time.time())
+                if curr_due - now_ts > target_growth_m * 60:
+                    r.set(due_key, str(now_ts + target_growth_m * 60), ex=86400)
+            except (ValueError, TypeError):
+                pass
     except Exception as e:
-        logger.warning("Could not clear Redis schedule cache for %s: %s", db_profile.profile_slug, e)
+        logger.warning("Could not clear/realign Redis schedule cache for %s: %s", db_profile.profile_slug, e)
 
     return {"status": "success", "message": "Automation limits and schedule updated successfully.", "config": config.model_dump()}
 

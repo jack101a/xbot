@@ -1,11 +1,32 @@
-import React from "react";
-import { Zap, RefreshCw, BadgeCheck } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Zap, RefreshCw, BadgeCheck, Clock } from "lucide-react";
+import { api } from "@/lib/api";
 import { useF4F } from "../hooks/useF4F";
 import { FollowGrowthMetrics } from "./FollowGrowthMetrics";
 import { F4FLeaderboard } from "./F4FLeaderboard";
 import { RadarOpportunityList } from "./RadarOpportunityList";
 
 export function F4FTab({ profileId }: { profileId: string }) {
+  const [cadenceMins, setCadenceMins] = useState<number>(60);
+  const [updatingCadence, setUpdatingCadence] = useState(false);
+
+  useEffect(() => {
+    async function loadCadence() {
+      if (!profileId) return;
+      try {
+        const c = await api.getProfileConfig(profileId);
+        if (c?.schedule?.follow_growth_interval_minutes) {
+          setCadenceMins(c.schedule.follow_growth_interval_minutes);
+        } else if (c?.follow_growth_interval_minutes) {
+          setCadenceMins(c.follow_growth_interval_minutes);
+        }
+      } catch (e) {
+        // fallback 60
+      }
+    }
+    loadCadence();
+  }, [profileId]);
+
   const {
     f4fNiche, setF4fNiche,
     f4fBlueTickOnly, setF4fBlueTickOnly,
@@ -23,6 +44,25 @@ export function F4FTab({ profileId }: { profileId: string }) {
     handleHarvestGrowthPost,
     handleFollowCandidate
   } = useF4F(profileId);
+
+  const handleUpdateCadence = async (mins: number) => {
+    setUpdatingCadence(true);
+    try {
+      setCadenceMins(mins);
+      const c = await api.getProfileConfig(profileId);
+      const newConfig = {
+        ...c,
+        schedule: { ...(c?.schedule || {}), follow_growth_interval_minutes: mins },
+        follow_growth_interval_minutes: mins,
+      };
+      await api.updateProfileConfig(profileId, newConfig);
+      setF4fMsg(`Growth post cadence updated to every ${mins}m (${mins === 60 ? "1 hour" : mins >= 60 ? `${Math.round((mins / 60) * 10) / 10}h` : `${mins}m`})`);
+    } catch (e: any) {
+      setF4fMsg(e?.message || "Failed to update cadence.");
+    } finally {
+      setUpdatingCadence(false);
+    }
+  };
 
   return (
       <>
@@ -92,6 +132,35 @@ export function F4FTab({ profileId }: { profileId: string }) {
             </div>
 
             <FollowGrowthMetrics f4fStats={f4fStats} />
+
+            {/* Follow Growth Post Cadence Control */}
+            <div className="flex items-center justify-between flex-wrap gap-2 pt-3 border-t border-blue-500/20 text-xs">
+              <div className="flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5 text-blue-400" />
+                <span className="text-blue-100 font-semibold">Growth Post Cadence:</span>
+                <span className="text-blue-300 font-mono text-[11px] font-bold">
+                  Every {cadenceMins}m {cadenceMins === 60 ? "(1 hour)" : cadenceMins >= 60 ? `(${Math.round((cadenceMins / 60) * 10) / 10}h)` : ""}
+                </span>
+                <span className="text-blue-200/60 text-[10px] hidden sm:inline">(±15% jitter)</span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {[15, 30, 45, 60, 90, 120, 180].map((mins) => (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => handleUpdateCadence(mins)}
+                    disabled={updatingCadence}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                      cadenceMins === mins
+                        ? "bg-blue-500 text-white shadow-sm shadow-blue-500/30"
+                        : "bg-blue-950/60 hover:bg-blue-900/60 text-blue-300 border border-blue-500/30"
+                    }`}
+                  >
+                    {mins === 60 ? "1h (Default)" : mins >= 60 ? `${mins / 60}h` : `${mins}m`}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           {/* Action Message Alert */}
           {f4fMsg && (

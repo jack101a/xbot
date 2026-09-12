@@ -53,6 +53,16 @@ async def run_follow_growth_post_for_profile(
 
     import time
     import random
+    from pathlib import Path
+    from xbot.config import settings
+    from xbot.persona import load_config
+
+    cfg_path = Path(settings.BASE_PROFILE_DIR) / profile_slug
+    config = load_config(cfg_path) if cfg_path.exists() else None
+    target_interval_m = getattr(config.schedule, "follow_growth_interval_minutes", 60) if config and hasattr(config, "schedule") else 60
+    if not target_interval_m or target_interval_m < 5:
+        target_interval_m = 60
+
     r = getattr(guard, "r", None)
     redis_key_next_due = f"xbot:growth_post:next_due:{profile_slug}"
     next_due_ts_str = r.get(redis_key_next_due) if r else None
@@ -64,9 +74,10 @@ async def run_follow_growth_post_for_profile(
             if now_ts < next_due_ts:
                 remaining_m = max(1, (next_due_ts - now_ts) // 60)
                 logger.info(
-                    "FollowGrowthPost: @%s in randomized 40-120m cadence window (%d mins remaining)",
+                    "FollowGrowthPost: @%s in cadence window (%d mins remaining, target interval: %dm)",
                     clean_handle,
                     remaining_m,
+                    target_interval_m,
                 )
                 return {"status": "skipped", "reason": f"interval_cooldown_{remaining_m}m"}
         except (ValueError, TypeError):
@@ -328,15 +339,19 @@ async def run_follow_growth_post_for_profile(
         logger.error("FollowGrowthPost: Error in growth cycle for @%s: %s", clean_handle, e, exc_info=True)
         return {"status": "error", "error": str(e)}
     finally:
-        # Schedule next random interval between 40 and 120 minutes (2400 to 7200 seconds)
-        # Guarantees cooldown is set even if posting fails, preventing rapid repeated ChatGPT calls
-        next_gap_sec = random.randint(40 * 60, 120 * 60)
+        # Schedule next interval based on user configured follow_growth_interval_minutes with ±15% anti-bot jitter
+        jitter_m = max(2, int(target_interval_m * 0.15))
+        min_m = max(5, target_interval_m - jitter_m)
+        max_m = target_interval_m + jitter_m
+        next_gap_sec = random.randint(min_m * 60, max_m * 60)
         if r:
             r.set(redis_key_next_due, str(now_ts + next_gap_sec), ex=86400)
         logger.info(
-            "FollowGrowthPost: Scheduled next growth cycle for @%s in %d mins (random 40-120m cadence)",
+            "FollowGrowthPost: Scheduled next growth cycle for @%s in %d mins (configured target %dm ±%dm)",
             clean_handle,
             next_gap_sec // 60,
+            target_interval_m,
+            jitter_m,
         )
 
     return {

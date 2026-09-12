@@ -137,6 +137,7 @@ class ScheduleConfig(BaseModel):
     min_sessions_per_day: int = 3
     max_sessions_per_day: int = 5
     interval_minutes: int = 45
+    follow_growth_interval_minutes: int = 60
 
 
 class LimitsConfig(BaseModel):
