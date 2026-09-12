@@ -59,18 +59,30 @@ async def run_quote_pipeline_for_profile(
             profile_slug=profile_slug,
             action=BrowserActionType.SCRAPE_FEED,
             params={"scroll_count": 3, "collect_tweets": True},
-            timeout_seconds=60,
+            timeout_seconds=120,
         )
         scrape_res = await c.browser.execute(scrape_req)
-        if scrape_res.status in ("success", "ok") and scrape_res.scrape:
-            for tw in scrape_res.scrape.tweets:
-                feed_tweets.append({
-                    "id": tw.tweet_id,
-                    "text": tw.text,
-                    "url": tw.url,
-                    "metrics": tw.metrics,
-                    "author": tw.handle,
-                })
+        if scrape_res.status in ("success", "ok"):
+            if scrape_res.scrape and scrape_res.scrape.tweets:
+                for tw in scrape_res.scrape.tweets:
+                    feed_tweets.append({
+                        "id": tw.tweet_id,
+                        "text": tw.text,
+                        "url": tw.url,
+                        "metrics": tw.metrics,
+                        "author": tw.handle,
+                    })
+            elif scrape_res.action_result and scrape_res.action_result.raw:
+                raw_tw = scrape_res.action_result.raw.get("tweets") or []
+                for tw in raw_tw:
+                    if isinstance(tw, dict):
+                        feed_tweets.append({
+                            "id": str(tw.get("tweet_id") or tw.get("id") or ""),
+                            "text": tw.get("text") or "",
+                            "url": tw.get("url") or tw.get("tweet_url") or "",
+                            "metrics": tw.get("metrics") or {},
+                            "author": tw.get("handle") or tw.get("author") or "",
+                        })
     except Exception as scrape_err:
         logger.debug("QuotePipeline: Feed scrape error for %s: %s", profile_slug, scrape_err)
 
@@ -213,6 +225,7 @@ async def run_quote_pipeline_for_profile(
             quotes_count += 1
             try:
                 from xbot.models.content import Content, ContentStatus, ContentType
+                from xbot.models.session import Action, ActionStatus, ActionType, Session, SessionStatus
                 from xbot.ai.topic_utils import extract_topic_tag
                 quote_record = Content(
                     profile_id=profile.id,
@@ -228,6 +241,33 @@ async def run_quote_pipeline_for_profile(
                     },
                 )
                 db.add(quote_record)
+
+                # Record in Action table so Dashboard Live Activities feed displays it immediately
+                s_stmt = select(Session).where(Session.profile_id == profile.id).order_by(Session.started_at.desc()).limit(1)
+                latest_sess = (await db.execute(s_stmt)).scalar_one_or_none()
+                if not latest_sess:
+                    pub_sess = Session(
+                        profile_id=profile.id,
+                        status=SessionStatus.COMPLETED,
+                        started_at=now_ist(),
+                        ended_at=now_ist(),
+                        summary={"type": "quote_pipeline"},
+                    )
+                    db.add(pub_sess)
+                    await db.flush()
+                    latest_sess = pub_sess
+
+                action_rec = Action(
+                    profile_id=profile.id,
+                    session_id=latest_sess.id,
+                    action_type=ActionType.QUOTE,
+                    target_url=tweet_url or f"https://x.com/i/status/{tweet_id}",
+                    content=formatted_quote,
+                    status=ActionStatus.COMPLETED,
+                    result={"tweet_id": tweet_id, "url": tweet_url, "source": "quote_pipeline"},
+                    executed_at=now_ist(),
+                )
+                db.add(action_rec)
                 await db.commit()
             except Exception as rec_err:
                 logger.debug("QuotePipeline: Could not save posted content record: %s", rec_err)

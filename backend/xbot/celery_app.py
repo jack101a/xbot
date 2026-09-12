@@ -68,6 +68,12 @@ celery_app.conf.beat_schedule = {
         "schedule": 1500.0,
         "options": {"expires": 1500.0},
     },
+    # 6b. Trend Generator (runs every 30 min to generate fresh draft takes/posts from researched topics)
+    "trend-generator-every-30m": {
+        "task": "xbot.pipelines.trend_generator_pipeline.run_trend_generator",
+        "schedule": 1800.0,
+        "options": {"expires": 1800.0},
+    },
     # 7. Instant Trend Growth Pipeline (every 60s)
     "instant-trend-campaign-runner-every-60s": {
         "task": "xbot.tasks.process_active_instant_trend_campaigns",

@@ -173,11 +173,13 @@ class PipelineAuditor:
             .join(Profile, Session.profile_id == Profile.id)
             .where(
                 Session.status == SessionStatus.RUNNING,
-                Session.started_at <= cutoff_naive,
             )
         )
         res = await db.execute(stmt)
         rows = res.all()
+
+        now_curr_ist = now_ist()
+        now_curr_utc = datetime.datetime.utcnow()
 
         issues = []
         for sess, slug in rows:
@@ -185,7 +187,17 @@ class PipelineAuditor:
             if slug in ctx["active_profiles"] or str(sess.id) in str(ctx["active_tasks"]):
                 continue
 
-            runtime_m = int((now_ist().replace(tzinfo=None) - sess.started_at).total_seconds() // 60)
+            if not sess.started_at:
+                continue
+
+            diff_ist = (now_curr_ist - sess.started_at.replace(tzinfo=None)).total_seconds() / 60
+            diff_utc = (now_curr_utc - sess.started_at.replace(tzinfo=None)).total_seconds() / 60
+            candidates = [d for d in [diff_ist, diff_utc] if d >= 0]
+            runtime_m = int(min(candidates)) if candidates else 0
+
+            if runtime_m < threshold_minutes:
+                continue
+
             issues.append({
                 "type": "STUCK_SESSION",
                 "session_id": str(sess.id),
@@ -207,18 +219,19 @@ class PipelineAuditor:
         SAFEGUARDS:
         - Skips any pipeline whose task name is still in Celery active tasks.
         """
-        cutoff_naive = (now_ist() - datetime.timedelta(minutes=threshold_minutes)).replace(tzinfo=None)
         ctx = celery_ctx if celery_ctx is not None else self.get_active_celery_context()
 
         stmt = (
             select(PipelineRun, PipelineRun.pipeline_name)
             .where(
                 PipelineRun.status == "running",
-                PipelineRun.started_at <= cutoff_naive,
             )
         )
         res = await db.execute(stmt)
         stuck_runs = res.all()
+
+        now_curr_ist = now_ist()
+        now_curr_utc = datetime.datetime.utcnow()
 
         issues = []
         for run_obj, name in stuck_runs:
@@ -226,7 +239,17 @@ class PipelineAuditor:
             if any(name in tname for tname in ctx["task_names"]):
                 continue
 
-            runtime_m = int((now_ist().replace(tzinfo=None) - run_obj.started_at).total_seconds() // 60)
+            if not run_obj.started_at:
+                continue
+
+            diff_ist = (now_curr_ist - run_obj.started_at.replace(tzinfo=None)).total_seconds() / 60
+            diff_utc = (now_curr_utc - run_obj.started_at.replace(tzinfo=None)).total_seconds() / 60
+            candidates = [d for d in [diff_ist, diff_utc] if d >= 0]
+            runtime_m = int(min(candidates)) if candidates else 0
+
+            if runtime_m < threshold_minutes:
+                continue
+
             issues.append({
                 "type": "STUCK_PIPELINE_RUN",
                 "run_id": str(run_obj.id),
@@ -250,8 +273,6 @@ class PipelineAuditor:
         - Anti-flapping: Skips drafts currently on supervisor healing cooldown.
         - Skips if auto_publish_pending_drafts is actively running in Celery.
         """
-        now_curr = now_ist()
-        cutoff_naive = (now_curr - datetime.timedelta(minutes=threshold_minutes)).replace(tzinfo=None)
         ctx = celery_ctx if celery_ctx is not None else self.get_active_celery_context()
 
         # If auto_publish is currently running, let it do its job
@@ -264,11 +285,13 @@ class PipelineAuditor:
             .where(
                 Content.status == ContentStatus.APPROVED,
                 Content.posted_at.is_(None),
-                Content.created_at <= cutoff_naive,
             )
         )
         res = await db.execute(stmt)
         stuck_items = res.all()
+
+        now_curr_ist = now_ist()
+        now_curr_utc = datetime.datetime.utcnow()
 
         issues = []
         for content_item, slug in stuck_items:
@@ -279,10 +302,10 @@ class PipelineAuditor:
             if sched_str:
                 try:
                     sched_dt = datetime.datetime.fromisoformat(sched_str.replace("Z", "+00:00")).replace(tzinfo=None)
-                    if sched_dt > now_curr.replace(tzinfo=None):
+                    if sched_dt > now_curr_ist.replace(tzinfo=None):
                         continue  # Scheduled for the future, perfectly normal
                     # If scheduled in the past, calculate overdue time based on scheduled_for
-                    if (now_curr.replace(tzinfo=None) - sched_dt).total_seconds() < (threshold_minutes * 60):
+                    if (now_curr_ist.replace(tzinfo=None) - sched_dt).total_seconds() < (threshold_minutes * 60):
                         continue  # Has not exceeded threshold past its scheduled time
                 except Exception:
                     pass
@@ -292,7 +315,18 @@ class PipelineAuditor:
             if self.r.exists(cooldown_key):
                 continue
 
-            age_m = int((now_curr.replace(tzinfo=None) - content_item.created_at).total_seconds() // 60)
+            created_at = content_item.created_at
+            if created_at:
+                diff_ist = (now_curr_ist - created_at.replace(tzinfo=None)).total_seconds() / 60
+                diff_utc = (now_curr_utc - created_at.replace(tzinfo=None)).total_seconds() / 60
+                candidates = [d for d in [diff_ist, diff_utc] if d >= 0]
+                age_m = int(min(candidates)) if candidates else 0
+            else:
+                age_m = 0
+
+            if age_m < threshold_minutes:
+                continue
+
             attempts = ai_meta.get("publish_attempts", 0)
             last_err = ai_meta.get("last_error", "None")
 
@@ -300,7 +334,7 @@ class PipelineAuditor:
                 "type": "STUCK_APPROVED_DRAFT",
                 "content_id": str(content_item.id),
                 "profile_slug": slug,
-                "created_at": content_item.created_at.isoformat(),
+                "created_at": content_item.created_at.isoformat() if content_item.created_at else "",
                 "age_minutes": age_m,
                 "publish_attempts": attempts,
                 "last_error": last_err,

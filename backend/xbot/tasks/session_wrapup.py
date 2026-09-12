@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import xbot.tasks as tasks
 from xbot.ai.post_session import PostSessionProcessor
 from xbot.models.session import Session, SessionStatus
+from xbot.utils.time import now_ist
 
 logger = logging.getLogger("xbot.tasks.session_wrapup")
 
@@ -30,7 +31,7 @@ async def finalize_session(
     session.actions_completed = completed
     session.actions_failed = failed
     session.status = SessionStatus.COMPLETED
-    session.ended_at = datetime.datetime.utcnow()
+    session.ended_at = now_ist()
     await db.commit()
 
     tasks.broadcast_session_log(session.id, "session_complete", {
@@ -62,7 +63,7 @@ async def handle_session_abort(
     """Handles natural skip / plan abort for a session."""
     session.status = SessionStatus.ABORTED
     session.summary = {"reason": "natural_skip", "skip_reason": skip_reason}
-    session.ended_at = datetime.datetime.utcnow()
+    session.ended_at = now_ist()
     await db.commit()
 
     tasks.broadcast_session_log(session.id, "session_complete", {
@@ -82,7 +83,7 @@ async def handle_session_failure(
     logger.error("Session crash for profile %s: %s", profile_slug, error_msg)
     session.status = SessionStatus.FAILED
     session.error_log = error_msg
-    session.ended_at = datetime.datetime.utcnow()
+    session.ended_at = now_ist()
     await db.commit()
 
     tasks.broadcast_session_log(session.id, "session_complete", {

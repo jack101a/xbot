@@ -3,6 +3,7 @@ async def setup_session_record(db, profile_id):
     from xbot.models.profile import Profile, ProfileStatus
     from xbot.models.session import Session, SessionStatus
     import datetime
+    from xbot.utils.time import now_ist
     from .common import broadcast_session_log
     
     stmt = select(Profile).where(Profile.id == profile_id)
@@ -17,7 +18,7 @@ async def setup_session_record(db, profile_id):
     session = Session(
         profile_id=profile_id,
         status=SessionStatus.RUNNING,
-        started_at=datetime.datetime.utcnow(),
+        started_at=now_ist(),
     )
     db.add(session)
     await db.commit()
@@ -28,10 +29,11 @@ async def setup_session_record(db, profile_id):
 async def complete_session_record(db, session_obj, error_log=None):
     import datetime
     from xbot.models.session import SessionStatus
+    from xbot.utils.time import now_ist
     if error_log:
         session_obj.status = SessionStatus.FAILED
         session_obj.error_log = error_log
     else:
         session_obj.status = SessionStatus.COMPLETED
-    session_obj.ended_at = datetime.datetime.utcnow()
+    session_obj.ended_at = now_ist()
     await db.commit()

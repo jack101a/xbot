@@ -60,10 +60,11 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
         profile_slug = profile.profile_slug
 
         # 2. Create Session DB record
+        from xbot.utils.time import now_ist
         session = Session(
             profile_id=profile_id,
             status=SessionStatus.RUNNING,
-            started_at=datetime.datetime.utcnow(),
+            started_at=now_ist(),
         )
         db.add(session)
         await db.commit()
@@ -82,7 +83,7 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
         if not manager.acquire_lock(profile_slug, timeout_seconds=1200):
             session.status = SessionStatus.FAILED
             session.error_log = "Could not acquire session lock (another session running for profile)."
-            session.ended_at = datetime.datetime.utcnow()
+            session.ended_at = now_ist()
             await db.commit()
             return {"status": "failed", "error": "Profile session lock collision."}
 
