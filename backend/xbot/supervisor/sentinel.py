@@ -192,6 +192,12 @@ class SentinelDaemon:
                             target_container = "worker"
                     elif finding.get("metric") == "chrome":
                         target_container = "browser-worker"
+                    elif finding.get("component") == "redis_queue" and finding.get("action_needed") == "restart_container":
+                        q = finding.get("queue", "")
+                        if q in ("celery", "publish"):
+                            target_container = "worker"
+                        elif q == "browser":
+                            target_container = "browser-worker"
 
                     if target_container:
                         logger.warning(
@@ -209,6 +215,12 @@ class SentinelDaemon:
                             healed_actions.append(restart_res.get("action", f"Restarted {target_container}"))
                             # Reset persistence counter following successful restart trigger
                             self._anomaly_persistence[anomaly_key] = 0
+                            # Clear queue stall marker in Redis if it was a queue stall
+                            if finding.get("component") == "redis_queue" and "queue" in finding:
+                                try:
+                                    self.r.delete(f"xbot:sentinel:queue_stall:{finding['queue']}")
+                                except Exception:
+                                    pass
 
             # Prune resolved anomalies from persistence tracker
             for k in list(self._anomaly_persistence.keys()):

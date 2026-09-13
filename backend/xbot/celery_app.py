@@ -18,7 +18,8 @@ celery_app.conf.update(
     timezone="Asia/Kolkata",
     enable_utc=False,
     task_track_started=True,
-    task_time_limit=1800,  # 30 minutes max execution time
+    task_soft_time_limit=300,  # 5 minutes soft limit (raises SoftTimeLimitExceeded)
+    task_time_limit=600,  # 10 minutes hard limit (sends SIGKILL to hung child)
     worker_prefetch_multiplier=1,
     task_acks_late=True,
     worker_max_tasks_per_child=10,

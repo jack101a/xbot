@@ -458,3 +458,49 @@ async def test_sentinel_daemon_tick_and_persistence_escalation():
     await daemon.run_tick()
     assert mock_docker.restart_container.call_count == 1
     mock_docker.restart_container.assert_awaited_with("worker", timeout_seconds=30)
+
+
+@pytest.mark.asyncio
+async def test_sentinel_daemon_escalates_on_unserviced_queue_stall():
+    """
+    Verify SentinelDaemon escalates unserviced Redis queue stalls to
+    the responsible worker container ('worker' for celery/publish, 'browser-worker' for browser).
+    """
+    fake_r = MockRedis()
+    fake_r.set("xbot:sentinel:queue_stall:celery", "12345")
+
+    mock_docker = MagicMock(spec=DockerSocketClient)
+    mock_docker.is_available.return_value = True
+    mock_docker.restart_container = AsyncMock(return_value=True)
+
+    daemon = SentinelDaemon(redis_client=fake_r, docker_client=mock_docker, check_interval=1.0)
+    daemon.tier1.audit_containers = AsyncMock(return_value=[])
+    daemon.tier3.audit_business = AsyncMock(return_value=[])
+
+    # Mock Tier 2 queue finding: unserviced for > 15m (action_needed: restart_container)
+    daemon.tier2.audit_middleware = AsyncMock(return_value=[
+        {
+            "level": "CRITICAL",
+            "tier": 2,
+            "component": "redis_queue",
+            "queue": "celery",
+            "depth": 120,
+            "stall_seconds": 1200,
+            "message": "Queue 'celery' has been unserviced for 20m (depth: 120)",
+            "action_needed": "restart_container",
+        }
+    ])
+
+    # Tick 1 & 2: Persistence counters increment
+    await daemon.run_tick()
+    await daemon.run_tick()
+    assert mock_docker.restart_container.call_count == 0
+
+    # Tick 3: Persistence = 3 -> Triggers restart on 'worker'
+    await daemon.run_tick()
+    assert mock_docker.restart_container.call_count == 1
+    mock_docker.restart_container.assert_awaited_with("worker", timeout_seconds=30)
+
+    # Stall marker in Redis should be deleted after successful restart
+    assert fake_r.exists("xbot:sentinel:queue_stall:celery") == 0
+
