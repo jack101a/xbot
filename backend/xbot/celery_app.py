@@ -22,7 +22,7 @@ celery_app.conf.update(
     task_time_limit=600,  # 10 minutes hard limit (sends SIGKILL to hung child)
     worker_prefetch_multiplier=1,
     task_acks_late=True,
-    worker_max_tasks_per_child=10,
+    worker_max_tasks_per_child=50,
     worker_max_memory_per_child=300000,
 )
 

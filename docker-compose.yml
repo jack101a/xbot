@@ -59,8 +59,8 @@ services:
     - --beat
     - -Q
     - celery,publish
-    - --max-tasks-per-child=10
-    - --concurrency=1
+    - --max-tasks-per-child=50
+    - --concurrency=3
     - --loglevel=info
     - -n
     - tasks@%h
