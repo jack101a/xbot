@@ -169,8 +169,10 @@ start_services() {
         echo -e "${YELLOW}⚡ Supervisor Sentinel is already running.${NC}"
     else
         echo -n "Starting Out-of-Band Supervisor Sentinel (Guardian)... "
-        setsid "${VENV_PYTHON}" "${PROJECT_ROOT}/scripts/supervisor_sentinel.py" </dev/null > "${LOG_DIR}/sentinel.log" 2>&1 &
+        cd "${BACKEND_DIR}"
+        setsid "${VENV_PYTHON}" -m xbot.supervisor.sentinel </dev/null > "${LOG_DIR}/sentinel.log" 2>&1 &
         echo $! > "${PID_DIR}/sentinel.pid"
+        cd "${PROJECT_ROOT}"
         sleep 1
         if is_pid_running "${PID_DIR}/sentinel.pid"; then
             echo -e "${GREEN}DONE (PID: $(cat "${PID_DIR}/sentinel.pid"))${NC}"

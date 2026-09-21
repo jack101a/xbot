@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import re
 from playwright.async_api import Page
 from xbot.browser.timing import (
     human_click,
@@ -49,6 +50,10 @@ async def _attach_gif_if_requested(page: Page, gif_query: str | None) -> bool:
 
         if not search_input:
             logger.warning("GIF search input not found, falling back to text-only.")
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
             return False
 
         await human_type(page, search_input_sel, gif_query)
@@ -104,9 +109,17 @@ async def _attach_gif_if_requested(page: Page, gif_query: str | None) -> bool:
             return True
         else:
             logger.warning("No GIF items found for query '%s', falling back to text-only.", gif_query)
+            try:
+                await page.keyboard.press("Escape")
+            except Exception:
+                pass
             return False
     except Exception as e:
         logger.warning("Could not attach GIF (falling back to text-only): %s", e)
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
         return False
 
 

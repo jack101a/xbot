@@ -122,10 +122,8 @@ async def check_fixer_heartbeat() -> None:
             except Exception as e:
                 logger.exception("Sentinel: Emergency healing encounter: %s", e)
 
-            # Restart Celery to unblock frozen thread pool
-            logger.warning("Sentinel: Recycling frozen Celery workers...")
-            xbot_sh = PROJECT_ROOT / "xbot.sh"
-            subprocess.run([str(xbot_sh), "restart"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Do not blindly restart all services if heartbeat key was deprecated
+            logger.info("Sentinel: In-band heartbeat check bypassed (migrated to unified sentinel daemon).")
 
             # Refresh heartbeat
             r.set("xbot:supervisor:heartbeat", str(int(time.time())), ex=300)

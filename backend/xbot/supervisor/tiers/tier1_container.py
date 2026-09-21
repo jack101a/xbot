@@ -150,8 +150,8 @@ class ContainerHealthTier:
                     elif "defunct" in cmd or stat.startswith("Z"):
                         defunct_count += 1
 
-                if chrome_count > 6 or defunct_count > 0:
-                    level = "CRITICAL" if (chrome_count > 10 or defunct_count > 2) else "WARNING"
+                if chrome_count > 16 or defunct_count > 0:
+                    level = "CRITICAL" if (chrome_count > 24 or defunct_count > 2) else "WARNING"
                     findings.append({
                         "level": level,
                         "tier": 1,
@@ -159,7 +159,7 @@ class ContainerHealthTier:
                         "metric": "chrome",
                         "value": chrome_count,
                         "defunct_count": defunct_count,
-                        "action_needed": "restart_container" if chrome_count > 8 else "soft_heal",
+                        "action_needed": "restart_container" if (chrome_count > 24 or defunct_count > 2) else "soft_heal",
                         "message": f"Container '{container_name}' has {chrome_count} Chrome processes ({defunct_count} defunct)",
                     })
 

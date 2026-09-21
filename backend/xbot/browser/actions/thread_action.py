@@ -158,26 +158,48 @@ class ComposeThread(BaseAction):
 
                 logger.info("Clicking 'Add post' button to create tweet %d/%d...", idx + 1, len(clean_tweets))
                 try:
-                    await add_btn.click(timeout=2500)
+                    await human_click(page, add_btn, 200, 500)
                 except Exception:
                     try:
                         await add_btn.click(force=True, timeout=2500)
                     except Exception:
-                        await page.evaluate('(btn) => btn.click()', add_btn)
-                await sleep_with_jitter(1000)
+                        await page.evaluate('''btn => {
+                            btn.dispatchEvent(new MouseEvent("mousedown", {bubbles: true}));
+                            btn.dispatchEvent(new MouseEvent("mouseup", {bubbles: true}));
+                            btn.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+                        }''', add_btn)
+                await sleep_with_jitter(1200)
 
-                # Explicitly target tweetTextarea_{idx} created by X (using state="attached" in case it is below scroll fold)
+                # Explicitly target tweetTextarea_{idx} created by X
                 target_el = None
-                try:
-                    target_el = await page.wait_for_selector(
-                        f'div[role="dialog"] div[data-testid="tweetTextarea_{idx}"]',
-                        state="attached",
-                        timeout=8000,
-                    )
-                except Exception:
+                for _attempt in range(3):
+                    try:
+                        target_el = await page.wait_for_selector(
+                            f'div[role="dialog"] div[data-testid="tweetTextarea_{idx}"], div[role="dialog"] div[data-testid^="tweetTextarea_{idx}"]',
+                            state="attached",
+                            timeout=4000,
+                        )
+                        if target_el:
+                            break
+                    except Exception:
+                        pass
+                    # If not appeared yet, try dispatching click again
                     all_textboxes = await page.query_selector_all('div[role="dialog"] div[role="textbox"][data-testid^="tweetTextarea_"]')
                     if idx < len(all_textboxes):
                         target_el = all_textboxes[idx]
+                        break
+                    try:
+                        await page.evaluate('''() => {
+                            const btn = document.querySelector('div[role="dialog"] button[data-testid="addButton"], button[data-testid="addButton"], button[aria-label*="Add" i]');
+                            if (btn) {
+                                btn.dispatchEvent(new MouseEvent("mousedown", {bubbles: true}));
+                                btn.dispatchEvent(new MouseEvent("mouseup", {bubbles: true}));
+                                btn.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+                            }
+                        }''')
+                        await asyncio.sleep(1)
+                    except Exception:
+                        pass
 
                 if not target_el:
                     raise RuntimeError(f"Could not locate tweetTextarea_{idx} for tweet {idx+1}/{len(clean_tweets)}")

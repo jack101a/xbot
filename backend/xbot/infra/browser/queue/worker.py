@@ -160,7 +160,7 @@ async def _process_browser_queue_async(max_jobs: int = 10) -> int:
     r = get_redis_client()
 
     # Acquire worker lock (prevent overlapping drain workers)
-    lock_acquired = r.set(QUEUE_LOCK_KEY, "1", ex=60, nx=True)
+    lock_acquired = r.set(QUEUE_LOCK_KEY, "1", ex=300, nx=True)
     if not lock_acquired:
         logger.debug("Browser queue worker lock already held; skipping cycle.")
         return 0
@@ -226,7 +226,11 @@ async def _process_browser_queue_async(max_jobs: int = 10) -> int:
 from xbot.celery_app import celery_app
 
 
-@celery_app.task(name="xbot.pipelines.browser_queue.process_browser_queue")
-def process_browser_queue(max_jobs: int = 10) -> int:
+@celery_app.task(
+    name="xbot.pipelines.browser_queue.process_browser_queue",
+    time_limit=360,
+    soft_time_limit=300,
+)
+def process_browser_queue(max_jobs: int = 2) -> int:
     """Synchronous Celery entry point for dual-lane browser queue worker."""
     return asyncio.run(_process_browser_queue_async(max_jobs=max_jobs))
