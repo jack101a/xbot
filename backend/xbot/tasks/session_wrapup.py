@@ -84,6 +84,21 @@ async def handle_session_failure(
     session.status = SessionStatus.FAILED
     session.error_log = error_msg
     session.ended_at = now_ist()
+
+    # Cascade failure to any lingering actions in this session
+    from sqlalchemy import update
+    from xbot.models.session import Action, ActionStatus
+    await db.execute(
+        update(Action)
+        .where(
+            Action.session_id == session.id,
+            Action.status.in_([ActionStatus.EXECUTING, ActionStatus.STAGED, ActionStatus.PENDING]),
+        )
+        .values(
+            status=ActionStatus.FAILED,
+            error=f"Session terminated: {error_msg}",
+        )
+    )
     await db.commit()
 
     tasks.broadcast_session_log(session.id, "session_complete", {
