@@ -35,11 +35,11 @@ celery_app.conf.task_routes = {
 
 # Celery Beat Periodic Schedule — Phase 0 Streamlined Core Cadence
 celery_app.conf.beat_schedule = {
-    # 1. Central Browser Queue Worker (10s cadence for instant pickup)
-    "browser-queue-worker-every-10s": {
+    # 1. Central Browser Queue Worker (60s fallback safety poll; immediate triggers occur on enqueue)
+    "browser-queue-worker-every-60s": {
         "task": "xbot.pipelines.browser_queue.process_browser_queue",
-        "schedule": 10.0,
-        "options": {"queue": "browser", "expires": 10.0},
+        "schedule": 60.0,
+        "options": {"queue": "browser", "expires": 60.0},
     },
     # 2. Auto-Publish Approved/Pending Drafts (5 min)
     "auto-publish-pending-drafts-every-300-seconds": {
