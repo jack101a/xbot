@@ -1,9 +1,11 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 from pydantic import BaseModel
+from httpx import AsyncClient, ASGITransport
 
 from xbot.ai.client import RoutingClient
-from xbot.ai.chatgpt_adapter import ChatGPTBridgeAdapter, _extract_json_payload
+from xbot.ai.chatgpt_adapter import ChatGPTBridgeAdapter, ChatGPTBridgeCompletions, _extract_json_payload
+from xbot.main import app
 
 
 class SampleResponse(BaseModel):
@@ -30,11 +32,12 @@ def test_extract_json_payload():
 @pytest.mark.asyncio
 async def test_chatgpt_bridge_adapter_create():
     adapter = ChatGPTBridgeAdapter()
-    with patch("xbot.ai.chatgpt_adapter.get_chatgpt_instance") as mock_get_inst:
-        mock_inst = AsyncMock()
-        mock_inst.ask.return_value = {"text": "This is a high-IQ contrarian post about creator economy.", "conversation_id": "c123"}
-        mock_get_inst.return_value = mock_inst
-
+    with patch.object(
+        ChatGPTBridgeCompletions,
+        "_post_prompt",
+        new_callable=AsyncMock,
+        return_value="This is a high-IQ contrarian post about creator economy.",
+    ) as mock_post:
         completion = await adapter.chat.completions.create(
             model="auto",
             messages=[
@@ -44,18 +47,19 @@ async def test_chatgpt_bridge_adapter_create():
         )
 
         assert completion.choices[0].message.content == "This is a high-IQ contrarian post about creator economy."
-        assert mock_inst.ask.called
+        assert mock_post.called
 
 
 @pytest.mark.asyncio
 async def test_chatgpt_bridge_adapter_parse():
     adapter = ChatGPTBridgeAdapter()
     sample_json = '{"headline": "Frontier AI", "takeaways": ["Reasoning", "Scale"]}'
-    with patch("xbot.ai.chatgpt_adapter.get_chatgpt_instance") as mock_get_inst:
-        mock_inst = AsyncMock()
-        mock_inst.ask.return_value = {"text": f"```json\n{sample_json}\n```", "conversation_id": "c456"}
-        mock_get_inst.return_value = mock_inst
-
+    with patch.object(
+        ChatGPTBridgeCompletions,
+        "_post_prompt",
+        new_callable=AsyncMock,
+        return_value=f"```json\n{sample_json}\n```",
+    ) as mock_post:
         completion = await adapter.beta.chat.completions.parse(
             model="auto",
             messages=[{"role": "user", "content": "Generate summary"}],
@@ -66,21 +70,21 @@ async def test_chatgpt_bridge_adapter_parse():
         assert isinstance(parsed, SampleResponse)
         assert parsed.headline == "Frontier AI"
         assert parsed.takeaways == ["Reasoning", "Scale"]
+        assert mock_post.called
 
 
 @pytest.mark.asyncio
 async def test_routing_client_chatgpt_cascade_fallback():
     client = RoutingClient()
 
-    with patch("xbot.ai.chatgpt_adapter.get_chatgpt_instance") as mock_get_inst, \
-         patch("xbot.ai.client.AsyncOpenAI") as mock_openai_cls:
+    with patch.object(
+        ChatGPTBridgeCompletions,
+        "_post_prompt",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("ChatGPT bridge connection refused"),
+    ), patch("xbot.ai.client.AsyncOpenAI") as mock_openai_cls:
 
-        # 1. ChatGPT Bridge fails
-        mock_chatgpt_inst = AsyncMock()
-        mock_chatgpt_inst.ask.side_effect = RuntimeError("Cloudflare session blocked")
-        mock_get_inst.return_value = mock_chatgpt_inst
-
-        # 2. Fallback OpenAI client succeeds
+        # Fallback OpenAI client succeeds
         mock_openai_inst = AsyncMock()
         mock_completion = AsyncMock()
         mock_choice = AsyncMock()
@@ -97,26 +101,27 @@ async def test_routing_client_chatgpt_cascade_fallback():
         assert result.choices[0].message.content == "Fallback generated from Gemini Flash."
 
 
-from httpx import AsyncClient, ASGITransport
-from xbot.main import app
-
-
 @pytest.mark.asyncio
-async def test_api_chatgpt_status_and_cookie_import(tmp_path):
+async def test_api_chatgpt_status_and_test_session():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        # Test status endpoint
+        # 1. Test status endpoint
         res = await ac.get("/api/system/chatgpt/status")
         assert res.status_code == 200
         data = res.json()
         assert "status" in data
-        assert "has_cookie_file" in data
+        assert "bridge_url" in data
+        assert "online" in data
 
-        # Test cookie import endpoint
-        sample_cookies = '[{"name": "__Secure-next-auth.session-token", "value": "mock_token_val", "domain": ".chatgpt.com"}]'
-        import_res = await ac.post("/api/system/chatgpt/cookies", json={"cookies": sample_cookies})
+        # 2. Test live test endpoint (with simulated custom URL)
+        test_res = await ac.post("/api/system/chatgpt/test", json={"bridge_url": "http://127.0.0.1:8465"})
+        assert test_res.status_code == 200
+        test_data = test_res.json()
+        assert "status" in test_data
+        assert "latency_ms" in test_data
+        assert "bridge_url" in test_data
+
+        # 3. Test cookie import legacy stub
+        import_res = await ac.post("/api/system/chatgpt/cookies", json={"cookies": "dummy"})
         assert import_res.status_code == 200
-        import_data = import_res.json()
-        assert import_data["status"] == "success"
-        assert import_data["cookie_count"] == 1
-        assert import_data["has_valid_session_token"] is True
+        assert import_res.json()["status"] == "success"

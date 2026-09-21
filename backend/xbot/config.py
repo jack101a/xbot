@@ -90,6 +90,8 @@ class Settings(BaseSettings):
 
     # ChatGPT Web Bridge & Image Generation
     CHATGPT_BRIDGE_ENABLED: bool = True
+    CHATGPT_BRIDGE_URL: str = "http://192.168.0.200:8465"
+    CHATGPT_BRIDGE_TIMEOUT: float = 180.0
     CHATGPT_BRIDGE_HEADLESS: bool = False
     CHATGPT_BRIDGE_STATE_DIR: str = "~/.chatgpt-bridge"
     IMAGE_GENERATION_PROVIDER: str = "chatgpt,nvidia"

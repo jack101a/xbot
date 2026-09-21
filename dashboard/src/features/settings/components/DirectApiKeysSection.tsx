@@ -83,7 +83,7 @@ export function DirectApiKeysSection({
         ))}
       </div>
 
-      <ChatGPTBridgeCard />
+      <ChatGPTBridgeCard config={config} setConfig={setConfig} />
     </div>
   );
 }

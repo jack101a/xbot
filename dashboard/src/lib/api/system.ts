@@ -18,9 +18,15 @@ export const systemApi = {
   getChatGPTStatus: () =>
     request<{
       status: string;
-      has_cookie_file: boolean;
-      cookie_count: number;
-      has_valid_session_token: boolean;
+      online?: boolean;
+      authenticated?: boolean;
+      bridge_url?: string;
+      latency_ms?: number;
+      plan_type?: string;
+      left_percent?: number;
+      used_percent?: number;
+      reset_at_str?: string;
+      email?: string;
       message: string;
     }>('/api/system/chatgpt/status'),
   importChatGPTCookies: (cookies: string) =>
@@ -33,15 +39,18 @@ export const systemApi = {
       method: 'POST',
       body: JSON.stringify({ cookies }),
     }),
-  testChatGPTLiveSession: () =>
+  testChatGPTLiveSession: (bridgeUrl?: string) =>
     request<{
       status: string;
       authenticated: boolean;
+      bridge_url?: string;
       latency_ms: number;
-      user?: { email?: string; name?: string; image?: string; expires?: string };
+      user?: { email?: string; plan?: string; left_percent?: number };
+      quota?: any;
       message: string;
     }>('/api/system/chatgpt/test', {
       method: 'POST',
+      body: JSON.stringify(bridgeUrl ? { bridge_url: bridgeUrl } : {}),
     }),
   getAIPromptLogs: (params?: { limit?: number; offset?: number; provider?: string; q?: string }) => {
     const qp = new URLSearchParams();

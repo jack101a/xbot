@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import time
 from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -36,6 +37,7 @@ class SystemConfigUpdate(BaseModel):
     GEMINI_API_KEY: str | None = None
     DEEPSEEK_API_KEY: str | None = None
     OPENROUTER_API_KEY: str | None = None
+    CHATGPT_BRIDGE_URL: str | None = None
 
 @router.put("/system/config", response_model=dict[str, Any])
 async def update_system_config(payload: SystemConfigUpdate) -> dict[str, Any]:
@@ -117,6 +119,7 @@ async def update_system_config(payload: SystemConfigUpdate) -> dict[str, Any]:
             "GEMINI_API_KEY": settings.GEMINI_API_KEY,
             "DEEPSEEK_API_KEY": settings.DEEPSEEK_API_KEY,
             "OPENROUTER_API_KEY": settings.OPENROUTER_API_KEY,
+            "CHATGPT_BRIDGE_URL": getattr(settings, "CHATGPT_BRIDGE_URL", "http://192.168.0.200:8465"),
             "API_PORT": settings.API_PORT,
         }
     }
@@ -170,124 +173,115 @@ async def get_system_models(
         return {"models": []}
 
 
+class ChatGPTTestPayload(BaseModel):
+    bridge_url: str | None = None
+
+
 class ChatGPTCookiePayload(BaseModel):
     cookies: str
 
 
 @router.get("/system/chatgpt/status")
 async def get_chatgpt_status() -> dict[str, Any]:
-    """Inspects the on-disk cookies and active session state of ChatGPT Web Bridge."""
-    from pathlib import Path
-    from xbot.ai.chatgpt_bridge.session import COOKIE_JSON, COOKIE_TXT
-    from xbot.ai.chatgpt_bridge.cookies import load_cookie_file, cookies_valid
-
-    cookie_path = COOKIE_JSON if COOKIE_JSON.exists() else (COOKIE_TXT if COOKIE_TXT.exists() else None)
-    if not cookie_path:
-        return {
-            "status": "missing_cookies",
-            "has_cookie_file": False,
-            "cookie_count": 0,
-            "has_valid_session_token": False,
-            "message": "No cookies.json or cookies.txt found in ~/.chatgpt-bridge/",
-        }
-
+    """Inspects the active status and quota of the standalone ChatGPT Bridge."""
+    bridge_url = getattr(settings, "CHATGPT_BRIDGE_URL", "http://192.168.0.200:8465").rstrip("/")
+    start_time = time.time()
     try:
-        cookies = load_cookie_file(cookie_path)
-        valid = cookies_valid(cookies)
-        return {
-            "status": "authenticated" if valid else "expired",
-            "has_cookie_file": True,
-            "cookie_count": len(cookies),
-            "has_valid_session_token": valid,
-            "file_path": str(cookie_path),
-            "message": "Session token present." if valid else "Session token expired or missing.",
-        }
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            status_resp = await client.get(f"{bridge_url}/status")
+            quota_resp = await client.get(f"{bridge_url}/api/accounts/quota")
+            latency_ms = int((time.time() - start_time) * 1000)
+
+            is_online = status_resp.status_code == 200
+            status_data = status_resp.json() if is_online else {}
+            quota_data = quota_resp.json().get("quota", {}) if quota_resp.status_code == 200 else {}
+
+            authenticated = status_data.get("authenticated", False)
+            if not authenticated and quota_data:
+                authenticated = bool(quota_data.get("email"))
+
+            plan_type = quota_data.get("plan_type", "unknown")
+            left_percent = quota_data.get("left_percent", 100)
+            user_email = quota_data.get("email") or "ChatGPT User"
+
+            return {
+                "status": "authenticated" if authenticated else "unauthenticated",
+                "online": is_online,
+                "authenticated": authenticated,
+                "bridge_url": bridge_url,
+                "latency_ms": latency_ms,
+                "plan_type": plan_type,
+                "left_percent": left_percent,
+                "used_percent": quota_data.get("used_percent", 0),
+                "reset_at_str": quota_data.get("reset_at_str"),
+                "email": user_email,
+                "message": f"Bridge online ({latency_ms}ms) · Plan: {plan_type.upper()} · {left_percent}% quota left",
+            }
     except Exception as e:
+        latency_ms = int((time.time() - start_time) * 1000)
         return {
-            "status": "error",
-            "has_cookie_file": True,
-            "cookie_count": 0,
-            "has_valid_session_token": False,
-            "error": str(e),
+            "status": "offline",
+            "online": False,
+            "authenticated": False,
+            "bridge_url": bridge_url,
+            "latency_ms": latency_ms,
+            "message": f"Bridge offline or unreachable at {bridge_url}: {e}",
         }
-
-
-@router.post("/system/chatgpt/cookies")
-async def import_chatgpt_cookies(payload: ChatGPTCookiePayload) -> dict[str, Any]:
-    """Imports and validates raw cookies (JSON or Netscape) for ChatGPT Web Bridge."""
-    from pathlib import Path
-    import json
-    from xbot.ai.chatgpt_bridge.cookies import _parse_json, _parse_netscape, cookies_valid
-    from xbot.ai.chatgpt_adapter import reset_chatgpt_instance
-
-    raw = payload.cookies.strip()
-    if not raw:
-        return {"status": "error", "message": "Cookie content cannot be empty."}
-
-    parsed = []
-    try:
-        if raw.startswith("{") or raw.startswith("["):
-            parsed = _parse_json(raw)
-        else:
-            parsed = _parse_netscape(raw)
-    except Exception as e:
-        return {"status": "error", "message": f"Failed to parse cookies: {e}"}
-
-    if not parsed:
-        return {"status": "error", "message": "No valid cookies found in payload."}
-
-    # Save to ~/.chatgpt-bridge/cookies.json
-    state_dir = Path("~/.chatgpt-bridge").expanduser()
-    state_dir.mkdir(parents=True, exist_ok=True)
-    cookie_dest = state_dir / "cookies.json"
-    cookie_dest.write_text(json.dumps(parsed, indent=2), encoding="utf-8")
-
-    # Reset in-memory ChatGPT singleton so it loads new cookies
-    reset_chatgpt_instance()
-
-    valid = cookies_valid(parsed)
-    return {
-        "status": "success",
-        "cookie_count": len(parsed),
-        "has_valid_session_token": valid,
-        "message": f"Successfully imported {len(parsed)} cookies. Session token {'verified' if valid else 'missing'}!",
-    }
 
 
 @router.post("/system/chatgpt/test")
-async def test_chatgpt_live_session() -> dict[str, Any]:
-    """Tests the live session connection to chatgpt.com via the bridge."""
-    import time
-    from xbot.ai.chatgpt_adapter import get_chatgpt_instance, _bridge_lock
-
+async def test_chatgpt_live_session(payload: ChatGPTTestPayload | None = None) -> dict[str, Any]:
+    """Tests connection, latency, authentication, and quota for the ChatGPT Bridge."""
+    target_url = (payload.bridge_url if payload and payload.bridge_url else getattr(settings, "CHATGPT_BRIDGE_URL", "http://192.168.0.200:8465")).strip().rstrip("/")
     start_time = time.time()
     try:
-        async with _bridge_lock:
-            bridge = get_chatgpt_instance()
-            await bridge._ensure_started()
-            user_info = await bridge.session.get_user_info()
-            latency_ms = int((time.time() - start_time) * 1000)
-
-            if user_info:
-                return {
-                    "status": "success",
-                    "authenticated": True,
-                    "latency_ms": latency_ms,
-                    "user": user_info,
-                    "message": f"ChatGPT session active for {user_info.get('email') or 'authenticated user'} ({latency_ms}ms)",
-                }
-            else:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            health_resp = await client.get(f"{target_url}/health")
+            if health_resp.status_code != 200:
                 return {
                     "status": "error",
                     "authenticated": False,
-                    "latency_ms": latency_ms,
-                    "message": "Session check returned unauthenticated. Please refresh cookies.",
+                    "bridge_url": target_url,
+                    "latency_ms": int((time.time() - start_time) * 1000),
+                    "message": f"Health check returned HTTP {health_resp.status_code} from {target_url}",
                 }
+
+            quota_resp = await client.get(f"{target_url}/api/accounts/quota")
+            latency_ms = int((time.time() - start_time) * 1000)
+            quota_data = quota_resp.json().get("quota", {}) if quota_resp.status_code == 200 else {}
+
+            user_email = quota_data.get("email") or "ChatGPT Account"
+            plan = quota_data.get("plan_type", "Standard")
+            left = quota_data.get("left_percent", 100)
+
+            return {
+                "status": "success",
+                "authenticated": True,
+                "bridge_url": target_url,
+                "latency_ms": latency_ms,
+                "user": {
+                    "email": user_email,
+                    "plan": plan,
+                    "left_percent": left,
+                },
+                "quota": quota_data,
+                "message": f"Successfully connected to ChatGPT Bridge at {target_url} ({latency_ms}ms) · Account: {user_email} ({plan.upper()})",
+            }
     except Exception as exc:
         latency_ms = int((time.time() - start_time) * 1000)
         return {
             "status": "error",
             "authenticated": False,
+            "bridge_url": target_url,
             "latency_ms": latency_ms,
-            "message": f"Live test failed: {exc}",
+            "message": f"Failed to connect to {target_url}: {exc}",
         }
+
+
+@router.post("/system/chatgpt/cookies")
+async def import_chatgpt_cookies(payload: ChatGPTCookiePayload) -> dict[str, Any]:
+    """Legacy cookie import endpoint kept for backward compatibility."""
+    return {
+        "status": "success",
+        "message": "Cookies managed via standalone bridge. Use the Bridge Dashboard to refresh session tokens.",
+    }

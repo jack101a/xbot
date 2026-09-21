@@ -185,6 +185,7 @@ export interface SystemConfig {
   NVIDIA_BASE_URL?: string;
   NVIDIA_DEFAULT_IMAGE_MODEL?: string;
   CHATGPT_BRIDGE_ENABLED?: boolean;
+  CHATGPT_BRIDGE_URL?: string;
   CHATGPT_BRIDGE_HEADLESS?: boolean;
   CHATGPT_BRIDGE_STATE_DIR?: string;
   IMAGE_GENERATION_PROVIDER?: string;

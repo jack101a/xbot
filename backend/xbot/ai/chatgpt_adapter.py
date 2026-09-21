@@ -1,11 +1,9 @@
 """
-OpenAI-compatible Adapter for ChatGPT Web Bridge.
+OpenAI-compatible Remote Adapter for ChatGPT Web Bridge.
 
-Provides drop-in compatibility for AsyncOpenAI interfaces:
-- client.chat.completions.create(...)
-- client.beta.chat.completions.parse(...)
-
-Uses asyncio.Lock to serialize turns and prevent tab collisions.
+Communicates over async HTTP with the standalone ChatGPT Bridge container
+(e.g., http://192.168.0.200:8465), offloading heavy Chromium execution and
+eliminating in-process browser memory leaks from Celery workers.
 """
 
 from __future__ import annotations
@@ -17,47 +15,33 @@ import os
 import re
 from typing import Any, TypeVar
 
+import httpx
 from pydantic import BaseModel
 
-from xbot.ai.chatgpt_bridge.core import ChatGPT
-from xbot.ai.chatgpt_bridge.errors import (
-    AuthError,
-    BridgeTimeoutError,
-    ShapeChangedError,
-)
 from xbot.config import settings
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-# Global lock & singleton instance
+# Legacy backward-compatibility lock
 _bridge_lock = asyncio.Lock()
-_bridge_instance: ChatGPT | None = None
 
 
-def get_chatgpt_instance() -> ChatGPT:
-    """Returns or creates the singleton ChatGPT web bridge instance."""
-    global _bridge_instance
-    if _bridge_instance is None:
-        headless = getattr(settings, "CHATGPT_BRIDGE_HEADLESS", True)
-        if not os.environ.get("DISPLAY"):
-            headless = True
-        if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("CHATGPT_BRIDGE_HEADLESS") == "1":
-            headless = True
-        _bridge_instance = ChatGPT(headless=headless, auto_relogin=False)
-    return _bridge_instance
+def get_bridge_url() -> str:
+    """Returns the configured bridge base URL stripped of trailing slash."""
+    raw = getattr(settings, "CHATGPT_BRIDGE_URL", "http://192.168.0.200:8465")
+    return (raw or "http://192.168.0.200:8465").strip().rstrip("/")
 
 
 def reset_chatgpt_instance() -> None:
-    """Closes and resets the singleton instance (e.g. for testing)."""
-    global _bridge_instance
-    if _bridge_instance is not None:
-        try:
-            _bridge_instance.close()
-        except Exception:
-            pass
-        _bridge_instance = None
+    """Legacy stub kept for backward compatibility."""
+    pass
+
+
+def get_chatgpt_instance() -> Any:
+    """Legacy stub returning a facade client."""
+    return ChatGPTBridgeAdapter()
 
 
 class MockMessage:
@@ -78,7 +62,7 @@ class MockChatCompletion:
 
 
 def _format_messages_to_prompt(messages: list[dict[str, Any]]) -> str:
-    """Combines OpenAI-style system and user messages into a unified ChatGPT prompt."""
+    """Combines OpenAI-style system and user messages into a unified prompt."""
     parts = []
     for msg in messages:
         role = msg.get("role", "user")
@@ -118,10 +102,46 @@ def _extract_json_payload(text: str) -> dict[str, Any]:
 
 
 class ChatGPTBridgeCompletions:
-    """Handles chat completions via ChatGPT bridge."""
+    """Handles chat completions via the remote ChatGPT Bridge container."""
 
     def __init__(self, is_beta: bool = False) -> None:
         self.is_beta = is_beta
+
+    async def _post_prompt(self, prompt: str, model: str = "auto", timeout_s: float | None = None) -> str:
+        """Sends a prompt to the remote ChatGPT bridge and extracts generated text."""
+        bridge_url = get_bridge_url()
+        timeout = timeout_s or float(getattr(settings, "CHATGPT_BRIDGE_TIMEOUT", 180.0))
+
+        use_thinking = False
+        if any(kw in str(model).lower() for kw in ("think", "reason", "sol", "o3")):
+            use_thinking = True
+
+        payload = {
+            "prompt": prompt,
+            "thinking": use_thinking,
+            "model": "chatgpt-thinking" if use_thinking else "chatgpt",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(f"{bridge_url}/api/ask", json=payload)
+                if resp.status_code != 200:
+                    err_text = resp.text[:300]
+                    raise RuntimeError(f"ChatGPT bridge returned HTTP {resp.status_code}: {err_text}")
+                data = resp.json()
+                text = data.get("text") or data.get("response", "")
+                if not text:
+                    raise RuntimeError(f"ChatGPT bridge returned empty response payload: {data}")
+                return text.strip()
+        except httpx.ConnectError as ce:
+            logger.warning("ChatGPT bridge connection refused at %s: %s", bridge_url, ce)
+            raise RuntimeError(f"ChatGPT bridge offline at {bridge_url}") from ce
+        except httpx.TimeoutException as te:
+            logger.warning("ChatGPT bridge request timed out after %.1fs at %s", timeout, bridge_url)
+            raise RuntimeError(f"ChatGPT bridge timed out ({timeout}s)") from te
+        except Exception as exc:
+            logger.warning("ChatGPT bridge call error: %s", exc)
+            raise RuntimeError(f"ChatGPT bridge failure: {exc}") from exc
 
     async def create(
         self,
@@ -129,22 +149,10 @@ class ChatGPTBridgeCompletions:
         messages: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> MockChatCompletion:
-        """Sends a standard text completion prompt to ChatGPT."""
+        """Sends a standard text completion prompt to remote ChatGPT."""
         prompt = _format_messages_to_prompt(messages or [])
-        async with _bridge_lock:
-            bridge = get_chatgpt_instance()
-            try:
-                chatgpt_timeout = float(getattr(settings, "CHATGPT_TIMEOUT", 300.0))
-                res = await asyncio.wait_for(bridge.ask(prompt), timeout=chatgpt_timeout)
-                text = res.get("text", "")
-                return MockChatCompletion(content=text)
-            except asyncio.TimeoutError as te:
-                err_msg = f"ChatGPT bridge timed out after {float(getattr(settings, 'CHATGPT_TIMEOUT', 300.0))}s"
-                logger.warning("ChatGPT bridge request error: %s", err_msg)
-                raise RuntimeError(f"ChatGPT bridge failure: {err_msg}") from te
-            except (AuthError, ShapeChangedError, BridgeTimeoutError, Exception) as e:
-                logger.warning("ChatGPT bridge request error: %s", e)
-                raise RuntimeError(f"ChatGPT bridge failure: {e}") from e
+        text = await self._post_prompt(prompt, model=model)
+        return MockChatCompletion(content=text)
 
     async def parse(
         self,
@@ -153,7 +161,7 @@ class ChatGPTBridgeCompletions:
         response_format: Any = None,
         **kwargs: Any,
     ) -> MockChatCompletion:
-        """Sends a structured completion prompt and parses the JSON response into response_format."""
+        """Sends a structured completion prompt and validates JSON response into response_format."""
         schema_instruction = ""
         if response_format and issubclass(response_format, BaseModel):
             schema_json = json.dumps(response_format.model_json_schema(), indent=2)
@@ -164,29 +172,16 @@ class ChatGPTBridgeCompletions:
             )
 
         prompt = _format_messages_to_prompt(messages or []) + schema_instruction
+        text = await self._post_prompt(prompt, model=model)
+        parsed_json = _extract_json_payload(text)
 
-        async with _bridge_lock:
-            bridge = get_chatgpt_instance()
-            try:
-                chatgpt_timeout = float(getattr(settings, "CHATGPT_TIMEOUT", 300.0))
-                res = await asyncio.wait_for(bridge.ask(prompt), timeout=chatgpt_timeout)
-                text = res.get("text", "")
-                parsed_json = _extract_json_payload(text)
+        parsed_instance = None
+        if response_format and issubclass(response_format, BaseModel):
+            parsed_instance = response_format.model_validate(parsed_json)
+        else:
+            parsed_instance = parsed_json
 
-                parsed_instance = None
-                if response_format and issubclass(response_format, BaseModel):
-                    parsed_instance = response_format.model_validate(parsed_json)
-                else:
-                    parsed_instance = parsed_json
-
-                return MockChatCompletion(content=text, parsed=parsed_instance)
-            except asyncio.TimeoutError as te:
-                err_msg = f"ChatGPT bridge timed out after {float(getattr(settings, 'CHATGPT_TIMEOUT', 300.0))}s"
-                logger.warning("ChatGPT bridge structured parse error: %s", err_msg)
-                raise RuntimeError(f"ChatGPT bridge parse failure: {err_msg}") from te
-            except (AuthError, ShapeChangedError, BridgeTimeoutError, Exception) as e:
-                logger.warning("ChatGPT bridge structured parse error: %s", e)
-                raise RuntimeError(f"ChatGPT bridge parse failure: {e}") from e
+        return MockChatCompletion(content=text, parsed=parsed_instance)
 
 
 class ChatGPTBridgeAdapter:

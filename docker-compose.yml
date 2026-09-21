@@ -32,6 +32,7 @@ services:
     - REDIS_URL=redis://redis:6379/0
     - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
     - BASE_PROFILE_DIR=/app/data/profiles
+    - CHATGPT_BRIDGE_URL=${CHATGPT_BRIDGE_URL:-http://192.168.0.200:8465}
     - CHATGPT_BRIDGE_STATE=/app/data/.chatgpt-bridge
     - CHATGPT_BRIDGE_HEADLESS=true
     env_file:
@@ -73,6 +74,7 @@ services:
     - REDIS_URL=redis://redis:6379/0
     - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
     - BASE_PROFILE_DIR=/app/data/profiles
+    - CHATGPT_BRIDGE_URL=${CHATGPT_BRIDGE_URL:-http://192.168.0.200:8465}
     - CHATGPT_BRIDGE_STATE=/app/data/.chatgpt-bridge
     - CHATGPT_BRIDGE_HEADLESS=true
     env_file:
@@ -115,6 +117,7 @@ services:
     - REDIS_URL=redis://redis:6379/0
     - DATABASE_URL=sqlite+aiosqlite:////app/data/xbot.db
     - BASE_PROFILE_DIR=/app/data/profiles
+    - CHATGPT_BRIDGE_URL=${CHATGPT_BRIDGE_URL:-http://192.168.0.200:8465}
     - CHATGPT_BRIDGE_STATE=/app/data/.chatgpt-bridge
     - CHATGPT_BRIDGE_HEADLESS=true
     env_file:
