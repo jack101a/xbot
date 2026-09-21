@@ -8,13 +8,37 @@ import re
 from typing import Any
 from pydantic import BaseModel, Field
 
-from xbot.ai.anti_ai_gatekeeper import strip_surrounding_quotes
+from xbot.ai.anti_ai_gatekeeper import AntiAIGatekeeper, strip_surrounding_quotes
 from xbot.ai.client import get_ai_client
 from xbot.ai.image_engine import generate_post_image_async
 from xbot.config import settings
 from xbot.persona.loader import Persona
 
 logger = logging.getLogger(__name__)
+
+
+def is_gibberish_or_leak(text: str) -> bool:
+    """Detects leaked reasoning, token arithmetic, or corrupt model scratchpads."""
+    s = text.strip()
+    if not s or len(s) < 10:
+        return True
+    # Character/word arithmetic breakdown: e.g. "c-o-n-n-e-c-t (7)", "(5) + (7) = 43"
+    if re.search(r"\b[a-zA-Z]-[a-zA-Z]-[a-zA-Z]\b", s) or re.search(r"\(\d+\)\s*[\+\=]", s):
+        return True
+    # Mathematical equation leak: e.g. "x + y = z", "= 43"
+    if re.search(r"=\s*\d{2,}\b", s):
+        return True
+    # Chain of thought tags
+    if any(tag in s.lower() for tag in ["<think>", "</think>", "thought:", "scratchpad:"]):
+        return True
+    # JSON or Python code leakage
+    if s.startswith("{") or s.startswith("[") or s.startswith("```"):
+        return True
+    # Word count sanity: must contain at least 3 normal alphanumeric words
+    words = re.findall(r"\b[a-zA-Z]{2,}\b", s)
+    if len(words) < 3:
+        return True
+    return False
 
 BASE_GROWTH_ARCHETYPES = [
     "COMMUNITY_CONNECTION",      # High-energy call for creators, builders & peers in the niche to connect & follow
@@ -709,22 +733,35 @@ STRICT REQUIREMENTS:
         image_p = strip_surrounding_quotes(image_p)
         ratio_val = (data.get("aspect_ratio") or chosen_aspect_ratio).strip()
 
-        # Fallback if tweet_text is still empty
-        if not tweet_text:
+        # Fallback if tweet_text is empty or contains gibberish/reasoning math
+        if not tweet_text or is_gibberish_or_leak(tweet_text):
             clean_lines = []
             for l in clean_json.split("\n"):
                 s = l.strip()
-                if not s or s.startswith("{") or s.startswith("}"):
+                if not s or s.startswith("{") or s.startswith("}") or is_gibberish_or_leak(s):
                     continue
                 s = re.sub(r'^(?:\s*["\']?\w+["\']?\s*:\s*["\']?)', '', s)
                 s = strip_surrounding_quotes(s)
-                if s:
+                if s and not is_gibberish_or_leak(s):
                     clean_lines.append(s)
             if clean_lines:
                 tweet_text = "\n\n".join(clean_lines[:3])
 
-        if not tweet_text:
-            raise ValueError(f"No tweet_copy extracted from AI response (raw: {content_str[:150]})")
+        if not tweet_text or is_gibberish_or_leak(tweet_text):
+            raise ValueError(f"No valid tweet_copy extracted from AI response (rejected as gibberish/leak: {repr(tweet_text)})")
+
+        # Anti-AI Gatekeeper validation on raw text
+        gatekeeper = AntiAIGatekeeper()
+        remediated_text = gatekeeper.remediate_minor_issues(tweet_text)
+        val_res = gatekeeper.validate(remediated_text, persona=persona)
+        if not val_res.is_valid:
+            crit_errors = [e for e in val_res.errors if "Empty" in e or "buzzword" in e or "Boundary" in e]
+            if crit_errors:
+                logger.warning("Growth post copy failed AntiAIGatekeeper validation: %s", crit_errors)
+                raise ValueError(f"AntiAIGatekeeper rejected growth post: {crit_errors}")
+            tweet_text = val_res.cleaned_text
+        else:
+            tweet_text = val_res.cleaned_text
 
         # 6. Deterministic Post-Processing: Enforce gender neutrality (scrub any accidental gender admissions or verb inflections)
         clean_gender_text = sanitize_gender_neutrality(tweet_text)

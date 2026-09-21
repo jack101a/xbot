@@ -282,12 +282,27 @@ async def check_and_trigger_schedules(
         last_session = res_last.scalar_one_or_none()
 
         if last_session and last_session.status == SessionStatus.RUNNING:
-            logger.info(
-                "Skipping schedule check for profile %s: previous session %s is still running.",
-                profile.profile_slug,
-                last_session.id,
-            )
-            continue
+            from xbot.utils.time import now_ist
+            running_sec = (now_ist() - (last_session.started_at or now_ist()).replace(tzinfo=None)).total_seconds()
+            if running_sec > 900:  # > 15 minutes
+                logger.warning(
+                    "Previous session %s for profile %s has been RUNNING for %.1f mins (>15m ceiling). Marking FAILED so scheduler can resume.",
+                    last_session.id,
+                    profile.profile_slug,
+                    running_sec / 60,
+                )
+                last_session.status = SessionStatus.FAILED
+                last_session.ended_at = now_ist()
+                last_session.error_log = "Session auto-recovered by scheduler: exceeded 15m execution ceiling."
+                await db.commit()
+            else:
+                logger.info(
+                    "Skipping schedule check for profile %s: previous session %s is still running (%.1f mins).",
+                    profile.profile_slug,
+                    last_session.id,
+                    running_sec / 60,
+                )
+                continue
 
         idle_minutes = 999999.0
         if last_session:

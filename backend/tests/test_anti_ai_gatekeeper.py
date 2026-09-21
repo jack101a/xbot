@@ -114,3 +114,35 @@ def test_rejects_persona_boundary_violations(gatekeeper: AntiAIGatekeeper) -> No
     res3 = gatekeeper.validate(valid_tweet, persona=persona)
     assert res3.is_valid is True
 
+
+def test_rejects_gibberish_and_token_math_leaks(gatekeeper: AntiAIGatekeeper) -> None:
+    # Exact reproduction of the user's reported gibberish action
+    gibberish = "-t-'-s (5) + ' ' + c-o-n-n-e-c-t (7) + '.' (1) = 43\n\n#500Followers"
+    res1 = gatekeeper.validate(gibberish)
+    assert res1.is_valid is False
+    assert any("arithmetic" in err or "calculation" in err for err in res1.errors)
+
+    # Calculation leak
+    calc_leak = "Here is the equation: x + y = 43"
+    res2 = gatekeeper.validate(calc_leak)
+    assert res2.is_valid is False
+
+    # Chain of thought tag leak
+    cot_leak = "<think>\nLet me count the characters\n</think>\nHere is a tweet"
+    res3 = gatekeeper.validate(cot_leak)
+    assert res3.is_valid is False
+
+
+def test_growth_post_is_gibberish_or_leak() -> None:
+    from xbot.ai.growth_post_generator import is_gibberish_or_leak
+
+    assert is_gibberish_or_leak("-t-'-s (5) + ' ' + c-o-n-n-e-c-t (7) + '.' (1) = 43") is True
+    assert is_gibberish_or_leak("x + y = 43") is True
+    assert is_gibberish_or_leak("<think>scratchpad</think>") is True
+    assert is_gibberish_or_leak("Short") is True  # under 10 chars
+    assert is_gibberish_or_leak("{'tweet_copy': 'hello'}") is True  # raw json leak
+
+    # Valid human tweet
+    assert is_gibberish_or_leak("Looking for active mutuals on X! Drop your handle below and let's connect.") is False
+
+

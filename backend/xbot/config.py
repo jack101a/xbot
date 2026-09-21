@@ -12,17 +12,17 @@ class Settings(BaseSettings):
     
     # Model configuration by work type / job
     # Creative Writing (Heavy Models: ChatGPT Bridge Primary -> Gemini 3.7 Flash -> Gemini 3.6 Flash)
-    MODEL_POST_CREATION: str = "chatgpt/auto,litellm/gemini-3.7-flash,litellm/gemini-3.6-flash"
-    MODEL_REPLY_ANALYSIS: str = "chatgpt/auto,litellm/gemini-3.7-flash,litellm/gemini-3.6-flash"
-    MODEL_HOOK_OPTIMIZER: str = "chatgpt/auto,litellm/gemini-3.7-flash,litellm/gemini-3.6-flash"
-    MODEL_POLL_GENERATOR: str = "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
+    MODEL_POST_CREATION: str = "chatgpt/auto,litellm/gemini-3.1-flash-lite"
+    MODEL_REPLY_ANALYSIS: str = "chatgpt/auto,litellm/gemini-3.1-flash-lite"
+    MODEL_HOOK_OPTIMIZER: str = "chatgpt/auto,litellm/gemini-3.1-flash-lite"
+    MODEL_POLL_GENERATOR: str = "chatgpt/auto,litellm/gemini-3.1-flash-lite"
     
-    # Analysis & Planning (Primary DeepSeek Flash -> Fallback Gemini Flash Lite -> Fallback GPT-OSS-120B)
-    MODEL_PLANNER: str = "litellm/deepseek-v4-flash-0731,litellm/gemini-3.1-flash-lite,litellm/gpt-oss-120b"
-    MODEL_TREND_ANALYSIS: str = "litellm/deepseek-v4-flash-0731,litellm/gemini-3.1-flash-lite,litellm/gpt-oss-120b"
-    MODEL_LIKE_RETWEET: str = "litellm/deepseek-v4-flash-0731,litellm/gemini-3.1-flash-lite,litellm/gpt-oss-120b"
-    MODEL_FOLLOW: str = "litellm/deepseek-v4-flash-0731,litellm/gemini-3.1-flash-lite,litellm/gpt-oss-120b"
-    MODEL_REFLECTION: str = "litellm/deepseek-v4-flash-0731,litellm/gemini-3.1-flash-lite,litellm/gpt-oss-120b"
+    # Analysis & Planning (ChatGPT Auto Primary -> Fallback Gemini 3.1 Flash Lite)
+    MODEL_PLANNER: str = "chatgpt/auto,litellm/gemini-3.1-flash-lite"
+    MODEL_TREND_ANALYSIS: str = "chatgpt/auto,litellm/gemini-3.1-flash-lite"
+    MODEL_LIKE_RETWEET: str = "litellm/gemini-3.1-flash-lite,chatgpt/auto"
+    MODEL_FOLLOW: str = "litellm/gemini-3.1-flash-lite,chatgpt/auto"
+    MODEL_REFLECTION: str = "chatgpt/auto,litellm/gemini-3.1-flash-lite"
 
     # Prompts for each job category
     PROMPT_POST_CREATION: str = (

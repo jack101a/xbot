@@ -208,7 +208,7 @@ class CheckUserLatestTweet(BaseAction):
                 )
                 created_at = tweet_data.get("created_at")
                 if not _is_tweet_fresh(created_at, max_age_minutes=max_age_minutes):
-                    logger.info("Tweet %d on @%s (id=%s, created_at=%s) exceeds max_age of %dm; skipping.", idx + 1, tweet_data.get("tweet_id"), created_at, max_age_minutes)
+                    logger.info("Tweet %d on @%s (id=%s, created_at=%s) exceeds max_age of %dm; skipping.", idx + 1, clean_handle, tweet_data.get("tweet_id"), created_at, max_age_minutes)
                     continue
 
                 logger.info(

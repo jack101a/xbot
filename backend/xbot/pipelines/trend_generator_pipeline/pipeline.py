@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
+import re
 import sys
 from typing import Any
 
@@ -151,6 +152,19 @@ async def run_trend_generator_for_profile(
     generated_details: list[dict[str, Any]] = []
 
     for topic in pending_topics:
+        top_name = (topic.topic or "").strip()
+        is_bogus = (
+            bool(re.search(r"(?i)\b\d+[\d\.,]*\s*[kmb]?\s*posts?$", top_name))
+            or bool(re.search(r"(?i)^(?:trending|\d+\s*hours?\s*ago|\d+\s*days?\s*ago|yesterday)\b", top_name))
+            or bool(re.search(r"(?i)^(?:trending(?:\s+now|\s+in\s+[\w\s]+)?|[\w\s]+[·•]\s*trending|\d+\s*[·•]?\s*trending)$", top_name))
+            or len(top_name) < 3
+        )
+        if is_bogus:
+            logger.info("TrendGenerator: Skipping and archiving bogus metadata topic '%s'", top_name)
+            topic.processed = True
+            await db.commit()
+            continue
+
         try:
             res = await pkg.generate_content_for_topic(db, profile, topic, guard, container=c)
             if res.get("status") == "success" or res.get("status") == "staged":

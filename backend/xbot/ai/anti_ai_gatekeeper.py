@@ -123,6 +123,16 @@ class AntiAIGatekeeper:
             return ValidationResult(is_valid=False, errors=["Content is empty."], cleaned_text="")
 
         # -------------------------------------------------------------
+        # Gatekeeper -1: Reject Gibberish, Token Math & Chain of Thought Leaks
+        # -------------------------------------------------------------
+        if re.search(r"\b[a-zA-Z]-[a-zA-Z]-[a-zA-Z]\b", cleaned) or re.search(r"\(\d+\)\s*[\+\=]", cleaned):
+            errors.append("Contains leaked token/character arithmetic breakdown (e.g. 'w-o-r-d (4) + (5) = 9').")
+        if re.search(r"=\s*\d{2,}\b", cleaned):
+            errors.append("Contains leaked calculation/equation (e.g. '= 43'). Content must be natural language prose.")
+        if any(tag in cleaned.lower() for tag in ["<think>", "</think>", "thought:", "scratchpad:"]):
+            errors.append("Contains leaked chain-of-thought or reasoning tags.")
+
+        # -------------------------------------------------------------
         # Gatekeeper 0: Dynamic Persona Boundary Enforcement
         # -------------------------------------------------------------
         if persona and getattr(persona, "boundaries", None):

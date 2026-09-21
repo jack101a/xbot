@@ -83,9 +83,20 @@ class ScrapeTrends(BaseAction):
             trends: list[dict[str, str]] = []
             seen_topics: set[str] = set()
 
-            META_LINE_REGEX = re.compile(
-                r"(?i)^(?:trending(?:\s+now|\s+in\s+[\w\s]+)?|[\w\s]+·\s*trending|\d+\s*[·•]?\s*trending|[\w\s]+·\s*\d+[\d\.,]*\s*[kmb]?\s*posts?|\d+[\d\.,]*\s*[kmb]?\s*posts?)$"
-            )
+            def is_metadata_line(line_str: str) -> bool:
+                s = line_str.strip()
+                if not s:
+                    return True
+                # Match line ending with posts count e.g. "· 562 posts", "10K posts", "Entertainment · 1.5K posts"
+                if re.search(r"(?i)\b\d+[\d\.,]*\s*[kmb]?\s*posts?$", s):
+                    return True
+                # Match temporal/relative prefixes e.g. "3 hours ago", "1 day ago", "yesterday"
+                if re.search(r"(?i)^(?:trending|\d+\s*hours?\s*ago|\d+\s*days?\s*ago|yesterday)\b", s):
+                    return True
+                # Match trending indicators e.g. "Entertainment · Trending", "Trending in India"
+                if re.search(r"(?i)^(?:trending(?:\s+now|\s+in\s+[\w\s]+)?|[\w\s]+[·•]\s*trending|\d+\s*[·•]?\s*trending)$", s):
+                    return True
+                return False
 
             # 1. Try dedicated trend selector
             trend_elements = await page.query_selector_all("[data-testid='trend']")
@@ -107,7 +118,7 @@ class ScrapeTrends(BaseAction):
                 if len(lines) > 6 and any("final" in l.lower() or "today" in l.lower() for l in lines):
                     continue
 
-                substantive_lines = [l for l in lines if not META_LINE_REGEX.search(l) and len(clean_topic_string(l)) >= 2]
+                substantive_lines = [l for l in lines if not is_metadata_line(l) and len(clean_topic_string(l)) >= 2]
                 if not substantive_lines:
                     continue
 
