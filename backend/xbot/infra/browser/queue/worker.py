@@ -94,6 +94,41 @@ async def execute_job_on_page(
             )
 
         set_browser_job_result(job.job_id, action_result, r)
+
+        # Reconcile Content record if this action published a post/thread/poll
+        tweet_id = action_result.get("tweet_id") if isinstance(action_result, dict) else None
+        if tweet_id:
+            try:
+                from sqlalchemy import select
+                from xbot.database import AsyncSessionLocal
+                from xbot.models.content import Content, ContentStatus
+                from xbot.utils.time import now_ist
+                async with AsyncSessionLocal() as db_session:
+                    content_id = (job.params or {}).get("content_id")
+                    content_record = None
+                    if content_id:
+                        content_record = await db_session.get(Content, content_id)
+                    elif (job.params or {}).get("text"):
+                        stmt = select(Content).where(
+                            Content.body == job.params["text"],
+                            Content.status.in_([ContentStatus.APPROVED, ContentStatus.DRAFT, "approved", "draft"]),
+                        ).order_by(Content.created_at.desc()).limit(1)
+                        content_record = (await db_session.execute(stmt)).scalar_one_or_none()
+
+                    if content_record:
+                        content_record.status = ContentStatus.POSTED
+                        content_record.tweet_id = str(tweet_id)
+                        content_record.posted_at = now_ist()
+                        await db_session.commit()
+                        logger.info(
+                            "[%s] Reconciled Content %s to POSTED with tweet_id %s",
+                            lane_name.upper(),
+                            content_record.id,
+                            tweet_id,
+                        )
+            except Exception as rec_err:
+                logger.warning("[%s] Failed to reconcile Content for job %s: %s", lane_name.upper(), job.job_id, rec_err)
+
         logger.info(
             "[%s] Completed browser job %s (%s): %s",
             lane_name.upper(),

@@ -81,7 +81,12 @@ async def generate_content_for_topic(
                 poll_req = BrowserRequest(
                     profile_slug=profile.profile_slug,
                     action=BrowserActionType.POLL,
-                    params={"question": meta_poll.get("question") or content_record.body, "options": meta_poll.get("options") or ["Yes", "No"], "duration_minutes": 1440},
+                    params={
+                        "content_id": content_record.id,
+                        "question": meta_poll.get("question") or content_record.body,
+                        "options": meta_poll.get("options") or ["Yes", "No"],
+                        "duration_minutes": 1440,
+                    },
                     timeout_seconds=45,
                 )
                 await c.browser.execute(poll_req)
@@ -90,7 +95,11 @@ async def generate_content_for_topic(
                 thread_req = BrowserRequest(
                     profile_slug=profile.profile_slug,
                     action=BrowserActionType.THREAD,
-                    params={"tweets": t_items, "media_paths": media_to_attach},
+                    params={
+                        "content_id": content_record.id,
+                        "tweets": t_items,
+                        "media_paths": media_to_attach,
+                    },
                     timeout_seconds=60,
                 )
                 await c.browser.execute(thread_req)
@@ -100,6 +109,7 @@ async def generate_content_for_topic(
                     profile_slug=profile.profile_slug,
                     action=BrowserActionType.POST,
                     params={
+                        "content_id": content_record.id,
                         "text": content_record.body,
                         "media_paths": meta.get("media_paths"),
                         "gif_query": meta.get("gif_query"),
