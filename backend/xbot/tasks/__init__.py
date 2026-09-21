@@ -55,6 +55,7 @@ from .common import (
     extract_tweet_id_from_url,
     _parse_x_counts,
     has_already_acted,
+    has_already_posted_similar_text,
     broadcast_session_log,
     _extract_or_generate_poll_data,
 )
@@ -132,6 +133,7 @@ __all__ = [
     "extract_tweet_id_from_url",
     "_parse_x_counts",
     "has_already_acted",
+    "has_already_posted_similar_text",
     "broadcast_session_log",
     "_extract_or_generate_poll_data",
     "_run_session_async",

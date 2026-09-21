@@ -194,6 +194,12 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
                             r.delete(inflight_key)
                             continue
 
+                        # Content Similarity Deduplication: Check if identical or near-duplicate reply text was posted recently
+                        if await tasks.has_already_posted_similar_text(db, profile_id, reply_result.reply_text, action_type="reply", hours=48):
+                            logger.warning("Pre-flight check: Generated sniper reply text is too similar to an existing reply in last 48h; aborting duplicate take.")
+                            r.delete(inflight_key)
+                            continue
+
                         # Atomic Reservation: Stage session and action in DB before execution to block race conditions
                         t_now = now_ist()
                         session_rec = Session(

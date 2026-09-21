@@ -184,6 +184,63 @@ async def has_already_acted(
 
     return False
 
+
+async def has_already_posted_similar_text(
+    db: AsyncSession,
+    profile_id: uuid.UUID,
+    text: str,
+    action_type: str = "reply",
+    hours: int = 48,
+    similarity_threshold: float = 0.75,
+) -> bool:
+    """
+    Checks if an action (reply, quote, post) with identical or near-identical wording
+    (Jaccard keyword similarity >= similarity_threshold) has already been executed or staged
+    for this profile within the rolling window.
+    Prevents duplicate reply takes when multiple KOLs cover the same trending news.
+    """
+    if not text or len(text.strip()) < 10:
+        return False
+
+    clean_new = text.strip().lower()
+    cutoff = now_ist() - datetime.timedelta(hours=hours)
+    act_type_str = action_type.value if hasattr(action_type, "value") else str(action_type).lower()
+
+    stmt = (
+        select(Action.content)
+        .where(
+            Action.profile_id == profile_id,
+            Action.action_type.in_([act_type_str.lower(), act_type_str.upper()]),
+            Action.status.in_([ActionStatus.COMPLETED, ActionStatus.STAGED, ActionStatus.EXECUTING]),
+            Action.executed_at >= cutoff,
+        )
+    )
+    res = await db.execute(stmt)
+    existing_texts = res.scalars().all()
+
+    import re
+    stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "with", "about", "is", "are", "was", "were", "it", "this", "that", "of", "from", "by", "as", "just", "my", "your", "we", "all", "so", "if"}
+    def get_keywords(s: str) -> set[str]:
+        words = re.findall(r"\b[a-zA-Z0-9_]{3,}\b", s.lower())
+        return {w for w in words if w not in stop_words}
+
+    new_kws = get_keywords(clean_new)
+
+    for ex in existing_texts:
+        if not ex:
+            continue
+        clean_ex = ex.strip().lower()
+        if clean_new == clean_ex:
+            return True
+        ex_kws = get_keywords(clean_ex)
+        if new_kws and ex_kws:
+            overlap = new_kws.intersection(ex_kws)
+            jaccard = len(overlap) / max(len(new_kws.union(ex_kws)), 1)
+            if jaccard >= similarity_threshold:
+                return True
+
+    return False
+
 def _parse_x_counts(text: str) -> int:
     """Helper to convert X counts string shorthand like 2.5K or 1M to integers."""
     import re

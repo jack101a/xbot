@@ -145,6 +145,15 @@ async def handle_reply_action(
             r.delete(inflight_key)
         return True
 
+    # Content Similarity Deduplication: Check if identical or near-duplicate reply text was posted recently
+    if await tasks.has_already_posted_similar_text(db, profile_id, final_reply_text, action_type="reply", hours=48):
+        logger.warning("Pre-flight check: Target reply text already posted in last 48h. Aborting duplicate.")
+        db_action.status = ActionStatus.SKIPPED
+        db_action.error = "Similar reply content already posted recently."
+        if inflight_key:
+            r.delete(inflight_key)
+        return True
+
     try:
         if page:
             reply_action = tasks.ReplyToTweet()

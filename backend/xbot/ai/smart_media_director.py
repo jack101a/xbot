@@ -237,7 +237,16 @@ BLACK_LISTED_HASHTAGS = {
     "trendingnownews", "posts", "post", "today", "viral", "update", "breaking",
     "daily", "thread", "explore", "timeline", "foryou", "fyp", "xyzbca",
     "video", "videos", "photo", "photos", "image", "images", "twitter", "x",
-    "discussion", "share", "retweet", "follow"
+    "discussion", "share", "retweet", "follow",
+    # Generic verbs, prepositions, time words, and filler that must never be hashtags
+    "joins", "join", "joining", "posing", "pose", "ahead", "premiere", "premieres",
+    "drops", "drop", "dropping", "says", "tells", "makes", "takes", "shows",
+    "comes", "leaves", "with", "after", "years", "away", "hour", "hours",
+    "campaign", "duality", "shipping", "friday", "monday", "week", "work",
+    "time", "take", "text", "living", "starts", "starting", "speedrunning",
+    "fandom", "already", "problem", "turns", "into", "around", "about",
+    "scene", "people", "thing", "things", "first", "every", "real", "life",
+    "manposing", "man", "woman", "girl", "boy", "back", "next", "more", "look"
 }
 
 
@@ -400,10 +409,10 @@ def infer_relevant_hashtags(
                 seen.add(bare)
                 valid_tags.append(f"#{an}")
 
-        # Extract capitalized multi-word phrases as CamelCase tags
+        # Extract capitalized multi-word phrases as CamelCase tags (e.g. "Jennifer Lawrence" -> #JenniferLawrence)
         proper_nouns = re.findall(r"\b[A-Z][a-zA-Z0-9]+(?:\s+[A-Z][a-zA-Z0-9]+)+\b", combined)
         for pn in proper_nouns:
-            if pn.lower() in {"the new", "we need", "as long", "just dont", "whether it", "trending now", "what if"}:
+            if pn.lower() in {"the new", "we need", "as long", "just dont", "whether it", "trending now", "what if", "last year", "next year"}:
                 continue
             words = [w for w in pn.split() if w.isalnum()]
             if words:
@@ -413,13 +422,14 @@ def infer_relevant_hashtags(
                     seen.add(bare)
                     valid_tags.append(tag)
 
-        # Single prominent capital words from topic
-        for tw in clean_top.split():
-            if tw.isupper() or (tw.istitle() and len(tw) >= 4):
-                bare = tw.lower()
-                if bare not in BLACK_LISTED_HASHTAGS and bare not in seen:
-                    seen.add(bare)
-                    valid_tags.append(f"#{tw.capitalize()}")
+        # Single prominent capital words from topic ONLY if no proper nouns or alphanumeric tags were found
+        if not valid_tags:
+            for tw in clean_top.split():
+                if tw.isupper() or (tw.istitle() and len(tw) >= 5):
+                    bare = tw.lower()
+                    if bare not in BLACK_LISTED_HASHTAGS and bare not in seen:
+                        seen.add(bare)
+                        valid_tags.append(f"#{tw.capitalize()}")
 
     if not valid_tags:
         return []
@@ -440,7 +450,7 @@ def ensure_main_post_hashtags(
 ) -> str:
     """
     Guarantees that a main post (standalone post, thread hook/closer, trend take)
-    contains 1-2 authentic hashtags for algorithmic search indexing.
+    contains 1-2 authentic hashtags for algorithmic search indexing when relevant.
     Strips any metadata junk hashtags (e.g. #TrendingNowEntertainment).
     Does NOT affect replies (which enforce 0 hashtags).
     """
@@ -464,10 +474,8 @@ def ensure_main_post_hashtags(
 
     tags = infer_relevant_hashtags(topic, clean_post, candidate_hashtags=candidate_hashtags)
     if not tags:
-        clean_top = clean_topic_string(topic)
-        t_slug = re.sub(r"[^\w]+", "", clean_top)[:15]
-        if t_slug and t_slug.lower() not in BLACK_LISTED_HASHTAGS:
-            tags = [f"#{t_slug.capitalize()}"]
+        # Authentic human posts on X frequently have 0 hashtags. Do not force an arbitrary slug.
+        return clean_post.strip()
 
     if not tags:
         return clean_post.strip()
