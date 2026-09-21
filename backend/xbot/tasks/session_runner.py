@@ -178,6 +178,12 @@ async def _run_session_async(profile_id_str: str) -> dict[str, Any]:
 
         except Exception as ex:
             return await handle_session_failure(db, session, str(ex), profile_slug)
+        except BaseException as b_ex:
+            try:
+                await handle_session_failure(db, session, f"Fatal interruption / Timeout: {b_ex}", profile_slug)
+            except Exception:
+                pass
+            raise
 
         finally:
             if context:

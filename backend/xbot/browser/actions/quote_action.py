@@ -93,10 +93,15 @@ class QuoteTweet(BaseAction):
             await human_click(page, rt_btn, 300, 800)
 
             # Wait for quote option in dropdown menu
-            quote_item = await page.wait_for_selector(
-                '[data-testid="Dropdown"] [role="menuitem"]:has-text("Quote"), [role="menuitem"]:has-text("Quote"), [role="menuitem"]:has-text("Quote post"), [data-testid="quoteTweet"], div[role="menuitem"] span:has-text("Quote"), a[href*="/compose/post?quote="]',
-                timeout=5000,
-            )
+            quote_item = None
+            try:
+                quote_item = await page.wait_for_selector(
+                    '[data-testid="Dropdown"] [role="menuitem"]:has-text("Quote"), [role="menuitem"]:has-text("Quote"), [role="menuitem"]:has-text("Quote post"), [data-testid="quoteTweet"], div[role="menuitem"] span:has-text("Quote"), a[href*="/compose/post?quote="]',
+                    timeout=4000,
+                )
+            except Exception:
+                quote_item = None
+
             if not quote_item and tweet_url:
                 logger.info("Quote dropdown item not found; falling back to direct compose quote URL: %s", tweet_url)
                 await page.goto(f"https://x.com/compose/post?quote={tweet_url}", wait_until="domcontentloaded", timeout=15000)

@@ -11,7 +11,11 @@ from xbot.browser.timing import (
 logger = logging.getLogger(__name__)
 
 async def scrape_target_tweet_context(
-    page: Page, target_idx: int = 0, tweet_url: str | None = None
+    page: Page,
+    target_idx: int = 0,
+    tweet_url: str | None = None,
+    max_comments: int = 10,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """
     Scrapes full live text, author, metrics, media URLs/alts, and top visible comment replies
@@ -130,7 +134,7 @@ async def scrape_target_tweet_context(
 
         # Sort descending by likes / popularity (most popular first)
         collected_comments.sort(key=lambda c: c["likes"], reverse=True)
-        top_comments = collected_comments[:10]
+        top_comments = collected_comments[:max(1, int(max_comments))]
 
         # Scrape attached media images, videos, and alt text
         media_urls: list[str] = []

@@ -47,7 +47,7 @@ logger = logging.getLogger("xbot.tasks")
 
 from .session_runner import _run_session_async
 
-@celery_app.task(name="xbot.tasks.run_session")
+@celery_app.task(name="xbot.tasks.run_session", soft_time_limit=600, time_limit=720)
 def run_session(profile_id: str) -> dict[str, Any]:
     """Celery task executing profile planning, browser runs, safety pacing, and monologue diary reviews."""
     logger.info("Starting Celery session execution for profile ID: %s", profile_id)
