@@ -415,8 +415,11 @@ def infer_relevant_hashtags(
             if pn.lower() in {"the new", "we need", "as long", "just dont", "whether it", "trending now", "what if", "last year", "next year"}:
                 continue
             words = [w for w in pn.split() if w.isalnum()]
-            if words:
+            # Guard against full title headlines becoming giant tags: max 3 words and max 22 chars
+            if words and 1 <= len(words) <= 3:
                 tag = "#" + "".join(w.capitalize() for w in words)
+                if len(tag) > 22:
+                    continue
                 bare = tag.lower().replace("#", "")
                 if bare not in BLACK_LISTED_HASHTAGS and len(bare) >= 3 and bare not in seen:
                     seen.add(bare)
@@ -425,7 +428,7 @@ def infer_relevant_hashtags(
         # Single prominent capital words from topic ONLY if no proper nouns or alphanumeric tags were found
         if not valid_tags:
             for tw in clean_top.split():
-                if tw.isupper() or (tw.istitle() and len(tw) >= 5):
+                if tw.isupper() or (tw.istitle() and 4 <= len(tw) <= 15):
                     bare = tw.lower()
                     if bare not in BLACK_LISTED_HASHTAGS and bare not in seen:
                         seen.add(bare)
@@ -457,9 +460,14 @@ def ensure_main_post_hashtags(
     if not post_text:
         return post_text
 
-    # Extract existing hashtags
+    # Extract existing hashtags and flag junk / run-on tags (> 24 chars)
     existing_tags = re.findall(r"#\w+", post_text)
-    junk_found = [t for t in existing_tags if t.lower().replace("#", "") in BLACK_LISTED_HASHTAGS or "trending" in t.lower()]
+    junk_found = [
+        t for t in existing_tags
+        if t.lower().replace("#", "") in BLACK_LISTED_HASHTAGS
+        or "trending" in t.lower()
+        or len(t.replace("#", "")) > 24
+    ]
 
     clean_post = post_text
     if junk_found:
