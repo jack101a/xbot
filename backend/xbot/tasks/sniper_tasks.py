@@ -248,9 +248,23 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
                                 success = reply_res.status == "success" or (reply_res.action_result and reply_res.action_result.status == "success")
                                 if not success:
                                     error_msg = reply_res.error or (reply_res.action_result.detail if reply_res.action_result else "Reply failed")
-                        except Exception as ex:
+                        except BaseException as ex:
                             error_msg = str(ex)
                             logger.error("Error executing sniper reply to %s: %s", tweet_url, ex)
+                            # Ensure session and action are marked failed immediately before aborting
+                            try:
+                                t_finish = now_ist()
+                                session_rec.status = SessionStatus.FAILED
+                                session_rec.actions_failed = 1
+                                session_rec.ended_at = t_finish
+                                session_rec.error_log = f"Aborted during execution: {ex}"
+                                action_rec.status = ActionStatus.FAILED
+                                action_rec.error = error_msg
+                                await db.commit()
+                            except Exception:
+                                pass
+                            if isinstance(ex, (asyncio.CancelledError, KeyboardInterrupt)):
+                                raise
 
                         if success:
                             # 1. Deduplication record & release inflight key
@@ -324,8 +338,10 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
             "errors": errors if errors else None,
         }
 
-    except Exception as overall_ex:
+    except BaseException as overall_ex:
         logger.error("Sniper check targets task encountered critical error: %s", overall_ex)
+        if isinstance(overall_ex, (asyncio.CancelledError, KeyboardInterrupt)):
+            raise
         return {"status": "failed", "error": str(overall_ex)}
     finally:
         if acquired:
@@ -335,7 +351,7 @@ async def _sniper_check_targets_async() -> dict[str, Any]:
                 pass
 
 
-@celery_app.task(name="xbot.tasks.sniper_check_targets")
+@celery_app.task(name="xbot.tasks.sniper_check_targets", soft_time_limit=600, time_limit=720)
 def sniper_check_targets() -> dict[str, Any]:
     """Celery periodic task scanning target KOL profiles for fresh tweets and executing sniper replies."""
     logger.info("Starting Celery sniper check targets task.")

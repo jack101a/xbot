@@ -264,7 +264,7 @@ async def _check_trend_radar_async(base_profile_dir: Path | str | None = None) -
         return {"status": "failed", "error": str(overall_ex)}
 
 
-@celery_app.task(name="xbot.tasks.check_trend_radar")
+@celery_app.task(name="xbot.tasks.check_trend_radar", soft_time_limit=600, time_limit=720)
 def check_trend_radar() -> dict[str, Any]:
     """Celery periodic task scanning RSS feeds and trend radar sources for active profiles, generating takes, and staging content."""
     logger.info("Starting Celery check trend radar task.")
