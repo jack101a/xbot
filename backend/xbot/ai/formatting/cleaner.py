@@ -139,3 +139,18 @@ def fix_hashtag_spacing(text: str) -> str:
     cleaned = re.sub(r"([A-Za-z0-9.,!?;:])(#\w+)", r"\1 \2", cleaned)
     return cleaned
 
+
+def smart_truncate_tweet_text(text: str, max_chars: int = 260) -> str:
+    """Truncates tweet text cleanly at natural punctuation or word boundaries without severing words."""
+    if not text or len(text) <= max_chars:
+        return text
+    truncated = text[:max_chars]
+    last_punc = max(truncated.rfind("."), truncated.rfind("!"), truncated.rfind("?"))
+    if last_punc > 120:
+        return truncated[:last_punc + 1].strip()
+    truncated_for_ellipsis = text[: max_chars - 3]
+    last_space = truncated_for_ellipsis.rfind(" ")
+    if last_space > 100:
+        return truncated_for_ellipsis[:last_space].strip() + "..."
+    return truncated_for_ellipsis.strip() + "..."
+

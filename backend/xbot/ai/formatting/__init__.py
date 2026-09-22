@@ -5,6 +5,7 @@ from .cleaner import (
     TRAILING_EMOJI_PATTERN,
     enforce_length_cadence,
     enforce_pacing_whitespace,
+    smart_truncate_tweet_text,
     strip_formulaic_trailing_emojis,
 )
 from .engine import format_content, post_process_formatted_content
@@ -25,6 +26,7 @@ __all__ = [
     "enforce_pacing_whitespace",
     "strip_formulaic_trailing_emojis",
     "enforce_length_cadence",
+    "smart_truncate_tweet_text",
     "post_process_formatted_content",
     "format_content",
 ]

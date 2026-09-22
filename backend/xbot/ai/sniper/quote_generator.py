@@ -12,6 +12,7 @@ from xbot.persona.worldview_engine import build_worldview_prompt_section
 from .constants import *
 from .evaluator import clean_text_for_json
 from .verifier import QuoteTakeResult
+from xbot.ai.formatting_engine import smart_truncate_tweet_text
 
 logger = logging.getLogger(__name__)
 
@@ -114,8 +115,7 @@ Return ONLY a JSON object matching this schema:
                 quote_text = strip_surrounding_quotes(str(data.get("quote_text") or data.get("content") or "").strip())
                 from xbot.ai.anti_ai_gatekeeper import AntiAIGatekeeper
                 quote_text = AntiAIGatekeeper.enforce_max_hashtags(quote_text, max_tags=2)
-                if len(quote_text) > 260:
-                    quote_text = quote_text[:260].strip()
+                quote_text = smart_truncate_tweet_text(quote_text, 260)
 
                 raw_gif = data.get("gif_query")
                 gif_query = None

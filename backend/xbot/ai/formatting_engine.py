@@ -12,6 +12,7 @@ from xbot.ai.formatting import (
     format_content,
     post_process_formatted_content,
     select_archetype,
+    smart_truncate_tweet_text,
     strip_formulaic_trailing_emojis,
 )
 
@@ -25,6 +26,7 @@ __all__ = [
     "enforce_pacing_whitespace",
     "strip_formulaic_trailing_emojis",
     "enforce_length_cadence",
+    "smart_truncate_tweet_text",
     "post_process_formatted_content",
     "format_content",
 ]

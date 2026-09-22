@@ -87,3 +87,28 @@ def test_post_process_formatted_content_full_pipeline():
     assert "🚀" not in processed
     assert "\n\n" in processed
     assert len(processed) > 10
+
+
+def test_smart_truncate_tweet_text():
+    from xbot.ai.formatting_engine import smart_truncate_tweet_text
+
+    # Case 1: Short text remains untouched
+    short = "Clean short reply."
+    assert smart_truncate_tweet_text(short, 260) == short
+
+    # Case 2: Multi-sentence text exceeding limit cleanly truncates at last sentence boundary
+    long_two_sentences = (
+        "People are acting like this is the death knell, but honestly, a studio focused solely on execution "
+        "might be exactly what Halo needs after years of internal struggle. Sometimes a fresh perspective from "
+        "a team that actually knows how to ship on a deadline is the upgrade the franchise has been missing."
+    )
+    res = smart_truncate_tweet_text(long_two_sentences, 260)
+    assert len(res) <= 260
+    assert res.endswith("internal struggle.")
+    assert not res.endswith("is the")
+
+    # Case 3: Long single sentence without punctuation cleanly truncates at word boundary with ellipsis
+    no_punc = "Word " * 60
+    res_no_punc = smart_truncate_tweet_text(no_punc, 260)
+    assert len(res_no_punc) <= 260
+    assert res_no_punc.endswith("...")

@@ -196,17 +196,5 @@ async def _attach_media_files(page: Page, media_paths: list[str] | None) -> bool
     except Exception as e:
         logger.warning("Could not upload media files: %s", e)
     return False
-
-def smart_truncate_tweet_text(text: str, max_chars: int = 260) -> str:
-    """Truncates tweet text cleanly at natural punctuation or word boundaries without severing words."""
-    if not text or len(text) <= max_chars:
-        return text
-    truncated = text[:max_chars]
-    last_punc = max(truncated.rfind("."), truncated.rfind("!"), truncated.rfind("?"))
-    if last_punc > 120:
-        return truncated[:last_punc + 1].strip()
-    last_space = truncated.rfind(" ")
-    if last_space > 100:
-        return truncated[:last_space].strip() + "..."
-    return truncated[:max_chars - 3].strip() + "..."
+from xbot.ai.formatting_engine import smart_truncate_tweet_text
 

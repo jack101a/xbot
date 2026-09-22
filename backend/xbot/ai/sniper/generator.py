@@ -8,6 +8,7 @@ from xbot.ai.anti_ai_gatekeeper import strip_surrounding_quotes
 from xbot.ai.client import get_ai_client
 from xbot.ai.formatting_engine import (
     enforce_pacing_whitespace,
+    smart_truncate_tweet_text,
     strip_formulaic_trailing_emojis,
 )
 from xbot.config import settings
@@ -93,8 +94,7 @@ async def generate_sniper_reply(
             )
             parsed = completion.choices[0].message.parsed
             if isinstance(parsed, SniperResult):
-                if len(parsed.reply_text) > 260:
-                    parsed.reply_text = parsed.reply_text[:260].strip()
+                parsed.reply_text = smart_truncate_tweet_text(parsed.reply_text, 260)
                 parsed.reply_text = strip_surrounding_quotes(parsed.reply_text)
                 return parsed
     except Exception as parse_err:
@@ -174,8 +174,7 @@ async def generate_sniper_reply(
                     reply_text = enforce_pacing_whitespace(reply_text)
                 reply_text = strip_surrounding_quotes(reply_text)
 
-                if len(reply_text) > 260:
-                    reply_text = reply_text[:260].strip()
+                reply_text = smart_truncate_tweet_text(reply_text, 260)
 
                 return SniperResult(
                     response_mode=response_mode,
@@ -194,8 +193,7 @@ async def generate_sniper_reply(
     if 'raw_content' in locals() and raw_content:
         cleaned_raw = clean_raw_reply_text(raw_content)
         if cleaned_raw:
-            if len(cleaned_raw) > 260:
-                cleaned_raw = cleaned_raw[:260].strip()
+            cleaned_raw = smart_truncate_tweet_text(cleaned_raw, 260)
             cleaned_raw = strip_surrounding_quotes(cleaned_raw)
             return SniperResult(
                 response_mode="casual_take",
