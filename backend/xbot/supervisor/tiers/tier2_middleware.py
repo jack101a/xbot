@@ -102,13 +102,14 @@ class MiddlewareHealthTier:
 
         return findings
 
-    def audit_redis_queues(self) -> list[dict[str, Any]]:
+    def audit_redis_queues(self, celery_ctx: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """
         Inspects lengths of celery, publish, and browser queues.
         Flags backlog depth > 50 and unserviced stalls > 15 minutes.
         """
         findings: list[dict[str, Any]] = []
         now_ts = int(time.time())
+        ctx = celery_ctx if celery_ctx is not None else self.auditor.get_active_celery_context()
 
         for q in self.QUEUES_TO_CHECK:
             try:
@@ -132,6 +133,12 @@ class MiddlewareHealthTier:
                 })
 
             # Unserviced stall detection (> 15m)
+            # Safeguard: If queue is 'browser' and the browser worker is actively executing a task,
+            # this is active browser execution, not an unserviced queue stall!
+            if q == "browser" and ctx.get("browser_busy"):
+                self.r.delete(stall_key)
+                continue
+
             if depth > 0:
                 first_seen = self.r.get(stall_key)
                 if not first_seen:
