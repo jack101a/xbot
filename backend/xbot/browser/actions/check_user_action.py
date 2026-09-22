@@ -120,9 +120,10 @@ class CheckUserLatestTweet(BaseAction):
             href = await link_el.get_attribute("href")
             if href:
                 if href.startswith("http://") or href.startswith("https://"):
-                    url = href
+                    raw_url = href
                 else:
-                    url = f"{base_url.rstrip('/')}/{href.lstrip('/')}"
+                    raw_url = f"{base_url.rstrip('/')}/{href.lstrip('/')}"
+                url = re.sub(r"(/status/\d+)(?:/.*)?$", r"\1", raw_url)
                 tweet_id = _extract_tweet_id_from_url(url) or ""
 
         time_el = await tweet_el.query_selector("time")

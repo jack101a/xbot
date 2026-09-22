@@ -170,13 +170,19 @@ async def handle_post_action(
         })
         return True
 
+    tweet_id = None
     if page:
-        success = await tasks.ComposePost().execute(
+        post_res = await tasks.ComposePost().execute(
             page,
             post_text,
             media_paths=media_paths,
             gif_query=gif_query,
         )
+        if isinstance(post_res, dict):
+            success = post_res.get("status") == "success" or post_res.get("posted", False)
+            tweet_id = post_res.get("tweet_id")
+        else:
+            success = bool(post_res)
     elif browser:
         resp = await browser.execute(BrowserRequest(
             profile_slug=profile_slug,
@@ -188,6 +194,8 @@ async def handle_post_action(
             },
         ))
         success = resp.status == "success"
+        if resp.data and isinstance(resp.data, dict):
+            tweet_id = resp.data.get("tweet_id")
     else:
         success = False
 
@@ -198,10 +206,14 @@ async def handle_post_action(
             body=post_text,
             status=ContentStatus.POSTED,
             posted_at=t_start,
+            tweet_id=str(tweet_id) if tweet_id else None,
             ai_metadata={"direct_publish": True, "extracted_link": extracted_link},
         )
         db.add(c_rec)
         await db.commit()
+        if tweet_id and not db_action.target_url:
+            db_action.target_url = f"https://x.com/{profile_slug}/status/{tweet_id}"
+            await db.commit()
 
         if extracted_link:
             try:

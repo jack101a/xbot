@@ -234,6 +234,12 @@ class ReplyToTweet(BaseAction):
 
             published_reply_id = captured_tweet_ids[0] if captured_tweet_ids else None
             logger.info("Reply submitted successfully. Tweet ID: %s", published_reply_id)
+            if published_reply_id:
+                return {
+                    "status": "success",
+                    "replied": True,
+                    "tweet_id": published_reply_id,
+                }
             return True
         except Exception as e:
             await self.capture_failure(page, "reply_tweet")

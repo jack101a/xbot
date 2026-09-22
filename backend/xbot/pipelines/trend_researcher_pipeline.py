@@ -284,7 +284,7 @@ async def _run_trend_researcher_async() -> dict[str, Any]:
 from xbot.celery_app import celery_app
 
 
-@celery_app.task(name="xbot.pipelines.trend_researcher_pipeline.run_trend_researcher")
+@celery_app.task(name="xbot.pipelines.trend_researcher_pipeline.run_trend_researcher", soft_time_limit=600, time_limit=720)
 def run_trend_researcher() -> dict[str, Any]:
     """Celery task entry point for Trend Researcher Pipeline."""
     return asyncio.run(_run_trend_researcher_async())

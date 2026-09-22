@@ -141,8 +141,8 @@ async def execute_planned_actions(
                 else:
                     success = await handle_simple_action(p_action, tweet_url, username_target, page, browser=browser, profile_slug=profile_slug)
 
-            t_end = datetime.datetime.utcnow()
-            db_action.duration_ms = int((t_end - t_start).total_seconds() * 1000)
+            t_end = now_ist()
+            db_action.duration_ms = max(0, int((t_end - t_start).total_seconds() * 1000))
 
             if success:
                 db_action.status = ActionStatus.COMPLETED

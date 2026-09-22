@@ -221,8 +221,10 @@ class BrowseFeed(BaseAction):
                             if link_el:
                                 href = await link_el.get_attribute("href")
                                 if href:
-                                    tweet_data["url"] = f"https://x.com{href}" if href.startswith("/") else href
-                                    tweet_data["tweet_id"] = _extract_tweet_id_from_url(tweet_data["url"])
+                                    raw_url = f"https://x.com{href}" if href.startswith("/") else href
+                                    clean_url = re.sub(r"(/status/\d+)(?:/.*)?$", r"\1", raw_url)
+                                    tweet_data["url"] = clean_url
+                                    tweet_data["tweet_id"] = _extract_tweet_id_from_url(clean_url)
                         except Exception:
                             pass
 

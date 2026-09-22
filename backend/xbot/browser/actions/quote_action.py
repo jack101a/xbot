@@ -139,14 +139,21 @@ class QuoteTweet(BaseAction):
             enabled_submit_sel = (
                 '[role="dialog"] button[data-testid="tweetButton"]:not([aria-disabled="true"]):not([disabled]), '
                 '[role="dialog"] [data-testid="tweetButton"]:not([aria-disabled="true"]):not([disabled]), '
-                'button[data-testid="tweetButton"]:not([aria-disabled="true"]):not([disabled])'
+                '[role="dialog"] button:has-text("Post"):not([disabled]), '
+                'button[data-testid="tweetButton"]:not([aria-disabled="true"]):not([disabled]), '
+                '[data-testid="tweetButtonInline"]:not([aria-disabled="true"]):not([disabled])'
             )
             post_btn = None
             try:
                 post_btn = await page.wait_for_selector(enabled_submit_sel, timeout=10000)
             except Exception:
                 # Fallback to general tweetButton if enabled selector timed out (e.g. in mock HTML)
-                post_btn = await page.query_selector('[role="dialog"] [data-testid="tweetButton"], [data-testid="tweetButton"]')
+                post_btn = await page.query_selector(
+                    '[role="dialog"] [data-testid="tweetButton"], '
+                    '[role="dialog"] button:has-text("Post"), '
+                    '[data-testid="tweetButton"], '
+                    '[data-testid="tweetButtonInline"]'
+                )
 
             if not post_btn:
                 logger.warning("Could not find Post button in quote composer.")
@@ -248,6 +255,12 @@ class QuoteTweet(BaseAction):
 
             published_tweet_id = captured_tweet_ids[0] if captured_tweet_ids else None
             logger.info("Quote Tweet published successfully. Tweet ID: %s", published_tweet_id)
+            if published_tweet_id:
+                return {
+                    "status": "success",
+                    "quoted": True,
+                    "tweet_id": published_tweet_id,
+                }
             return True
         except Exception as e:
             await self.capture_failure(page, "quote_tweet")
