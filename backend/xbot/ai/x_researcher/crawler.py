@@ -71,7 +71,7 @@ async def generate_search_phrases(
         parsed = json.loads(cleaned)
         if isinstance(parsed, list) and len(parsed) > 0:
             queries = [str(q).strip() for q in parsed if str(q).strip()]
-            if clean_topic not in queries:
+            if clean_topic not in queries and len(clean_topic.split()) <= 3:
                 queries.insert(0, clean_topic)
             return queries[:3]
     except Exception as e:
@@ -79,8 +79,8 @@ async def generate_search_phrases(
 
     tokens = clean_topic.split()
     if len(tokens) > 2:
-        q1 = clean_topic
-        q2 = " ".join(tokens[:3])
+        q1 = " ".join(tokens[:3])
+        q2 = " ".join(tokens[:4]) if len(tokens) >= 4 else clean_topic
         return [q1, q2]
     return [clean_topic, f"{clean_topic} controversy", f"{clean_topic} news"]
 

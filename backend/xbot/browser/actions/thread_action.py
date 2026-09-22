@@ -60,7 +60,7 @@ class ComposeThread(BaseAction):
 
         async def handle_response(response: Any) -> None:
             try:
-                if "CreateTweet" in response.url or "CreateDraft" in response.url:
+                if "CreateTweet" in response.url and "CreateDraft" not in response.url:
                     if response.status == 200:
                         data = await response.json()
                         tweet_data = data.get("data", {}).get("create_tweet", {}).get("tweet_results", {}).get("result", {})

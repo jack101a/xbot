@@ -36,29 +36,33 @@ class ComposePost(BaseAction):
                     rate_limited_429 = True
                     logger.warning("Detected X GraphQL rate limit (HTTP 429) on: %s", response.url)
 
-                if "CreateTweet" in response.url or "CreateDraft" in response.url:
+                if "CreateTweet" in response.url and "CreateDraft" not in response.url:
                     if response.status == 200:
                         data = await response.json()
+                        create_tweet_obj = data.get("data", {}).get("create_tweet", {})
+                        if create_tweet_obj:
+                            tweet_data = create_tweet_obj.get("tweet_results", {}).get("result", {})
+                            rest_id = tweet_data.get("rest_id") or tweet_data.get("tweet", {}).get("rest_id")
+                            if not rest_id:
+                                def _find_rest_id(obj: Any) -> str | None:
+                                    if isinstance(obj, dict):
+                                        if "rest_id" in obj and isinstance(obj["rest_id"], str) and obj["rest_id"]:
+                                            return obj["rest_id"]
+                                        for v in obj.values():
+                                            found = _find_rest_id(v)
+                                            if found:
+                                                return found
+                                    elif isinstance(obj, list):
+                                        for item in obj:
+                                            found = _find_rest_id(item)
+                                            if found:
+                                                return found
+                                    return None
+                                rest_id = _find_rest_id(create_tweet_obj)
 
-                        def _find_rest_id(obj: Any) -> str | None:
-                            if isinstance(obj, dict):
-                                if "rest_id" in obj and isinstance(obj["rest_id"], str) and obj["rest_id"]:
-                                    return obj["rest_id"]
-                                for v in obj.values():
-                                    found = _find_rest_id(v)
-                                    if found:
-                                        return found
-                            elif isinstance(obj, list):
-                                for item in obj:
-                                    found = _find_rest_id(item)
-                                    if found:
-                                        return found
-                            return None
-
-                        rest_id = _find_rest_id(data.get("data", {}))
-                        if rest_id and rest_id not in captured_tweet_ids:
-                            captured_tweet_ids.append(rest_id)
-                            logger.info("Captured published tweet ID via CreateTweet GraphQL: %s", rest_id)
+                            if rest_id and rest_id not in captured_tweet_ids:
+                                captured_tweet_ids.append(rest_id)
+                                logger.info("Captured published tweet ID via CreateTweet GraphQL: %s", rest_id)
             except Exception:
                 pass
 

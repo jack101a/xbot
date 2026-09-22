@@ -30,9 +30,10 @@ class SearchMatrixStrategy:
         Ideal for Quote Takes and High-Visibility Replies.
         """
         clean_topic = topic.strip().strip('"')
+        words = clean_topic.split()
         builder = (
             XSearchQueryBuilder(target=target)
-            .exact_phrase(clean_topic) if " " in clean_topic else XSearchQueryBuilder(target=target).keyword(clean_topic)
+            .exact_phrase(clean_topic) if 1 < len(words) <= 3 else XSearchQueryBuilder(target=target).keyword(clean_topic)
         )
         return (
             builder

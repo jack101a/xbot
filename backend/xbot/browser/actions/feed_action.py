@@ -331,9 +331,13 @@ class SearchQuery(BaseAction):
 
                 # Relaxation C: Switch to real-time live feed (&f=live)
                 clean_base_topic = re.sub(r"(min_faves:\d+|filter:\w+|-filter:\w+|since:\S+)", "", query).strip()
+                clean_unquoted = clean_base_topic.replace('"', '').strip()
                 if clean_base_topic:
                     relaxed_candidates.append((f"{clean_base_topic} -filter:retweets", "&f=live"))
                     relaxed_candidates.append((clean_base_topic, "&f=live"))
+                    if clean_unquoted and clean_unquoted != clean_base_topic:
+                        relaxed_candidates.append((f"{clean_unquoted} -filter:retweets", "&f=live"))
+                        relaxed_candidates.append((clean_unquoted, "&f=live"))
 
                 for rel_q, rel_cat in relaxed_candidates:
                     if not rel_q.strip():

@@ -82,7 +82,7 @@ async def generate_content_for_topic(
                     profile_slug=profile.profile_slug,
                     action=BrowserActionType.POLL,
                     params={
-                        "content_id": content_record.id,
+                        "content_id": str(content_record.id),
                         "question": meta_poll.get("question") or content_record.body,
                         "options": meta_poll.get("options") or ["Yes", "No"],
                         "duration_minutes": 1440,
@@ -96,7 +96,7 @@ async def generate_content_for_topic(
                     profile_slug=profile.profile_slug,
                     action=BrowserActionType.THREAD,
                     params={
-                        "content_id": content_record.id,
+                        "content_id": str(content_record.id),
                         "tweets": t_items,
                         "media_paths": media_to_attach,
                     },
@@ -109,7 +109,7 @@ async def generate_content_for_topic(
                     profile_slug=profile.profile_slug,
                     action=BrowserActionType.POST,
                     params={
-                        "content_id": content_record.id,
+                        "content_id": str(content_record.id),
                         "text": content_record.body,
                         "media_paths": meta.get("media_paths"),
                         "gif_query": meta.get("gif_query"),

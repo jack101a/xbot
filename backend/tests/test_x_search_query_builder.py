@@ -108,6 +108,18 @@ def test_search_matrix_tier1_viral_anchor():
     assert builder.filters.category == SearchCategory.TOP
 
 
+def test_search_matrix_multiword_headline_unquoted():
+    """Verify long headlines (> 3 words) are compiled as keywords rather than quoted exact phrases."""
+    builder = SearchMatrixStrategy.create_viral_anchor_query(
+        topic="Tesla Expands Cybercab Fleet in Texas and Sydney",
+        min_faves=50,
+    )
+    query = builder.build_query_string()
+    assert '"Tesla Expands Cybercab Fleet in Texas and Sydney"' not in query
+    assert "Tesla Expands Cybercab Fleet in Texas and Sydney" in query
+    assert "min_faves:50" in query
+
+
 def test_search_matrix_tier2_realtime_buzz():
     """Verify SearchMatrixStrategy Tier 2 real-time buzz query with &f=live."""
     builder = SearchMatrixStrategy.create_realtime_buzz_query(

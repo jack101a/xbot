@@ -73,7 +73,7 @@ def enqueue_browser_job(
 
     job_data = asdict(job)
     # Store job payload
-    r.set(f"{JOB_PREFIX}{job.job_id}", json.dumps(job_data), ex=job.ttl_seconds + 300)
+    r.set(f"{JOB_PREFIX}{job.job_id}", json.dumps(job_data, default=str), ex=job.ttl_seconds + 300)
 
     # Score = priority * 1e10 + created_at timestamp (lower score = popped first)
     score = float(job.priority * 1e10 + job.created_at)
@@ -132,7 +132,7 @@ def set_browser_job_result(
     if r is None:
         r = get_redis_client()
     try:
-        r.set(f"{RESULT_PREFIX}{job_id}", json.dumps(result), ex=ttl_seconds)
+        r.set(f"{RESULT_PREFIX}{job_id}", json.dumps(result, default=str), ex=ttl_seconds)
     except Exception as e:
         logger.error("Failed to set browser job result for %s: %s", job_id, e)
 
