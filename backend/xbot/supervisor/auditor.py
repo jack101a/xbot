@@ -320,6 +320,33 @@ class PipelineAuditor:
             if is_daily_post_limit_drained(self.r, slug):
                 continue
 
+            # Safeguard 4: Check if draft is currently within legitimate topic cooldown (120-180m gap)
+            topic_tag = ai_meta.get("topic_tag") or ai_meta.get("topic") or ai_meta.get("trend_title")
+            if topic_tag:
+                try:
+                    from xbot.ai.topic_utils import extract_topic_tag
+                    normalized_target = extract_topic_tag(str(topic_tag))
+                    same_topic_stmt = (
+                        select(Content)
+                        .where(
+                            Content.profile_id == content_item.profile_id,
+                            Content.status == ContentStatus.POSTED,
+                            Content.posted_at > (now_curr_ist - datetime.timedelta(minutes=180)),
+                        )
+                        .limit(10)
+                    )
+                    recent_posted = (await db.execute(same_topic_stmt)).scalars().all()
+                    is_topic_cooling = False
+                    for rp in recent_posted:
+                        rp_tag = (rp.ai_metadata or {}).get("topic_tag") or (rp.ai_metadata or {}).get("topic") or (rp.ai_metadata or {}).get("trend_title")
+                        if rp_tag and extract_topic_tag(str(rp_tag)) == normalized_target:
+                            is_topic_cooling = True
+                            break
+                    if is_topic_cooling:
+                        continue  # Legitimate topic pacing, not stuck
+                except Exception:
+                    pass
+
             created_at = content_item.created_at
             if created_at:
                 diff_ist = (now_curr_ist - created_at.replace(tzinfo=None)).total_seconds() / 60
