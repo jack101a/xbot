@@ -313,7 +313,7 @@ check_status() {
 
     # Docker Production Stack Notice
     echo -e "${CYAN}🐳 Docker Stack Status (Ports 8200/3002 reserved for Docker):${NC}"
-    if docker ps 2>/dev/null | grep -q "xbot"; then
+    if docker ps 2>/dev/null | grep -q "xbot" || curl -s -f http://localhost:8200/health >/dev/null 2>&1; then
         echo -e "  • Docker Stack (Portainer):         ${GREEN}● ACTIVE & RUNNING${NC}"
     else
         echo -e "  • Docker Stack (Portainer):         ${YELLOW}○ STOPPED / INACTIVE${NC}"
