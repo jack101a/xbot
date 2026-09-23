@@ -16,6 +16,12 @@ async def _attach_gif_if_requested(page: Page, gif_query: str | None) -> bool:
     """Helper to open X native Tenor GIF search, search for a query, and select a relevant GIF item."""
     if not gif_query:
         return False
+
+    # Sanitize and clamp query: Never type an entire paragraph or long sentence into Tenor
+    words = [w for w in re.split(r'\s+', gif_query.strip()) if len(w) > 2]
+    if len(words) > 3 or len(gif_query) > 35:
+        gif_query = " ".join(words[:2]) if words else "reaction"
+
     try:
         logger.info("Attempting to search and attach GIF for query: '%s'", gif_query)
         gif_btn_sel = (

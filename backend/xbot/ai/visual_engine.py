@@ -51,7 +51,7 @@ async def generate_visual_post_spec(
     user_prompt = _build_visual_user_prompt(topic=topic, format_type=resolved_format, persona=persona)
 
     model_cascade = getattr(
-        settings, "MODEL_POST_CREATION", "litellm/gemini-flash-latest,litellm/deepseek-v4-flash-0731"
+        settings, "MODEL_POST_CREATION", "chatgpt/auto,litellm/gemini-3.6-flash"
     )
 
     try:
@@ -99,7 +99,8 @@ async def generate_visual_post_spec(
 
         raw_tweet_copy = (data.get("tweet_copy") or "").strip()
         if not raw_tweet_copy:
-            raw_tweet_copy = f"The reality of {topic[:110]}."
+            clean_topic = topic.strip().rstrip(".").capitalize()
+            raw_tweet_copy = f"{clean_topic}."
         remediated_copy = gatekeeper.remediate_minor_issues(raw_tweet_copy)
 
         # Enforce < 140 chars strictly
@@ -144,8 +145,9 @@ async def generate_visual_post_spec(
             VISUAL_FORMAT_TEMPLATES.get(resolved_format, {}).get("prompt_template", "")
             or f"Cinematic 4:5 vertical visual representation of {topic}, dark aesthetic (#0D1117), ultra-clean composition, 8k realism."
         )
+        clean_topic = topic.strip().rstrip(".").capitalize()
         return VisualPostSpec(
-            tweet_copy=f"The reality of {topic[:110]}." if len(topic) <= 110 else f"{topic[:107]}...",
+            tweet_copy=f"{clean_topic}." if len(clean_topic) <= 120 else f"{clean_topic[:117]}...",
             image_prompt=fallback_prompt,
             aspect_ratio="4:5",
             format_type=resolved_format,

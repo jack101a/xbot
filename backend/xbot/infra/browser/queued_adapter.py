@@ -57,14 +57,16 @@ class QueuedBrowserAdapter(BrowserPort):
         logger.info(f"[QueuedBrowserAdapter] Enqueueing '{request.action}' for '{request.profile_slug}'")
         try:
             if request.action in (BrowserActionType.POST, BrowserActionType.REPLY, BrowserActionType.QUOTE, BrowserActionType.THREAD, BrowserActionType.POLL):
-                wait_timeout = max(float(request.timeout_seconds or 120), 180.0)
+                wait_timeout = max(float(request.timeout_seconds or 120), 300.0)
+            elif request.action in (BrowserActionType.LIKE, BrowserActionType.FOLLOW, BrowserActionType.UNFOLLOW):
+                wait_timeout = max(float(request.timeout_seconds or 45), 120.0)
             elif request.timeout_seconds:
                 wait_timeout = float(request.timeout_seconds)
             elif request.action in (BrowserActionType.SCRAPE_FEED, BrowserActionType.SCRAPE_TWEET_CONTEXT, BrowserActionType.SCRAPE_TRENDING):
-                wait_timeout = 60.0
+                wait_timeout = 90.0
             else:
-                wait_timeout = 45.0
-            ttl = max(180, int(wait_timeout) + 60)
+                wait_timeout = 60.0
+            ttl = max(360, int(wait_timeout) + 60)
             priority = _PRIORITY_MAP.get(request.action, 4)
             job = BrowserJob(
                 action_type=request.action.value,

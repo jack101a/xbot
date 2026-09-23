@@ -183,8 +183,9 @@ async def synthesize_visual_deliverable(
     )
     if not visual_spec:
         from xbot.ai.visual_models import VisualPostSpec
+        clean_spec = spec.topic.strip().rstrip(".").capitalize()
         visual_spec = VisualPostSpec(
-            tweet_copy=f"The reality of {spec.topic[:110]}.",
+            tweet_copy=f"{clean_spec}." if len(clean_spec) <= 120 else f"{clean_spec[:117]}...",
             image_prompt=f"Cinematic 4:5 visual breakdown of {spec.topic}, dark aesthetic (#0D1117), ultra-clean composition, 8k realism.",
             aspect_ratio="4:5",
             format_type="storyboard_4panel",

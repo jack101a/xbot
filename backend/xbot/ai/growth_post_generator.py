@@ -455,8 +455,17 @@ async def generate_growth_post_spec(
 
     # 1. Determine Language Mode (hinglish, english, bilingual)
     if not language_mode or language_mode == "auto":
-        # 45% Hinglish, 45% English, 10% Bilingual
-        chosen_language = random.choices(["hinglish", "english", "bilingual"], weights=[0.45, 0.45, 0.10], k=1)[0]
+        lang_cfg = getattr(persona, "language_config", None) if persona else None
+        primary_lang = getattr(lang_cfg, "primary_language", "en") if lang_cfg else "en"
+        enable_hinglish = getattr(lang_cfg, "enable_hinglish", False) if lang_cfg else False
+        hinglish_mode = getattr(lang_cfg, "hinglish_mode", "") if lang_cfg else ""
+
+        if primary_lang == "en" and hinglish_mode != "full_bilingual":
+            chosen_language = "english"
+        elif enable_hinglish and hinglish_mode == "full_bilingual":
+            chosen_language = random.choices(["hinglish", "english", "bilingual"], weights=[0.45, 0.45, 0.10], k=1)[0]
+        else:
+            chosen_language = "english"
     else:
         chosen_language = language_mode.lower().strip()
         if chosen_language not in GROWTH_LANGUAGES:

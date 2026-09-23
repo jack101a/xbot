@@ -700,10 +700,16 @@ async def resolve_post_media_waterfall(
         clean_gif_query = re.sub(r'\b(?:movie still|studio photo|photo press still|cinematic still|product design photo|gameplay screenshot)\b', '', clean_gif_query, flags=re.IGNORECASE).strip()
         clean_gif_query = re.sub(r'\s+', ' ', clean_gif_query)
 
+        # Truncate full sentence/paragraph to first 2-3 words
+        words = [w for w in clean_gif_query.split() if len(w) > 2]
+        if len(words) > 3 or len(clean_gif_query) > 35:
+            clean_gif_query = " ".join(words[:2]) if words else ""
+
         # Check if gif query is meaningful and not generic/junk
         is_junk = (
             not clean_gif_query
             or len(clean_gif_query) < 3
+            or len(clean_gif_query) > 35
             or clean_gif_query.lower() in {
                 "tech news", "trending", "trending now", "entertainment", "news",
                 "posts", "photo press still", "concept design photo", "screenshot wallpaper"
