@@ -59,7 +59,7 @@ services:
     - worker
     - --beat
     - -Q
-    - celery,publish
+    - publish,celery
     - --max-tasks-per-child=50
     - --concurrency=3
     - --loglevel=info
