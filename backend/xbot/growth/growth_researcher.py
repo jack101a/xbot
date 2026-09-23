@@ -78,11 +78,11 @@ async def scrape_f4f_posts_from_x(
             "query": query,
             "search_filter": "media",
             "auto_relax": False,
-            "max_scrolls": 15,
-            "min_results": max_posts,
+            "max_scrolls": 5,
+            "min_results": min(max_posts, 8),
             "require_media": True,
         },
-        timeout_seconds=90,
+        timeout_seconds=120,
     )
 
     res = await container.browser.execute(req)

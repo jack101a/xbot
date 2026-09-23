@@ -177,8 +177,8 @@ class SentinelDaemon:
                         db.add(event)
                         await db.commit()
 
-                # Level 3: Container Restart via Circuit Breaker (if anomaly persists >= 3 ticks)
-                if consecutive_ticks >= 3:
+                # Level 3: Container Restart via Circuit Breaker (if anomaly persists >= 3 ticks and requires container restart)
+                if consecutive_ticks >= 3 and (action_needed == "restart_container" or level == "CRITICAL"):
                     target_container: str | None = None
 
                     # Check if finding explicitly targets a container

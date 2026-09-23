@@ -119,14 +119,24 @@ class ContainerHealthTier:
             if cpu_pct > 95.0:
                 count = self._cpu_high_counts.get(container_name, 0) + 1
                 self._cpu_high_counts[container_name] = count
+
+                # Headless Chromium actively rendering DOM/scrolling regularly peaks at 100% CPU.
+                # Only restart browser-worker if sustained for >= 16 ticks (8 continuous minutes).
+                if role == "browser-worker":
+                    should_restart = count >= 16
+                    is_critical = count >= 16
+                else:
+                    should_restart = count >= 4
+                    is_critical = count >= 4
+
                 findings.append({
-                    "level": "CRITICAL" if count >= 3 else "WARNING",
+                    "level": "CRITICAL" if is_critical else "WARNING",
                     "tier": 1,
                     "container": container_name,
                     "metric": "cpu",
                     "value": cpu_pct,
                     "sustained_ticks": count,
-                    "action_needed": "restart_container" if count >= 3 else "soft_heal",
+                    "action_needed": "restart_container" if should_restart else "none",
                     "message": f"Container '{container_name}' CPU usage {cpu_pct}% > 95% (sustained {count} ticks)",
                 })
             else:

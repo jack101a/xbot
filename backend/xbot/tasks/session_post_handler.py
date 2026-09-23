@@ -194,7 +194,9 @@ async def handle_post_action(
             },
         ))
         success = resp.status == "success"
-        if resp.data and isinstance(resp.data, dict):
+        if resp.action_result:
+            tweet_id = resp.action_result.target_id or (resp.action_result.raw.get("tweet_id") if isinstance(resp.action_result.raw, dict) else None)
+        elif resp.data and isinstance(resp.data, dict):
             tweet_id = resp.data.get("tweet_id")
     else:
         success = False

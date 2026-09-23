@@ -120,3 +120,15 @@ class BrowserResponse(BaseModel):
     error: Optional[str] = None
     action_result: Optional[ActionResult] = None
     scrape: Optional[ScrapeResult] = None
+
+    @property
+    def data(self) -> dict[str, Any]:
+        """Backward-compatible dictionary access for action and scrape payloads."""
+        if self.action_result:
+            d = dict(self.action_result.raw) if isinstance(self.action_result.raw, dict) else {}
+            if self.action_result.target_id and "tweet_id" not in d:
+                d["tweet_id"] = self.action_result.target_id
+            return d
+        if self.scrape:
+            return dict(self.scrape.raw) if isinstance(self.scrape.raw, dict) else {}
+        return {}

@@ -106,22 +106,39 @@ async def scan_session_feed(
             shuffled_kols = list(persona.target_kols)
             random.shuffle(shuffled_kols)
 
-            for kol in shuffled_kols[:5]:
+            for kol in shuffled_kols[:3]:
                 clean_h = kol.handle.lstrip("@")
                 try:
                     logger.info("Scanning target creator @%s for live reply opportunities...", clean_h)
                     kol_tweet = None
-                    if page:
-                        checker = tasks.CheckUserLatestTweet()
-                        kol_tweet = await checker.execute(page, handle=clean_h, max_age_minutes=60)
-                    elif browser:
-                        resp = await browser.execute(BrowserRequest(
-                            profile_slug=profile_slug,
-                            action=BrowserActionType.CHECK_USER_LATEST,
-                            params={"username": clean_h, "max_age_minutes": 60},
-                        ))
-                        if resp.status == "success":
-                            kol_tweet = (resp.action_result.raw if resp.action_result else None) or (resp.scrape.raw if resp.scrape else None) or {}
+                    cache_k = f"xbot:kol_latest_cache:{clean_h}"
+                    try:
+                        cached_raw = r.get(cache_k)
+                        if cached_raw:
+                            import json
+                            kol_tweet = json.loads(cached_raw)
+                    except Exception:
+                        kol_tweet = None
+
+                    if not kol_tweet:
+                        if page:
+                            checker = tasks.CheckUserLatestTweet()
+                            kol_tweet = await checker.execute(page, handle=clean_h, max_age_minutes=60)
+                        elif browser:
+                            resp = await browser.execute(BrowserRequest(
+                                profile_slug=profile_slug,
+                                action=BrowserActionType.CHECK_USER_LATEST,
+                                params={"username": clean_h, "max_age_minutes": 60},
+                            ))
+                            if resp.status == "success":
+                                kol_tweet = (resp.action_result.raw if resp.action_result else None) or (resp.scrape.raw if resp.scrape else None) or {}
+
+                        if kol_tweet and isinstance(kol_tweet, dict):
+                            try:
+                                import json
+                                r.set(cache_k, json.dumps(kol_tweet), ex=900)
+                            except Exception:
+                                pass
 
                     if kol_tweet and kol_tweet.get("text"):
                         t_url = kol_tweet.get("url") or f"https://x.com/{clean_h}"

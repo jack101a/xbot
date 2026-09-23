@@ -56,10 +56,10 @@ class QueuedBrowserAdapter(BrowserPort):
     async def execute(self, request: BrowserRequest) -> BrowserResponse:
         logger.info(f"[QueuedBrowserAdapter] Enqueueing '{request.action}' for '{request.profile_slug}'")
         try:
-            if request.timeout_seconds:
+            if request.action in (BrowserActionType.POST, BrowserActionType.REPLY, BrowserActionType.QUOTE, BrowserActionType.THREAD, BrowserActionType.POLL):
+                wait_timeout = max(float(request.timeout_seconds or 120), 180.0)
+            elif request.timeout_seconds:
                 wait_timeout = float(request.timeout_seconds)
-            elif request.action in (BrowserActionType.POST, BrowserActionType.REPLY, BrowserActionType.QUOTE, BrowserActionType.THREAD, BrowserActionType.POLL):
-                wait_timeout = 120.0
             elif request.action in (BrowserActionType.SCRAPE_FEED, BrowserActionType.SCRAPE_TWEET_CONTEXT, BrowserActionType.SCRAPE_TRENDING):
                 wait_timeout = 60.0
             else:
