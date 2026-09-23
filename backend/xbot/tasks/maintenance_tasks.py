@@ -178,3 +178,15 @@ def clean_expired_media_task(max_age_hours: int = 48) -> dict[str, Any]:
     from xbot.ai.smart_media_director import cleanup_expired_media
     logger.info("Executing 48-hour media auto-cleanup task (max_age_hours=%d)...", max_age_hours)
     return cleanup_expired_media(max_age_hours=max_age_hours, dry_run=False)
+
+
+@celery_app.task(name="xbot.tasks.beat_heartbeat")
+def beat_heartbeat() -> dict[str, Any]:
+    """Records Celery Beat scheduler heartbeat in Redis for Sentinel liveness audits."""
+    import redis
+    import time
+    from xbot.config import settings
+    r = redis.from_url(settings.REDIS_URL)
+    now_ts = int(time.time())
+    r.set("xbot:beat:last_heartbeat", str(now_ts), ex=300)
+    return {"heartbeat": now_ts}

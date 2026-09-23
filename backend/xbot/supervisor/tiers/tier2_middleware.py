@@ -100,6 +100,25 @@ class MiddlewareHealthTier:
                 "action_needed": "restart_container",
             })
 
+        # Verify Celery Beat scheduler liveness if tasks worker is alive
+        if has_tasks:
+            last_beat = self.r.get("xbot:beat:last_heartbeat")
+            now_ts = int(time.time())
+            if last_beat is not None:
+                try:
+                    beat_age = now_ts - int(last_beat)
+                    if beat_age > 180:  # Beat has not heartbeated for > 3 minutes
+                        findings.append({
+                            "level": "CRITICAL",
+                            "tier": 2,
+                            "component": "celery_beat",
+                            "worker": "tasks",
+                            "message": f"Celery Beat scheduler is stalled or crashed (no heartbeat for {beat_age}s)",
+                            "action_needed": "restart_container",
+                        })
+                except (ValueError, TypeError):
+                    pass
+
         return findings
 
     def audit_redis_queues(self, celery_ctx: dict[str, Any] | None = None) -> list[dict[str, Any]]:

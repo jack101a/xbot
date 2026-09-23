@@ -1,5 +1,26 @@
+import dbm
+import glob
+import os
 from celery import Celery
 from celery.schedules import crontab
+
+# Python 3.14+ introduced dbm.sqlite3 as the default dbm backend.
+# Because Celery worker --beat forks an embedded process, dbm.sqlite3's WAL mode
+# throws 'sqlite3.OperationalError: locking protocol' across process forks.
+# Force dbm to use GDBM/NDBM/DumbDBM which handles process forks cleanly without lock corruption.
+if hasattr(dbm, "_names") and "dbm.sqlite3" in dbm._names:
+    dbm._names.remove("dbm.sqlite3")
+
+# Purge any legacy SQLite-based celerybeat-schedule files that cause format mismatch or locking errors
+for pattern in ["celerybeat-schedule*", "/tmp/celerybeat-schedule*"]:
+    for f in glob.glob(pattern):
+        try:
+            with open(f, "rb") as check_f:
+                header = check_f.read(16)
+                if header.startswith(b"SQLite format 3"):
+                    os.remove(f)
+        except Exception:
+            pass
 
 from xbot.config import settings
 
@@ -35,6 +56,12 @@ celery_app.conf.task_routes = {
 
 # Celery Beat Periodic Schedule — Phase 0 Streamlined Core Cadence
 celery_app.conf.beat_schedule = {
+    # 0. Celery Beat Liveness Heartbeat (every 30s for Sentinel health monitoring)
+    "beat-liveness-heartbeat-every-30s": {
+        "task": "xbot.tasks.beat_heartbeat",
+        "schedule": 30.0,
+        "options": {"expires": 30.0},
+    },
     # 1. Central Browser Queue Worker (60s fallback safety poll; immediate triggers occur on enqueue)
     "browser-queue-worker-every-60s": {
         "task": "xbot.pipelines.browser_queue.process_browser_queue",

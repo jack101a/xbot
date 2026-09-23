@@ -160,6 +160,9 @@ __all__ = [
     "process_active_instant_trend_campaigns",
     "_run_growth_and_autofollowback_async",
     "run_growth_and_autofollowback",
+    "beat_heartbeat",
 ]
+
+from .maintenance_tasks import beat_heartbeat
 
 from xbot.ai.client import get_ai_client
